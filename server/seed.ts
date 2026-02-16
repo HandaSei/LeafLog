@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { format, addDays } from "date-fns";
+import bcrypt from "bcryptjs";
 
 const EMPLOYEE_DATA = [
   { name: "Sarah Chen", email: "sarah.chen@company.com", phone: "(555) 234-5678", role: "Manager", department: "Management", color: "#3B82F6" },
@@ -22,6 +23,18 @@ const SHIFT_TEMPLATES = [
 ];
 
 export async function seedDatabase() {
+  const existingAdmin = await storage.getAccountByUsername("admin");
+  if (!existingAdmin) {
+    const adminPassword = await bcrypt.hash("admin123", 10);
+    await storage.createAccount({
+      username: "admin",
+      password: adminPassword,
+      role: "admin",
+      agencyName: "ShiftFlow HQ",
+    });
+    console.log("Admin account created (username: admin, password: admin123)");
+  }
+
   const existing = await storage.getEmployees();
   if (existing.length > 0) return;
 
