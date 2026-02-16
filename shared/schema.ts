@@ -27,13 +27,20 @@ export const shifts = pgTable("shifts", {
   color: text("color"),
 });
 
-export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
-export const insertShiftSchema = createInsertSchema(shifts).omit({ id: true }).extend({
-  date: z.string().min(1, "Date is required"),
-  startTime: z.string().min(1, "Start time is required"),
-  endTime: z.string().min(1, "End time is required"),
-  employeeId: z.coerce.number().min(1, "Employee is required"),
-});
+export const insertEmployeeSchema = createInsertSchema(employees, {
+  name: z.string().min(1),
+  email: z.string().email(),
+  role: z.string().min(1),
+  department: z.string().min(1),
+}).omit({ id: true });
+
+export const insertShiftSchema = createInsertSchema(shifts, {
+  title: z.string().min(1),
+  date: z.string().min(1),
+  startTime: z.string().min(1),
+  endTime: z.string().min(1),
+  employeeId: z.coerce.number().min(1),
+}).omit({ id: true });
 
 export type Employee = typeof employees.$inferSelect;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
