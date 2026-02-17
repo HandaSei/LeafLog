@@ -204,7 +204,7 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
   const showHours = isManager || isAdmin;
 
   return (
-    <div className="flex sm:grid sm:grid-cols-7 gap-2 h-full overflow-x-auto pb-4 sm:pb-0 snap-x">
+    <div className="flex flex-col gap-4 h-full">
       {days.map((day) => {
         const dateStr = format(day, "yyyy-MM-dd");
         const dayShifts = shiftsByDate.get(dateStr) || [];
@@ -221,61 +221,68 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
         return (
           <div
             key={dateStr}
-            className={`flex flex-col rounded-md border min-h-[140px] w-[280px] sm:w-full shrink-0 snap-center ${
-              today ? "border-primary/50 bg-primary/[0.03]" : "bg-card"
+            className={`flex flex-col rounded-lg border shadow-sm shrink-0 ${
+              today ? "border-primary/50 bg-primary/[0.02]" : "bg-card"
             }`}
             data-testid={`calendar-day-${dateStr}`}
           >
-            <div className="flex items-center justify-between p-2 border-b">
-              <div className="flex items-center gap-1.5">
-                <span className={`text-xs font-medium ${today ? "text-primary" : "text-muted-foreground"}`}>
-                  {format(day, "EEE")}
-                </span>
-                <span
-                  className={`text-sm font-semibold flex items-center justify-center w-6 h-6 rounded-full ${
-                    today ? "bg-primary text-primary-foreground" : ""
-                  }`}
-                >
-                  {format(day, "d")}
-                </span>
+            <div className="flex items-center justify-between p-3 border-b bg-muted/30">
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col items-center justify-center min-w-[40px]">
+                  <span className={`text-[10px] uppercase tracking-wider font-bold ${today ? "text-primary" : "text-muted-foreground"}`}>
+                    {format(day, "EEE")}
+                  </span>
+                  <span
+                    className={`text-lg font-black leading-none ${
+                      today ? "text-primary" : ""
+                    }`}
+                  >
+                    {format(day, "d")}
+                  </span>
+                </div>
+                <div className="h-8 w-px bg-border" />
+                {showHours && dayShifts.length > 0 && (
+                  <Badge variant="secondary" className="text-[10px] font-bold py-0 h-5">
+                    {totalHours.toFixed(1)}h Total
+                  </Badge>
+                )}
               </div>
               <Button
-                variant="ghost"
-                className="h-7 px-2 text-[10px] font-medium border border-dashed hover:border-primary/50 hover:bg-primary/[0.03] transition-colors"
+                variant="outline"
+                size="sm"
+                className="h-8 text-[11px] font-bold border-dashed hover:border-primary/50 hover:bg-primary/[0.03] transition-colors gap-1.5"
                 onClick={() => onAddShift(dateStr)}
                 data-testid={`button-add-shift-${dateStr}`}
               >
-                <Plus className="w-3 h-3 mr-1" /> Add
+                <Plus className="w-3.5 h-3.5" /> Add Shift
               </Button>
             </div>
-            <div className="flex-1 p-1.5 space-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
-              {dayShifts.map((shift) => {
-                const emp = employeeMap.get(shift.employeeId);
-                return (
-                  <ShiftCard
-                    key={shift.id}
-                    shift={shift}
-                    employee={emp}
-                    onEdit={onEditShift}
-                    onDelete={onDeleteShift}
-                    compact={false}
-                  />
-                );
-              })}
-              {dayShifts.length === 0 && (
-                <button
-                  onClick={() => onAddShift(dateStr)}
-                  className="w-full h-full min-h-[40px] flex items-center justify-center text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors rounded-md"
-                >
-                  No shifts
-                </button>
-              )}
-            </div>
-            {showHours && dayShifts.length > 0 && (
-              <div className="p-2 border-t text-[10px] font-medium text-muted-foreground text-right">
-                Total: {totalHours.toFixed(1)}h
+            <div className="p-3">
+              <div className="flex gap-3 overflow-x-auto pb-2 snap-x custom-scrollbar">
+                {dayShifts.map((shift) => {
+                  const emp = employeeMap.get(shift.employeeId);
+                  return (
+                    <div key={shift.id} className="w-[200px] shrink-0 snap-start">
+                      <ShiftCard
+                        shift={shift}
+                        employee={emp}
+                        onEdit={onEditShift}
+                        onDelete={onDeleteShift}
+                        compact={false}
+                      />
+                    </div>
+                  );
+                })}
+                {dayShifts.length === 0 && (
+                  <button
+                    onClick={() => onAddShift(dateStr)}
+                    className="flex-1 min-h-[60px] flex items-center justify-center text-xs text-muted-foreground/40 italic border-2 border-dashed rounded-md hover:text-muted-foreground hover:bg-muted/30 transition-all w-full"
+                  >
+                    No shifts scheduled for this day
+                  </button>
+                )}
               </div>
-            )}
+            </div>
           </div>
         );
       })}
