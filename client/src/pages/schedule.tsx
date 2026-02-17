@@ -14,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/lib/auth";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { ShiftFormDialog } from "@/components/shift-form-dialog";
 import { EmployeeAvatar } from "@/components/employee-avatar";
@@ -203,12 +204,23 @@ interface CalendarViewProps {
 }
 
 function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, onDeleteShift }: CalendarViewProps) {
+  const { isManager, isAdmin } = useAuth();
+  const showHours = isManager || isAdmin;
+
   return (
     <div className="grid grid-cols-7 gap-2 h-full">
       {days.map((day) => {
         const dateStr = format(day, "yyyy-MM-dd");
         const dayShifts = shiftsByDate.get(dateStr) || [];
         const today = isToday(day);
+
+        const totalHours = dayShifts.reduce((acc, shift) => {
+          const start = parseISO(`${shift.date}T${shift.startTime}`);
+          const end = parseISO(`${shift.date}T${shift.endTime}`);
+          let diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+          if (diff < 0) diff += 24; // Handle overnight shifts
+          return acc + diff;
+        }, 0);
 
         return (
           <div
@@ -264,6 +276,11 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
                 </button>
               )}
             </div>
+            {showHours && dayShifts.length > 0 && (
+              <div className="p-2 border-t text-[10px] font-medium text-muted-foreground text-right">
+                Total: {totalHours.toFixed(1)}h
+              </div>
+            )}
           </div>
         );
       })}
@@ -272,6 +289,8 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
 }
 
 function MonthView({ days, currentDate, shiftsByDate, employeeMap, onAddShift, onEditShift, onDeleteShift }: CalendarViewProps) {
+  const { isManager, isAdmin } = useAuth();
+  const showHours = isManager || isAdmin;
   const monthStart = startOfMonth(currentDate!);
   const calStart = startOfWeek(monthStart, { weekStartsOn: 1 });
   const monthEnd = endOfMonth(currentDate!);
@@ -295,6 +314,14 @@ function MonthView({ days, currentDate, shiftsByDate, employeeMap, onAddShift, o
           const dayShifts = shiftsByDate.get(dateStr) || [];
           const today = isToday(day);
           const isCurrentMonth = day.getMonth() === currentDate!.getMonth();
+
+          const totalHours = dayShifts.reduce((acc, shift) => {
+            const start = parseISO(`${shift.date}T${shift.startTime}`);
+            const end = parseISO(`${shift.date}T${shift.endTime}`);
+            let diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+            if (diff < 0) diff += 24;
+            return acc + diff;
+          }, 0);
 
           return (
             <div
@@ -343,6 +370,11 @@ function MonthView({ days, currentDate, shiftsByDate, employeeMap, onAddShift, o
                   </div>
                 )}
               </div>
+              {showHours && dayShifts.length > 0 && (
+                <div className="px-2 py-1 border-t text-[10px] font-medium text-muted-foreground text-right">
+                  {totalHours.toFixed(1)}h
+                </div>
+              )}
             </div>
           );
         })}
