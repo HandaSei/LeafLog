@@ -204,7 +204,7 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
   const showHours = isManager || isAdmin;
 
   return (
-    <div className="grid grid-cols-7 gap-2 h-full">
+    <div className="flex sm:grid sm:grid-cols-7 gap-2 h-full overflow-x-auto pb-4 sm:pb-0 snap-x">
       {days.map((day) => {
         const dateStr = format(day, "yyyy-MM-dd");
         const dayShifts = shiftsByDate.get(dateStr) || [];
@@ -221,7 +221,7 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
         return (
           <div
             key={dateStr}
-            className={`flex flex-col rounded-md border min-h-[140px] ${
+            className={`flex flex-col rounded-md border min-h-[140px] w-[280px] sm:w-full shrink-0 snap-center ${
               today ? "border-primary/50 bg-primary/[0.03]" : "bg-card"
             }`}
             data-testid={`calendar-day-${dateStr}`}
@@ -241,14 +241,14 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
               </div>
               <Button
                 variant="ghost"
-                className="w-full h-7 text-[10px] font-medium border border-dashed hover:border-primary/50 hover:bg-primary/[0.03] transition-colors"
+                className="h-7 px-2 text-[10px] font-medium border border-dashed hover:border-primary/50 hover:bg-primary/[0.03] transition-colors"
                 onClick={() => onAddShift(dateStr)}
                 data-testid={`button-add-shift-${dateStr}`}
               >
-                <Plus className="w-3 h-3 mr-1" /> Add Shift
+                <Plus className="w-3 h-3 mr-1" /> Add
               </Button>
             </div>
-            <div className="flex-1 p-1.5 space-y-1 overflow-y-auto">
+            <div className="flex-1 p-1.5 space-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
               {dayShifts.map((shift) => {
                 const emp = employeeMap.get(shift.employeeId);
                 return (
@@ -295,7 +295,7 @@ function MonthView({ days, currentDate, shiftsByDate, employeeMap, onAddShift, o
   const dayHeaders = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1 min-w-[700px] sm:min-w-0">
       <div className="grid grid-cols-7 gap-1 mb-1">
         {dayHeaders.map((d) => (
           <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">
@@ -326,9 +326,9 @@ function MonthView({ days, currentDate, shiftsByDate, employeeMap, onAddShift, o
               } ${today ? "border-primary/50 bg-primary/[0.03]" : "bg-card"}`}
               data-testid={`calendar-month-day-${dateStr}`}
             >
-              <div className="flex items-center justify-between px-2 py-1">
+              <div className="flex items-center justify-between px-2 py-1 flex-wrap gap-1">
                 <span
-                  className={`text-xs font-medium flex items-center justify-center w-5 h-5 rounded-full ${
+                  className={`text-[10px] font-medium flex items-center justify-center w-5 h-5 rounded-full ${
                     today ? "bg-primary text-primary-foreground" : "text-muted-foreground"
                   }`}
                 >
@@ -337,15 +337,15 @@ function MonthView({ days, currentDate, shiftsByDate, employeeMap, onAddShift, o
                 {isCurrentMonth && (
                   <Button
                     variant="ghost"
-                    className="h-6 px-1.5 text-[9px] font-medium border border-dashed hover:border-primary/50 hover:bg-primary/[0.03] transition-colors"
+                    className="h-5 px-1 text-[8px] font-medium border border-dashed hover:border-primary/50 hover:bg-primary/[0.03] transition-colors"
                     onClick={() => onAddShift(dateStr)}
                   >
-                    <Plus className="w-2.5 h-2.5 mr-1" /> Add
+                    <Plus className="w-2 h-2 mr-0.5" /> Add
                   </Button>
                 )}
               </div>
-              <div className="flex-1 px-1 pb-1 space-y-0.5 overflow-y-auto">
-                {dayShifts.slice(0, 3).map((shift) => {
+              <div className="flex-1 px-1 pb-1 space-y-0.5 overflow-y-auto overflow-x-hidden custom-scrollbar max-h-[120px]">
+                {dayShifts.map((shift) => {
                   const emp = employeeMap.get(shift.employeeId);
                   return (
                     <ShiftCard
@@ -358,14 +358,9 @@ function MonthView({ days, currentDate, shiftsByDate, employeeMap, onAddShift, o
                     />
                   );
                 })}
-                {dayShifts.length > 3 && (
-                  <div className="text-[10px] text-muted-foreground text-center py-0.5">
-                    +{dayShifts.length - 3} more
-                  </div>
-                )}
               </div>
               {showHours && dayShifts.length > 0 && (
-                <div className="px-2 py-1 border-t text-[10px] font-medium text-muted-foreground text-right">
+                <div className="px-1 py-0.5 border-t text-[9px] font-medium text-muted-foreground text-right">
                   {totalHours.toFixed(1)}h
                 </div>
               )}
