@@ -36,7 +36,6 @@ import { EmployeeAvatar } from "./employee-avatar";
 
 const shiftFormSchema = z.object({
   employeeId: z.coerce.number().min(1, "Please select an employee"),
-  title: z.string().min(1, "Title is required"),
   date: z.string().min(1, "Date is required"),
   startTime: z.string().min(1, "Start time is required"),
   endTime: z.string().min(1, "End time is required"),
@@ -73,7 +72,6 @@ export function ShiftFormDialog({
     resolver: zodResolver(shiftFormSchema),
     defaultValues: {
       employeeId: shift?.employeeId ?? defaultEmployeeId ?? 0,
-      title: shift?.title ?? "",
       date: shift?.date ?? defaultDate ?? new Date().toISOString().split("T")[0],
       startTime: shift?.startTime?.slice(0, 5) ?? "09:00",
       endTime: shift?.endTime?.slice(0, 5) ?? "17:00",
@@ -87,7 +85,6 @@ export function ShiftFormDialog({
     if (open) {
       form.reset({
         employeeId: shift?.employeeId ?? defaultEmployeeId ?? 0,
-        title: shift?.title ?? "",
         date: shift?.date ?? defaultDate ?? new Date().toISOString().split("T")[0],
         startTime: shift?.startTime?.slice(0, 5) ?? "09:00",
         endTime: shift?.endTime?.slice(0, 5) ?? "17:00",
@@ -139,23 +136,6 @@ export function ShiftFormDialog({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="title"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Shift Title</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="e.g. Morning Shift"
-                      data-testid="input-shift-title"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
             <FormField
               control={form.control}
               name="employeeId"

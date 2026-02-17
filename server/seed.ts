@@ -63,7 +63,6 @@ export async function seedDatabase() {
 
       await storage.createShift({
         employeeId: emp.id,
-        title: template.title,
         date,
         startTime: template.startTime,
         endTime: template.endTime,

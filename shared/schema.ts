@@ -29,7 +29,6 @@ export const employees = pgTable("employees", {
 export const shifts = pgTable("shifts", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   employeeId: integer("employee_id").notNull().references(() => employees.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
   date: date("date").notNull(),
   startTime: time("start_time").notNull(),
   endTime: time("end_time").notNull(),
@@ -64,7 +63,6 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
 }).omit({ id: true });
 
 export const insertShiftSchema = createInsertSchema(shifts, {
-  title: z.string().min(1),
   date: z.string().min(1),
   startTime: z.string().min(1),
   endTime: z.string().min(1),

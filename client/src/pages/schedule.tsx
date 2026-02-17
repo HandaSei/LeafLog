@@ -147,10 +147,6 @@ export default function Schedule() {
               ? `${format(dateRange.start, "MMM d")} - ${format(dateRange.end, "MMM d, yyyy")}`
               : format(currentDate, "MMMM yyyy")}
           </span>
-          <Button onClick={() => handleAddShift()} data-testid="button-add-shift">
-            <Plus className="w-4 h-4 mr-1" />
-            Add Shift
-          </Button>
         </div>
       </div>
 
@@ -244,13 +240,12 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
                 </span>
               </div>
               <Button
-                size="icon"
                 variant="ghost"
-                className="w-6 h-6"
+                className="w-full h-7 text-[10px] font-medium border border-dashed hover:border-primary/50 hover:bg-primary/[0.03] transition-colors"
                 onClick={() => onAddShift(dateStr)}
                 data-testid={`button-add-shift-${dateStr}`}
               >
-                <Plus className="w-3 h-3" />
+                <Plus className="w-3 h-3 mr-1" /> Add Shift
               </Button>
             </div>
             <div className="flex-1 p-1.5 space-y-1 overflow-y-auto">
@@ -341,12 +336,11 @@ function MonthView({ days, currentDate, shiftsByDate, employeeMap, onAddShift, o
                 </span>
                 {isCurrentMonth && (
                   <Button
-                    size="icon"
                     variant="ghost"
-                    className="w-5 h-5"
+                    className="h-6 px-1.5 text-[9px] font-medium border border-dashed hover:border-primary/50 hover:bg-primary/[0.03] transition-colors"
                     onClick={() => onAddShift(dateStr)}
                   >
-                    <Plus className="w-3 h-3" />
+                    <Plus className="w-2.5 h-2.5 mr-1" /> Add
                   </Button>
                 )}
               </div>
@@ -415,7 +409,6 @@ function ShiftCard({ shift, employee, onEdit, onDelete, compact }: ShiftCardProp
     >
       <div className="flex items-start justify-between gap-1">
         <div className="flex-1 min-w-0">
-          <div className="text-[11px] font-semibold truncate">{shift.title}</div>
           <div className="text-[10px] opacity-90">
             {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
           </div>
