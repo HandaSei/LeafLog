@@ -12,9 +12,14 @@ import { Clock, LogIn, KeyRound, Monitor, Building2, UserPlus } from "lucide-rea
 import { useLocation } from "wouter";
 
 export default function LoginPage() {
-  const { login, loginWithCode, registerManager } = useAuth();
+  const { isAuthenticated, login, loginWithCode, registerManager } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+
+  if (isAuthenticated) {
+    setLocation("/");
+    return null;
+  }
 
   const { data: setupData, isLoading: setupLoading } = useQuery<{ setupRequired: boolean }>({
     queryKey: ["/api/auth/setup-required"],

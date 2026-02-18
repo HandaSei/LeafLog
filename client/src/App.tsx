@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -65,9 +65,11 @@ function AppContent() {
   return (
     <Switch>
       <Route path="/kiosk" component={KioskPage} />
-      <Route path="/login" component={LoginPage} />
+      <Route path="/login">
+        {isAuthenticated ? <Redirect to="/" /> : <LoginPage />}
+      </Route>
       <Route>
-        {isAuthenticated ? <AuthenticatedLayout /> : <LoginPage />}
+        {isAuthenticated ? <AuthenticatedLayout /> : <Redirect to="/login" />}
       </Route>
     </Switch>
   );

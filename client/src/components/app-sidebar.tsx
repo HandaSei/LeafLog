@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Calendar, Users, LayoutDashboard, Clock, KeyRound, LogOut } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import {
   Sidebar,
   SidebarContent,
@@ -18,9 +19,20 @@ import { Button } from "@/components/ui/button";
 import { AccessCodeDialog } from "./access-code-dialog";
 
 export function AppSidebar() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user, isAdmin, isManager, logout } = useAuth();
+  const { toast } = useToast();
   const [accessCodeOpen, setAccessCodeOpen] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setLocation("/login");
+      toast({ title: "Logged out", description: "You have been safely signed out." });
+    } catch (err: any) {
+      toast({ title: "Logout failed", description: err.message, variant: "destructive" });
+    }
+  };
 
   const navItems = [
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -108,7 +120,7 @@ export function AppSidebar() {
               variant="ghost"
               size="sm"
               className="w-full justify-start text-xs text-muted-foreground"
-              onClick={logout}
+              onClick={handleLogout}
               data-testid="button-logout"
             >
               <LogOut className="w-3.5 h-3.5 mr-2" />
