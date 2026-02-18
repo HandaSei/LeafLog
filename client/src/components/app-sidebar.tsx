@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Calendar, Users, LayoutDashboard, Clock, KeyRound, LogOut } from "lucide-react";
+import { Calendar, Users, LayoutDashboard, Clock, KeyRound, LogOut, FileText } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -38,7 +38,10 @@ export function AppSidebar() {
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
     { title: "Schedule", url: "/schedule", icon: Calendar },
     ...(isAdmin || isManager
-      ? [{ title: "Employees", url: "/employees", icon: Users }]
+      ? [
+          { title: "Employees", url: "/employees", icon: Users },
+          { title: "Timesheets", url: "/timesheets", icon: FileText },
+        ]
       : []),
   ];
 
