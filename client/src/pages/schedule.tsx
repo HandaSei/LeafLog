@@ -256,27 +256,29 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
             </div>
             <div className="p-3">
               <div 
-                className="flex gap-3 overflow-x-auto pb-2 snap-x hide-scrollbar cursor-grab active:cursor-grabbing select-none"
+                className="flex gap-3 overflow-x-auto pb-2 snap-x hide-scrollbar cursor-grab active:cursor-grabbing select-none scroll-smooth"
                 onMouseDown={(e) => {
                   const el = e.currentTarget;
-                  let isDown = true;
-                  let startX = e.pageX - el.offsetLeft;
-                  let scrollLeft = el.scrollLeft;
+                  const startX = e.pageX - el.offsetLeft;
+                  const scrollLeft = el.scrollLeft;
+                  let isDragging = false;
 
-                  const handleMouseMove = (e: MouseEvent) => {
-                    if (!isDown) return;
-                    e.preventDefault();
-                    const x = e.pageX - el.offsetLeft;
-                    const walk = (x - startX) * 2;
+                  const handleMouseMove = (moveEvent: MouseEvent) => {
+                    const x = moveEvent.pageX - el.offsetLeft;
+                    const walk = (x - startX) * 1.5;
+                    if (Math.abs(walk) > 5) isDragging = true;
                     el.scrollLeft = scrollLeft - walk;
                   };
 
                   const handleMouseUp = () => {
-                    isDown = false;
                     window.removeEventListener('mousemove', handleMouseMove);
                     window.removeEventListener('mouseup', handleMouseUp);
+                    if (isDragging) {
+                      el.style.scrollSnapType = 'x mandatory';
+                    }
                   };
 
+                  el.style.scrollSnapType = 'none';
                   window.addEventListener('mousemove', handleMouseMove);
                   window.addEventListener('mouseup', handleMouseUp);
                 }}
