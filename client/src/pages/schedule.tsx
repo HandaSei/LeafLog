@@ -1,8 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, startOfMonth, endOfMonth, addMonths, subMonths, isSameDay, parseISO, isToday } from "date-fns";
+import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, startOfMonth, endOfMonth, addMonths, subMonths, parseISO, isToday } from "date-fns";
 import type { Shift, Employee } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -86,8 +86,6 @@ export default function Schedule() {
       setCurrentDate(direction > 0 ? addMonths(currentDate, 1) : subMonths(currentDate, 1));
     }
   };
-
-  const goToToday = () => setCurrentDate(new Date());
 
   const handleAddShift = (dateStr?: string) => {
     setEditingShift(null);
@@ -199,94 +197,147 @@ interface CalendarViewProps {
 function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, onDeleteShift }: CalendarViewProps) {
   const { isManager, isAdmin } = useAuth();
   const showHours = isManager || isAdmin;
+  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+
+  useEffect(() => {
+    const todayIdx = days.findIndex((d) => isToday(d));
+    setSelectedDayIndex(todayIdx >= 0 ? todayIdx : 0);
+  }, [days]);
+
+  const selectedDay = days[selectedDayIndex];
+  const selectedDateStr = format(selectedDay, "yyyy-MM-dd");
+  const dayShifts = shiftsByDate.get(selectedDateStr) || [];
+
+  const shiftsByEmployee = useMemo(() => {
+    const map = new Map<number, Shift[]>();
+    dayShifts.forEach((s) => {
+      if (!map.has(s.employeeId)) map.set(s.employeeId, []);
+      map.get(s.employeeId)!.push(s);
+    });
+    return map;
+  }, [dayShifts]);
+
+  const totalHours = dayShifts.reduce((acc, shift) => {
+    const start = parseISO(`${shift.date}T${shift.startTime}`);
+    const end = parseISO(`${shift.date}T${shift.endTime}`);
+    let diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+    if (diff < 0) diff += 24;
+    return acc + diff;
+  }, 0);
 
   return (
     <div className="flex flex-col gap-4 h-full">
-      {days.map((day) => {
-        const dateStr = format(day, "yyyy-MM-dd");
-        const dayShifts = shiftsByDate.get(dateStr) || [];
-        const today = isToday(day);
+      <div className="flex items-center gap-2 border rounded-lg p-1.5 bg-muted/30" data-testid="day-selector-bar">
+        {days.map((day, idx) => {
+          const today = isToday(day);
+          const isSelected = idx === selectedDayIndex;
+          const dateStr = format(day, "yyyy-MM-dd");
+          const hasShifts = (shiftsByDate.get(dateStr) || []).length > 0;
 
-        const totalHours = dayShifts.reduce((acc, shift) => {
-          const start = parseISO(`${shift.date}T${shift.startTime}`);
-          const end = parseISO(`${shift.date}T${shift.endTime}`);
-          let diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
-          if (diff < 0) diff += 24; // Handle overnight shifts
-          return acc + diff;
-        }, 0);
+          return (
+            <button
+              key={dateStr}
+              onClick={() => setSelectedDayIndex(idx)}
+              className={`flex-1 flex flex-col items-center py-2 px-1 rounded-md transition-colors ${
+                isSelected
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : today
+                    ? "bg-primary/10 text-primary hover-elevate"
+                    : "hover-elevate"
+              }`}
+              data-testid={`day-tab-${dateStr}`}
+            >
+              <span className={`text-[10px] uppercase tracking-wider font-bold ${isSelected ? "text-primary-foreground/80" : ""}`}>
+                {format(day, "EEE")}
+              </span>
+              <span className="text-lg font-black leading-tight">
+                {format(day, "d")}
+              </span>
+              {hasShifts && !isSelected && (
+                <div className="w-1 h-1 rounded-full bg-primary mt-0.5" />
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-        return (
-          <div
-            key={dateStr}
-            className={`flex flex-col rounded-lg border shadow-sm shrink-0 ${
-              today ? "border-primary/50 bg-primary/[0.02]" : "bg-card"
-            }`}
-            data-testid={`calendar-day-${dateStr}`}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <h3 className="text-base font-semibold" data-testid="text-selected-day">
+            {format(selectedDay, "EEEE, MMM d")}
+          </h3>
+          {showHours && dayShifts.length > 0 && (
+            <Badge variant="secondary" className="text-[10px] font-bold py-0 h-5">
+              {totalHours.toFixed(1)}h Total
+            </Badge>
+          )}
+          <Badge variant="outline" className="text-[10px] py-0 h-5">
+            {dayShifts.length} shift{dayShifts.length !== 1 ? "s" : ""}
+          </Badge>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-[11px] font-bold border-dashed gap-1.5"
+          onClick={() => onAddShift(selectedDateStr)}
+          data-testid={`button-add-shift-${selectedDateStr}`}
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Shift
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-3 flex-1 overflow-y-auto hide-scrollbar">
+        {dayShifts.length === 0 ? (
+          <button
+            onClick={() => onAddShift(selectedDateStr)}
+            className="flex-1 min-h-[120px] flex flex-col items-center justify-center text-sm text-muted-foreground/40 italic border-2 border-dashed rounded-lg hover-elevate gap-2"
+            data-testid="empty-day-placeholder"
           >
-            <div className="flex items-center justify-between p-3 border-b bg-muted/30">
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col items-center justify-center min-w-[40px]">
-                  <span className={`text-[10px] uppercase tracking-wider font-bold ${today ? "text-primary" : "text-muted-foreground"}`}>
-                    {format(day, "EEE")}
-                  </span>
-                  <span
-                    className={`text-lg font-black leading-none ${
-                      today ? "text-primary" : ""
-                    }`}
-                  >
-                    {format(day, "d")}
-                  </span>
+            <Plus className="w-5 h-5" />
+            No shifts scheduled for this day
+          </button>
+        ) : (
+          Array.from(shiftsByEmployee.entries()).map(([empId, empShifts]) => {
+            const emp = employeeMap.get(empId);
+            return (
+              <div
+                key={empId}
+                className="flex items-stretch gap-3 rounded-lg border bg-card shadow-sm"
+                data-testid={`employee-row-${empId}`}
+              >
+                <div className="flex items-center gap-3 p-3 border-r bg-muted/20 min-w-[140px] shrink-0">
+                  <EmployeeAvatar name={emp?.name || "?"} color={emp?.color || "#3B82F6"} size="sm" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold truncate">{emp?.name || "Unknown"}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {empShifts.length} shift{empShifts.length !== 1 ? "s" : ""}
+                    </div>
+                  </div>
                 </div>
-                <div className="h-8 w-px bg-border" />
-                {showHours && dayShifts.length > 0 && (
-                  <Badge variant="secondary" className="text-[10px] font-bold py-0 h-5">
-                    {totalHours.toFixed(1)}h Total
-                  </Badge>
-                )}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-[11px] font-bold border-dashed hover:border-primary/50 hover:bg-primary/[0.03] transition-colors gap-1.5"
-                onClick={() => onAddShift(dateStr)}
-                data-testid={`button-add-shift-${dateStr}`}
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Shift
-              </Button>
-            </div>
-            <div className="p-3">
-              <div 
-                className="flex gap-3 overflow-x-auto pb-2 snap-x hide-scrollbar cursor-grab active:cursor-grabbing select-none scroll-smooth"
-                onMouseDown={(e) => {
-                  const el = e.currentTarget;
-                  const startX = e.pageX - el.offsetLeft;
-                  const scrollLeft = el.scrollLeft;
-                  let isDragging = false;
+                <div 
+                  className="flex gap-3 items-center overflow-x-auto py-3 pr-3 hide-scrollbar cursor-grab active:cursor-grabbing select-none flex-1"
+                  onMouseDown={(e) => {
+                    const el = e.currentTarget;
+                    const startX = e.pageX - el.offsetLeft;
+                    const scrollLeft = el.scrollLeft;
 
-                  const handleMouseMove = (moveEvent: MouseEvent) => {
-                    const x = moveEvent.pageX - el.offsetLeft;
-                    const walk = (x - startX) * 1.5;
-                    if (Math.abs(walk) > 5) isDragging = true;
-                    el.scrollLeft = scrollLeft - walk;
-                  };
+                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                      const x = moveEvent.pageX - el.offsetLeft;
+                      const walk = (x - startX) * 1.5;
+                      el.scrollLeft = scrollLeft - walk;
+                    };
 
-                  const handleMouseUp = () => {
-                    window.removeEventListener('mousemove', handleMouseMove);
-                    window.removeEventListener('mouseup', handleMouseUp);
-                    if (isDragging) {
-                      el.style.scrollSnapType = 'x mandatory';
-                    }
-                  };
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove);
+                      window.removeEventListener('mouseup', handleMouseUp);
+                    };
 
-                  el.style.scrollSnapType = 'none';
-                  window.addEventListener('mousemove', handleMouseMove);
-                  window.addEventListener('mouseup', handleMouseUp);
-                }}
-              >
-                {dayShifts.map((shift) => {
-                  const emp = employeeMap.get(shift.employeeId);
-                  return (
-                    <div key={shift.id} className="w-[200px] shrink-0 snap-start">
+                    window.addEventListener('mousemove', handleMouseMove);
+                    window.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  {empShifts.map((shift) => (
+                    <div key={shift.id} className="w-[180px] shrink-0">
                       <ShiftCard
                         shift={shift}
                         employee={emp}
@@ -295,21 +346,13 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
                         compact={false}
                       />
                     </div>
-                  );
-                })}
-                {dayShifts.length === 0 && (
-                  <button
-                    onClick={() => onAddShift(dateStr)}
-                    className="flex-1 min-h-[60px] flex items-center justify-center text-xs text-muted-foreground/40 italic border-2 border-dashed rounded-md hover:text-muted-foreground hover:bg-muted/30 transition-all w-full"
-                  >
-                    No shifts scheduled for this day
-                  </button>
-                )}
+                  ))}
+                </div>
               </div>
-            </div>
-          </div>
-        );
-      })}
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }
