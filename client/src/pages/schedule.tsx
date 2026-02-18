@@ -111,33 +111,30 @@ export default function Schedule() {
           <h2 className="text-lg font-semibold" data-testid="text-schedule-title">Schedule</h2>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center rounded-md border">
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`rounded-r-none ${viewMode === "week" ? "bg-muted" : ""}`}
-              onClick={() => setViewMode("week")}
-              data-testid="button-view-week"
-            >
-              Week
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`rounded-l-none ${viewMode === "month" ? "bg-muted" : ""}`}
-              onClick={() => setViewMode("month")}
-              data-testid="button-view-month"
-            >
-              Month
-            </Button>
-          </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 mr-2">
             <Button size="icon" variant="ghost" onClick={() => navigate(-1)} data-testid="button-prev-period">
               <ChevronLeft className="w-4 h-4" />
             </Button>
-            <Button variant="outline" size="sm" onClick={goToToday} data-testid="button-today">
-              Today
-            </Button>
+            <div className="flex items-center rounded-md border">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`rounded-r-none ${viewMode === "week" ? "bg-muted" : ""}`}
+                onClick={() => setViewMode("week")}
+                data-testid="button-view-week"
+              >
+                Week
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`rounded-l-none ${viewMode === "month" ? "bg-muted" : ""}`}
+                onClick={() => setViewMode("month")}
+                data-testid="button-view-month"
+              >
+                Month
+              </Button>
+            </div>
             <Button size="icon" variant="ghost" onClick={() => navigate(1)} data-testid="button-next-period">
               <ChevronRight className="w-4 h-4" />
             </Button>
@@ -258,7 +255,32 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
               </Button>
             </div>
             <div className="p-3">
-              <div className="flex gap-3 overflow-x-auto pb-2 snap-x custom-scrollbar">
+              <div 
+                className="flex gap-3 overflow-x-auto pb-2 snap-x hide-scrollbar cursor-grab active:cursor-grabbing select-none"
+                onMouseDown={(e) => {
+                  const el = e.currentTarget;
+                  let isDown = true;
+                  let startX = e.pageX - el.offsetLeft;
+                  let scrollLeft = el.scrollLeft;
+
+                  const handleMouseMove = (e: MouseEvent) => {
+                    if (!isDown) return;
+                    e.preventDefault();
+                    const x = e.pageX - el.offsetLeft;
+                    const walk = (x - startX) * 2;
+                    el.scrollLeft = scrollLeft - walk;
+                  };
+
+                  const handleMouseUp = () => {
+                    isDown = false;
+                    window.removeEventListener('mousemove', handleMouseMove);
+                    window.removeEventListener('mouseup', handleMouseUp);
+                  };
+
+                  window.addEventListener('mousemove', handleMouseMove);
+                  window.addEventListener('mouseup', handleMouseUp);
+                }}
+              >
                 {dayShifts.map((shift) => {
                   const emp = employeeMap.get(shift.employeeId);
                   return (
@@ -351,7 +373,9 @@ function MonthView({ days, currentDate, shiftsByDate, employeeMap, onAddShift, o
                   </Button>
                 )}
               </div>
-              <div className="flex-1 px-1 pb-1 space-y-0.5 overflow-y-auto overflow-x-hidden custom-scrollbar max-h-[120px]">
+              <div 
+                className="flex-1 px-1 pb-1 space-y-0.5 overflow-y-auto overflow-x-hidden hide-scrollbar max-h-[120px]"
+              >
                 {dayShifts.map((shift) => {
                   const emp = employeeMap.get(shift.employeeId);
                   return (
