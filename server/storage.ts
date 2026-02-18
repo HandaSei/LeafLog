@@ -15,21 +15,21 @@ const db = drizzle(pool);
 export interface IStorage {
   getEmployees(): Promise<Employee[]>;
   getEmployee(id: number): Promise<Employee | undefined>;
-  createEmployee(data: InsertEmployee): Promise<Employee>;
-  updateEmployee(id: number, data: Partial<InsertEmployee>): Promise<Employee | undefined>;
+  createEmployee(data: any): Promise<Employee>;
+  updateEmployee(id: number, data: any): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<void>;
 
   getShifts(): Promise<Shift[]>;
   getShift(id: number): Promise<Shift | undefined>;
   getShiftsByEmployee(employeeId: number): Promise<Shift[]>;
-  createShift(data: InsertShift): Promise<Shift>;
-  updateShift(id: number, data: Partial<InsertShift>): Promise<Shift | undefined>;
+  createShift(data: any): Promise<Shift>;
+  updateShift(id: number, data: any): Promise<Shift | undefined>;
   deleteShift(id: number): Promise<void>;
 
   getAccounts(): Promise<Account[]>;
   getAccount(id: number): Promise<Account | undefined>;
   getAccountByUsername(username: string): Promise<Account | undefined>;
-  createAccount(data: InsertAccount): Promise<Account>;
+  createAccount(data: any): Promise<Account>;
   hasAnyManagers(): Promise<boolean>;
 
   createAccessCode(code: string, employeeId: number, createdBy: number, expiresAt: Date): Promise<AccessCode>;
@@ -41,6 +41,8 @@ export interface IStorage {
   createTimeEntry(employeeId: number, type: string, date: string): Promise<TimeEntry>;
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
   getTimeEntriesByDate(date: string): Promise<TimeEntry[]>;
+  getAllTimeEntries(): Promise<TimeEntry[]>;
+  updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -53,12 +55,12 @@ export class DatabaseStorage implements IStorage {
     return emp;
   }
 
-  async createEmployee(data: InsertEmployee): Promise<Employee> {
+  async createEmployee(data: any): Promise<Employee> {
     const [emp] = await db.insert(employees).values(data).returning();
     return emp;
   }
 
-  async updateEmployee(id: number, data: Partial<InsertEmployee>): Promise<Employee | undefined> {
+  async updateEmployee(id: number, data: any): Promise<Employee | undefined> {
     const [emp] = await db.update(employees).set(data).where(eq(employees.id, id)).returning();
     return emp;
   }
@@ -80,12 +82,12 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(shifts).where(eq(shifts.employeeId, employeeId));
   }
 
-  async createShift(data: InsertShift): Promise<Shift> {
+  async createShift(data: any): Promise<Shift> {
     const [shift] = await db.insert(shifts).values(data).returning();
     return shift;
   }
 
-  async updateShift(id: number, data: Partial<InsertShift>): Promise<Shift | undefined> {
+  async updateShift(id: number, data: any): Promise<Shift | undefined> {
     const [shift] = await db.update(shifts).set(data).where(eq(shifts.id, id)).returning();
     return shift;
   }
@@ -108,7 +110,7 @@ export class DatabaseStorage implements IStorage {
     return acc;
   }
 
-  async createAccount(data: InsertAccount): Promise<Account> {
+  async createAccount(data: any): Promise<Account> {
     const [acc] = await db.insert(accounts).values(data).returning();
     return acc;
   }
@@ -171,6 +173,15 @@ export class DatabaseStorage implements IStorage {
 
   async getTimeEntriesByDate(date: string): Promise<TimeEntry[]> {
     return db.select().from(timeEntries).where(eq(timeEntries.date, date)).orderBy(timeEntries.timestamp);
+  }
+
+  async getAllTimeEntries(): Promise<TimeEntry[]> {
+    return db.select().from(timeEntries).orderBy(timeEntries.timestamp);
+  }
+
+  async updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined> {
+    const [entry] = await db.update(timeEntries).set(data).where(eq(timeEntries.id, id)).returning();
+    return entry;
   }
 }
 

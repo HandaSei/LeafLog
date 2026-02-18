@@ -86,6 +86,29 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  router.get("/api/kiosk/entries", requireAuth, async (req, res) => {
+    const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+    const date = typeof req.query.date === 'string' ? req.query.date : undefined;
+
+    if (employeeId && date) {
+      const entries = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
+      return res.json(entries);
+    } else if (date) {
+      const entries = await storage.getTimeEntriesByDate(date);
+      return res.json(entries);
+    }
+
+    const entries = await storage.getAllTimeEntries();
+    res.json(entries);
+  });
+
+  router.patch("/api/kiosk/entries/:id", requireRole("admin", "manager"), async (req, res) => {
+    const id = parseInt(req.params.id);
+    const entry = await storage.updateTimeEntry(id, req.body);
+    if (!entry) return res.status(404).json({ message: "Entry not found" });
+    res.json(entry);
+  });
+
   app.use(router);
 
   return httpServer;
