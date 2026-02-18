@@ -118,13 +118,7 @@ export default function KioskPage() {
                 <h2 className="text-xl font-bold" data-testid="text-kiosk-employee-name">{selectedEmployee.name}</h2>
                 <p className="text-sm text-muted-foreground">{selectedEmployee.department} &middot; {selectedEmployee.role}</p>
               </div>
-              <Badge
-                className="text-xs"
-                style={{ backgroundColor: statusInfo.color + "20", color: statusInfo.color }}
-              >
-                <statusInfo.icon className="w-3 h-3 mr-1" />
-                {statusInfo.label}
-              </Badge>
+              <h1 className="text-2xl font-bold tracking-tight text-primary">SteepIn</h1>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -210,12 +204,12 @@ export default function KioskPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="flex items-center justify-between gap-4 p-4 border-b">
-        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
           <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
             <Clock className="w-5 h-5 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold">ShiftFlow Kiosk</h1>
+            <h1 className="text-sm font-semibold">SteepIn</h1>
             <p className="text-[10px] text-muted-foreground">Select your name to punch in/out</p>
           </div>
         </div>

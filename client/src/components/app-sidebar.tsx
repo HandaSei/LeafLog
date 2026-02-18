@@ -51,8 +51,8 @@ export function AppSidebar() {
               <Clock className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-sm font-semibold tracking-tight">ShiftFlow</h1>
-              <p className="text-xs text-muted-foreground">{user?.agencyName || "Shift Management"}</p>
+              <h1 className="text-sm font-semibold tracking-tight">LeafLog</h1>
+              <p className="text-xs text-muted-foreground">{user?.agencyName || "Leaf Management"}</p>
             </div>
           </div>
         </SidebarHeader>

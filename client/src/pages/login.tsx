@@ -95,8 +95,8 @@ export default function LoginPage() {
           <div className="flex items-center justify-center mx-auto w-12 h-12 rounded-md bg-primary mb-3">
             <Clock className="w-7 h-7 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-login-title">ShiftFlow</h1>
-          <p className="text-sm text-muted-foreground">Employee Shift Management</p>
+          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-login-title">LeafLog</h1>
+          <p className="text-sm text-muted-foreground">Tea & Shift Management</p>
         </div>
 
         {showSetup ? (
@@ -106,7 +106,7 @@ export default function LoginPage() {
               <h2 className="text-base font-semibold" data-testid="text-setup-title">Set Up Manager Account</h2>
             </div>
             <p className="text-sm text-muted-foreground mb-4">
-              Welcome! Create your manager account to get started with ShiftFlow.
+              Welcome! Create your manager account to get started with LeafLog.
             </p>
             <form onSubmit={handleRegister} className="space-y-3">
               <div className="space-y-1.5">
@@ -166,7 +166,7 @@ export default function LoginPage() {
                   <KeyRound className="w-3.5 h-3.5 mr-1.5" /> Code
                 </TabsTrigger>
                 <TabsTrigger value="kiosk" data-testid="tab-kiosk">
-                  <Monitor className="w-3.5 h-3.5 mr-1.5" /> Kiosk
+                  <Monitor className="w-3.5 h-3.5 mr-1.5" /> SteepIn
                 </TabsTrigger>
               </TabsList>
 
@@ -230,16 +230,16 @@ export default function LoginPage() {
 
               <TabsContent value="kiosk" className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Launch kiosk mode for employee clock-in, clock-out, and break tracking.
+                  Launch SteepIn for employee clock-in, clock-out, and break tracking.
                 </p>
                 <div className="bg-muted/50 rounded-md p-4 text-center space-y-2">
                   <Monitor className="w-8 h-8 text-muted-foreground mx-auto" />
                   <p className="text-xs text-muted-foreground">
-                    Kiosk mode allows employees to punch in/out without logging into their account.
+                    SteepIn allows employees to punch in/out without logging into their account.
                   </p>
                 </div>
                 <Button onClick={handleKiosk} className="w-full" data-testid="button-launch-kiosk">
-                  <Monitor className="w-4 h-4 mr-2" /> Launch Kiosk Mode
+                  <Monitor className="w-4 h-4 mr-2" /> Launch SteepIn
                 </Button>
               </TabsContent>
             </Tabs>
