@@ -148,17 +148,12 @@ export default function Dashboard() {
 
   const todayStr = format(new Date(), "yyyy-MM-dd");
 
-  const { data: todayEntries = [] } = useQuery<TimeEntry[]>({
-    queryKey: ["/api/kiosk/entries", { date: todayStr }],
-    queryFn: async () => {
-      const res = await fetch(`/api/kiosk/entries?date=${todayStr}`);
-      if (!res.ok) throw new Error("Failed to fetch entries");
-      return res.json();
-    },
+  const { data: todayEntries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
+    queryKey: [`/api/kiosk/entries?date=${todayStr}`],
     refetchInterval: 30000,
   });
 
-  const isLoading = shiftsLoading || employeesLoading;
+  const isLoading = shiftsLoading || employeesLoading || entriesLoading;
 
   const employeeMap = useMemo(() => {
     const map = new Map<number, Employee>();
