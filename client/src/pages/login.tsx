@@ -11,7 +11,7 @@ import { LogIn, KeyRound, Monitor, UserPlus } from "lucide-react";
 import { useLocation } from "wouter";
 import logoImage from "@assets/m3MJU_1771476103365.png";
 
-const LEAF_YELLOW = "#E5DAC0";
+const LEAF_YELLOW = "#D4C5A0";
 const LEAF_GREEN = "#8B9E8B";
 
 export default function LoginPage() {
@@ -134,7 +134,7 @@ export default function LoginPage() {
             <img
               src={logoImage}
               alt="LeafLog"
-              className="w-24 h-24 mx-auto rounded-xl object-cover"
+              className="w-20 h-20 mx-auto rounded-xl object-cover"
               data-testid="img-logo"
             />
             <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_YELLOW }} data-testid="text-signup-title">
@@ -232,7 +232,7 @@ export default function LoginPage() {
           <img
             src={logoImage}
             alt="LeafLog"
-            className="w-32 h-32 mx-auto rounded-xl object-cover"
+            className="w-24 h-24 mx-auto rounded-xl object-cover"
             data-testid="img-logo"
           />
           <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-login-title">
