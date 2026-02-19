@@ -8,9 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LogIn, KeyRound, Monitor, UserPlus } from "lucide-react";
+import { Clock, LogIn, KeyRound, Monitor, UserPlus } from "lucide-react";
 import { useLocation } from "wouter";
-import logoImg from "@assets/m3MJU_1771475687889.png";
 
 export default function LoginPage() {
   const { isAuthenticated, login, loginSteepIn, loginWithCode, registerManager, registerAccount } = useAuth();
@@ -126,8 +125,8 @@ export default function LoginPage() {
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-[420px] space-y-6">
           <div className="text-center space-y-2">
-            <div className="flex items-center justify-center mx-auto w-24 h-24 mb-3">
-              <img src={logoImg} alt="LeafLog Logo" className="w-full h-full object-contain" />
+            <div className="flex items-center justify-center mx-auto w-12 h-12 rounded-md bg-primary mb-3">
+              <Clock className="w-7 h-7 text-primary-foreground" />
             </div>
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-signup-title">Create Account</h1>
             <p className="text-sm text-muted-foreground">Register a new LeafLog account</p>
@@ -204,8 +203,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-[420px] space-y-6">
         <div className="text-center space-y-2">
-          <div className="flex items-center justify-center mx-auto w-24 h-24 mb-3">
-            <img src={logoImg} alt="LeafLog Logo" className="w-full h-full object-contain" />
+          <div className="flex items-center justify-center mx-auto w-12 h-12 rounded-md bg-primary mb-3">
+            <Clock className="w-7 h-7 text-primary-foreground" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight" data-testid="text-login-title">LeafLog</h1>
           <p className="text-sm text-muted-foreground">Tea & Shift Management</p>
