@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
 import type { Employee, TimeEntry } from "@shared/schema";
+import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
