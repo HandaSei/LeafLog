@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { AccessCodeDialog } from "./access-code-dialog";
+import logoImage from "@assets/m3MJU_1771476103365.png";
 
 export function AppSidebar() {
   const [location, setLocation] = useLocation();
@@ -51,9 +52,12 @@ export function AppSidebar() {
       <Sidebar>
         <SidebarHeader className="p-4">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-9 h-9 rounded-md bg-primary">
-              <Clock className="w-5 h-5 text-primary-foreground" />
-            </div>
+            <img
+              src={logoImage}
+              alt="LeafLog"
+              className="w-9 h-9 rounded-md object-cover"
+              data-testid="img-sidebar-logo"
+            />
             <div>
               <h1 className="text-sm font-semibold tracking-tight">LeafLog</h1>
               <p className="text-xs text-muted-foreground">{user?.agencyName || "Leaf Management"}</p>
@@ -110,8 +114,8 @@ export function AppSidebar() {
           <div className="space-y-2">
             <div className="flex items-center gap-2 px-1">
               <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white"
-                style={{ backgroundColor: "#3B82F6" }}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium"
+                style={{ backgroundColor: "#8B9E8B", color: "#E8DCC4" }}
               >
                 {user?.username?.[0]?.toUpperCase() || "U"}
               </div>
