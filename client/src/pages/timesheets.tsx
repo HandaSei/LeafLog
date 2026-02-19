@@ -1,19 +1,10 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, differenceInMinutes } from "date-fns";
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isSameDay, differenceInMinutes, parse, addDays } from "date-fns";
 import { useState, useMemo } from "react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FileText, ChevronLeft, ChevronRight, Edit2, Clock, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,20 +17,46 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee, TimeEntry } from "@shared/schema";
+import { EmployeeAvatar } from "@/components/employee-avatar";
+import { ROLES } from "@/lib/constants";
+import type { Employee, Shift, TimeEntry } from "@shared/schema";
+
+function calculateShiftHours(startTime: string, endTime: string): number {
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  let startMinutes = sh * 60 + sm;
+  let endMinutes = eh * 60 + em;
+  if (endMinutes <= startMinutes) {
+    endMinutes += 24 * 60;
+  }
+  return (endMinutes - startMinutes) / 60;
+}
+
+function formatShiftTime(time: string): string {
+  const [h, m] = time.split(":");
+  return `${h}:${m}`;
+}
 
 export default function Timesheets() {
   const [selectedWeek, setSelectedWeek] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("all");
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [selectedRole, setSelectedRole] = useState<string>("all");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
-  const [viewingDetails, setViewingDetails] = useState<{ employeeId: number; date: string } | null>(null);
+  const [viewingShift, setViewingShift] = useState<{ shift: Shift; employee: Employee } | null>(null);
   const { toast } = useToast();
+
+  const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
+  const weekDays = useMemo(() => eachDayOfInterval({ start: selectedWeek, end: weekEnd }), [selectedWeek]);
 
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
   });
 
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
+  const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
+    queryKey: ["/api/shifts"],
+  });
+
+  const { data: entries = [] } = useQuery<TimeEntry[]>({
     queryKey: ["/api/kiosk/entries"],
   });
 
@@ -58,172 +75,264 @@ export default function Timesheets() {
     },
   });
 
-  const weekDays = useMemo(() => {
-    return eachDayOfInterval({
-      start: selectedWeek,
-      end: endOfWeek(selectedWeek, { weekStartsOn: 1 }),
-    });
-  }, [selectedWeek]);
-
-  const calculateWorkedTime = (dayEntries: TimeEntry[]) => {
-    if (dayEntries.length < 2) return null;
-    
-    const sorted = [...dayEntries].sort((a, b) => 
-      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-    
-    const start = sorted.find(e => e.type === "clock-in");
-    const end = [...sorted].reverse().find(e => e.type === "clock-out");
-    
-    if (!start || !end) return null;
-    
-    const startTime = new Date(start.timestamp);
-    const endTime = new Date(end.timestamp);
-    
-    const totalMinutes = differenceInMinutes(endTime, startTime);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    
-    return {
-      start: format(startTime, "HH:mm"),
-      end: format(endTime, "HH:mm"),
-      duration: `${hours}h ${minutes}m`
-    };
-  };
-
   const navigateWeek = (direction: number) => {
     const next = new Date(selectedWeek);
     next.setDate(next.getDate() + (direction * 7));
-    setSelectedWeek(next);
+    setSelectedWeek(startOfWeek(next, { weekStartsOn: 1 }));
+    setSelectedDay(null);
   };
 
-  if (empsLoading || entriesLoading) {
-    return <div className="p-8"><Skeleton className="h-64 w-full" /></div>;
+  const employeeMap = useMemo(() => {
+    const map = new Map<number, Employee>();
+    employees.forEach(e => map.set(e.id, e));
+    return map;
+  }, [employees]);
+
+  const filteredShifts = useMemo(() => {
+    return shifts.filter(shift => {
+      const shiftDate = new Date(shift.date + "T00:00:00");
+      const inWeek = shiftDate >= selectedWeek && shiftDate <= weekEnd;
+      if (!inWeek) return false;
+
+      if (selectedDay && !isSameDay(shiftDate, selectedDay)) return false;
+
+      if (selectedRole !== "all") {
+        const emp = employeeMap.get(shift.employeeId);
+        if (!emp || emp.role !== selectedRole) return false;
+      }
+
+      return true;
+    }).sort((a, b) => {
+      const dateCompare = a.date.localeCompare(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      return a.startTime.localeCompare(b.startTime);
+    });
+  }, [shifts, selectedWeek, weekEnd, selectedDay, selectedRole, employeeMap]);
+
+  const totalHours = useMemo(() => {
+    return filteredShifts.reduce((sum, s) => sum + calculateShiftHours(s.startTime, s.endTime), 0);
+  }, [filteredShifts]);
+
+  const statusColors: Record<string, string> = {
+    scheduled: "#3B82F6",
+    "in-progress": "#F59E0B",
+    completed: "#10B981",
+    cancelled: "#EF4444",
+  };
+
+  const statusLabels: Record<string, string> = {
+    scheduled: "Pending",
+    "in-progress": "In Progress",
+    completed: "Completed",
+    cancelled: "Cancelled",
+  };
+
+  if (empsLoading || shiftsLoading) {
+    return (
+      <div className="h-full overflow-auto p-6 space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-16 w-full" />
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full rounded-md" />
+        ))}
+      </div>
+    );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <FileText className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold">Timesheets</h1>
-        </div>
-        <div className="flex items-center gap-2 bg-muted rounded-md p-1">
-          <Button variant="ghost" size="icon" onClick={() => navigateWeek(-1)}>
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <span className="text-sm font-medium px-2">
-            {format(selectedWeek, "MMM d")} - {format(endOfWeek(selectedWeek, { weekStartsOn: 1 }), "MMM d")}
+    <div className="h-full overflow-auto flex flex-col">
+      <div className="p-4 pb-0 space-y-4">
+        <h1 className="text-xl font-bold" data-testid="text-timesheets-title">Timesheets</h1>
+
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold" data-testid="text-week-month">
+            {format(selectedWeek, "MMM yyyy")}
           </span>
-          <Button variant="ghost" size="icon" onClick={() => navigateWeek(1)}>
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" onClick={() => navigateWeek(-1)} data-testid="button-week-prev">
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => navigateWeek(1)} data-testid="button-week-next">
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-1">
+          {weekDays.map(day => {
+            const dayIsToday = isToday(day);
+            const dayIsSelected = selectedDay && isSameDay(day, selectedDay);
+            return (
+              <button
+                key={day.toISOString()}
+                onClick={() => setSelectedDay(prev => prev && isSameDay(prev, day) ? null : day)}
+                className={`flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md flex-1 cursor-pointer transition-colors
+                  ${dayIsSelected ? "bg-primary text-primary-foreground" : dayIsToday ? "bg-primary/10" : "hover-elevate"}`}
+                data-testid={`button-day-${format(day, "EEE").toLowerCase()}`}
+              >
+                <span className="text-[10px] font-medium uppercase">{format(day, "EEEEE")}</span>
+                <span className={`text-sm font-bold ${dayIsToday && !dayIsSelected ? "flex items-center justify-center w-7 h-7 rounded-full bg-primary text-primary-foreground" : ""}`}>
+                  {format(day, "d")}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 pb-2">
+          <Select value={selectedRole} onValueChange={setSelectedRole}>
+            <SelectTrigger className="w-[160px]" data-testid="select-role-filter">
+              <SelectValue placeholder="All Positions" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Positions</SelectItem>
+              {ROLES.map(role => (
+                <SelectItem key={role} value={role}>{role}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <CardTitle className="text-sm font-medium">Weekly Overview</CardTitle>
-          <div className="flex items-center gap-2">
-            <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="All Employees" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Employees</SelectItem>
-                {employees.map(emp => (
-                  <SelectItem key={emp.id} value={emp.id.toString()}>{emp.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      <div className="flex-1 overflow-auto px-4 pb-4 space-y-3">
+        {filteredShifts.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">
+            No shifts found for this period.
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Employee</TableHead>
-                  {weekDays.map(day => (
-                    <TableHead key={day.toISOString()} className="text-center">
-                      {format(day, "EEE d")}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {employees
-                  .filter(emp => selectedEmployeeId === "all" || emp.id.toString() === selectedEmployeeId)
-                  .map(emp => (
-                    <TableRow key={emp.id}>
-                      <TableCell className="font-medium">{emp.name}</TableCell>
-                      {weekDays.map(day => {
-                        const dateStr = format(day, "yyyy-MM-dd");
-                        const dayEntries = entries.filter(e => e.employeeId === emp.id && e.date === dateStr);
-                        const worked = calculateWorkedTime(dayEntries);
-                        
-                        return (
-                          <TableCell key={day.toISOString()} className="text-center">
-                            {worked ? (
-                              <button 
-                                onClick={() => setViewingDetails({ employeeId: emp.id, date: dateStr })}
-                                className="group flex flex-col items-center hover-elevate p-1 rounded-sm w-full transition-colors"
-                              >
-                                <span className="text-xs font-bold text-primary">{worked.start} - {worked.end}</span>
-                                <Badge variant="secondary" className="text-[10px] mt-1">
-                                  {worked.duration}
-                                </Badge>
-                              </button>
-                            ) : (
-                              dayEntries.length > 0 ? (
-                                <button 
-                                  onClick={() => setViewingDetails({ employeeId: emp.id, date: dateStr })}
-                                  className="text-[10px] text-muted-foreground hover:text-primary underline flex items-center justify-center gap-1 mx-auto"
-                                >
-                                  <Info className="w-3 h-3" /> {dayEntries.length} actions
-                                </button>
-                              ) : "-"
-                            )}
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+        ) : (
+          filteredShifts.map(shift => {
+            const emp = employeeMap.get(shift.employeeId);
+            if (!emp) return null;
+            const hours = calculateShiftHours(shift.startTime, shift.endTime);
+            const statusColor = statusColors[shift.status] || "#6B7280";
+            const statusLabel = statusLabels[shift.status] || shift.status;
 
-      {/* Details Dialog */}
-      <Dialog open={!!viewingDetails} onOpenChange={() => setViewingDetails(null)}>
+            return (
+              <button
+                key={shift.id}
+                onClick={() => setViewingShift({ shift, employee: emp })}
+                className="w-full flex items-start gap-3 p-4 rounded-md border bg-card hover-elevate text-left cursor-pointer"
+                data-testid={`timesheet-card-${shift.id}`}
+              >
+                <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-semibold truncate">{emp.name}</span>
+                    <span className="text-xs font-semibold whitespace-nowrap" style={{ color: statusColor }}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <div className="text-base font-bold mt-0.5" data-testid={`text-shift-time-${shift.id}`}>
+                    {formatShiftTime(shift.startTime)} - {formatShiftTime(shift.endTime)}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                    <span className="text-xs text-muted-foreground">{emp.department}</span>
+                    <span className="text-sm font-semibold text-muted-foreground">{hours.toFixed(2)} h</span>
+                  </div>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {filteredShifts.length > 0 && (
+        <div className="border-t px-4 py-3 flex items-center justify-end gap-2">
+          <span className="text-sm text-muted-foreground">Total:</span>
+          <span className="text-lg font-bold" data-testid="text-total-hours">{totalHours.toFixed(2)} h</span>
+        </div>
+      )}
+
+      <Dialog open={!!viewingShift} onOpenChange={() => setViewingShift(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Daily Actions</DialogTitle>
+            <DialogTitle>Shift Details</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            {viewingDetails && entries
-              .filter(e => e.employeeId === viewingDetails.employeeId && e.date === viewingDetails.date)
-              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-              .map(entry => (
-                <div key={entry.id} className="flex items-center justify-between p-2 rounded-md border bg-muted/30">
-                  <div className="flex items-center gap-3">
-                    <Clock className="w-4 h-4 text-muted-foreground" />
-                    <div>
-                      <div className="text-sm font-medium capitalize">{entry.type.replace('-', ' ')}</div>
-                      <div className="text-xs text-muted-foreground">{format(new Date(entry.timestamp), "h:mm:ss a")}</div>
+          {viewingShift && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <EmployeeAvatar name={viewingShift.employee.name} color={viewingShift.employee.color} size="lg" />
+                <div>
+                  <div className="font-semibold">{viewingShift.employee.name}</div>
+                  <div className="text-xs text-muted-foreground">{viewingShift.employee.department} &middot; {viewingShift.employee.role}</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-xs text-muted-foreground mb-0.5">Date</div>
+                  <div className="font-medium">{format(new Date(viewingShift.shift.date + "T00:00:00"), "EEE, MMM d, yyyy")}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground mb-0.5">Hours</div>
+                  <div className="font-medium">{calculateShiftHours(viewingShift.shift.startTime, viewingShift.shift.endTime).toFixed(2)} h</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground mb-0.5">Start</div>
+                  <div className="font-medium">{formatShiftTime(viewingShift.shift.startTime)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground mb-0.5">End</div>
+                  <div className="font-medium">{formatShiftTime(viewingShift.shift.endTime)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground mb-0.5">Status</div>
+                  <span className="text-xs font-semibold" style={{ color: statusColors[viewingShift.shift.status] || "#6B7280" }}>
+                    {statusLabels[viewingShift.shift.status] || viewingShift.shift.status}
+                  </span>
+                </div>
+              </div>
+              {viewingShift.shift.notes && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-0.5">Notes</div>
+                  <div className="text-sm">{viewingShift.shift.notes}</div>
+                </div>
+              )}
+
+              {(() => {
+                const dayEntries = entries.filter(
+                  e => e.employeeId === viewingShift.shift.employeeId && e.date === viewingShift.shift.date
+                ).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+                if (dayEntries.length === 0) return null;
+                return (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-2">SteepIn Activity</div>
+                    <div className="space-y-1.5">
+                      {dayEntries.map(entry => {
+                        const typeLabels: Record<string, { label: string; color: string }> = {
+                          "clock-in": { label: "Clock In", color: "#10B981" },
+                          "clock-out": { label: "Clock Out", color: "#EF4444" },
+                          "break-start": { label: "Break Start", color: "#F59E0B" },
+                          "break-end": { label: "Break End", color: "#3B82F6" },
+                        };
+                        const info = typeLabels[entry.type] || { label: entry.type, color: "#6B7280" };
+                        return (
+                          <div key={entry.id} className="flex items-center justify-between text-xs p-2 rounded-md border">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />
+                              <span>{info.label}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted-foreground font-mono">
+                                {format(new Date(entry.timestamp), "HH:mm:ss")}
+                              </span>
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingEntry(entry)}>
+                                <Edit2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => setEditingEntry(entry)}>
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              ))}
-          </div>
+                );
+              })()}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
-      {/* Edit Dialog */}
       <Dialog open={!!editingEntry} onOpenChange={() => setEditingEntry(null)}>
         <DialogContent>
           <DialogHeader>
@@ -232,9 +341,9 @@ export default function Timesheets() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select 
-                value={editingEntry?.type} 
-                onValueChange={(val: any) => setEditingEntry(prev => prev ? {...prev, type: val} : null)}
+              <Select
+                value={editingEntry?.type}
+                onValueChange={(val: any) => setEditingEntry(prev => prev ? { ...prev, type: val } : null)}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -249,25 +358,19 @@ export default function Timesheets() {
             </div>
             <div className="space-y-2">
               <Label>Timestamp</Label>
-              <Input 
-                type="datetime-local" 
+              <Input
+                type="datetime-local"
                 value={editingEntry ? format(new Date(editingEntry.timestamp), "yyyy-MM-dd'T'HH:mm") : ""}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setEditingEntry(prev => {
-                    if (!prev) return null;
-                    return {
-                      ...prev,
-                      timestamp: new Date(val)
-                    };
-                  });
+                  setEditingEntry(prev => prev ? { ...prev, timestamp: new Date(val) } : null);
                 }}
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingEntry(null)}>Cancel</Button>
-            <Button 
+            <Button
               onClick={() => editingEntry && updateEntryMutation.mutate({
                 id: editingEntry.id,
                 type: editingEntry.type,
