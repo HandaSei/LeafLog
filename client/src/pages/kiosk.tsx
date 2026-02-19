@@ -27,7 +27,7 @@ import {
 type ActionType = "clock-in" | "clock-out" | "break-start" | "break-end";
 
 export default function KioskPage() {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, login } = useAuth();
   const [, setLocation] = useLocation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
