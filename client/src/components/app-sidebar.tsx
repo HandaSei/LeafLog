@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Calendar, Users, LayoutDashboard, Clock, KeyRound, LogOut, FileText, Monitor } from "lucide-react";
+import { Calendar, Users, LayoutDashboard, Clock, KeyRound, LogOut, FileText } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -38,7 +38,6 @@ export function AppSidebar() {
   const navItems = [
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
     { title: "Schedule", url: "/schedule", icon: Calendar },
-    { title: "SteepIn", url: "/SteepIn", icon: Monitor },
     ...(isAdmin || isManager
       ? [
           { title: "Employees", url: "/employees", icon: Users },
@@ -58,10 +57,7 @@ export function AppSidebar() {
               className="w-9 h-9 rounded-md object-cover"
               data-testid="img-sidebar-logo"
             />
-            <div>
-              <h1 className="text-sm font-semibold tracking-tight">LeafLog</h1>
-              <p className="text-xs text-muted-foreground">{user?.agencyName || "Leaf Management"}</p>
-            </div>
+            <h1 className="text-sm font-semibold tracking-tight">LeafLog</h1>
           </div>
         </SidebarHeader>
         <SidebarContent>
