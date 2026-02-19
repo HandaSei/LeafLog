@@ -37,6 +37,14 @@ export default function LoginPage() {
     try {
       await login(loginForm.username, loginForm.password);
       toast({ title: "Welcome back", description: "You have been logged in." });
+      
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get("redirect");
+      if (redirect) {
+        setLocation(redirect);
+      } else {
+        setLocation("/");
+      }
     } catch (err: any) {
       toast({ title: "Login failed", description: err.message, variant: "destructive" });
     } finally {

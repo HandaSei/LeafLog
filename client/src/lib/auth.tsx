@@ -82,7 +82,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     await loginMutation.mutateAsync({ username, password });
-  }, []);
+    
+    // Store credentials for SteepIn persistence if requested
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("redirect")?.includes("SteepIn")) {
+      localStorage.setItem("steepin_session", btoa(`${username}:${password}`));
+    }
+  }, [loginMutation]);
 
   const loginWithCode = useCallback(async (code: string) => {
     await codeMutation.mutateAsync(code);

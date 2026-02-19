@@ -188,6 +188,20 @@ export function registerAuthRoutes(router: Router) {
     res.json({ user: safe, employee });
   });
 
+  router.post("/api/auth/steepin-login", async (req, res) => {
+    const { username, password } = req.body;
+    const account = await storage.getAccountByUsername(username);
+    if (!account || !(await bcrypt.compare(password, account.password))) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+    if (account.role !== "admin" && account.role !== "manager") {
+      return res.status(403).json({ message: "SteepIn requires manager or admin access" });
+    }
+    req.session.userId = account.id;
+    req.session.role = account.role;
+    res.json({ user: account });
+  });
+
   router.post("/api/auth/logout", (req, res) => {
     req.session.destroy(() => {
       res.json({ success: true });

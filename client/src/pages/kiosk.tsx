@@ -26,6 +26,7 @@ import {
 type ActionType = "clock-in" | "clock-out" | "break-start" | "break-end";
 
 export default function KioskPage() {
+  const { user, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -34,11 +35,42 @@ export default function KioskPage() {
   const [pendingAction, setPendingAction] = useState<ActionType | null>(null);
   const { toast } = useToast();
 
+  useEffect(() => {
+    const checkAuth = async () => {
+      if (!authLoading && !user) {
+        // Try to recover session from localStorage
+        const saved = localStorage.getItem("steepin_session");
+        if (saved) {
+          try {
+            const [username, password] = atob(saved).split(":");
+            await login(username, password);
+            return;
+          } catch (e) {
+            localStorage.removeItem("steepin_session");
+          }
+        }
+        setLocation("/login?redirect=/SteepIn");
+      }
+    };
+    checkAuth();
+  }, [user, authLoading, setLocation, login]);
+
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/kiosk/employees"],
     queryFn: getQueryFn({ on401: "returnNull" }),
+    enabled: !!user,
     staleTime: Infinity,
   });
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Skeleton className="w-[300px] h-[400px] rounded-md" />
+      </div>
+    );
+  }
+
+  if (!user) return null;
 
   const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
     queryKey: ["/api/kiosk/entries", selectedEmployee?.id?.toString() || ""],
