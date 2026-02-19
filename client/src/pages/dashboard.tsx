@@ -35,10 +35,10 @@ type ClockStatus =
   | { kind: "not-yet"; minutesUntil: number }
   | { kind: "late"; minutesLate: number }
   | { kind: "very-late"; minutesLate: number }
-  | { kind: "clocked-out"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo }
+  | { kind: "clocked-out"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
   | { kind: "waiting" }
   | { kind: "working-no-schedule"; clockInTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
-  | { kind: "done-no-schedule"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo };
+  | { kind: "done-no-schedule"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null };
 
 function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
   const breakStarts = entries.filter((e) => e.type === "break-start").map((e) => new Date(e.timestamp));
@@ -66,13 +66,14 @@ function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
   };
 }
 
-function getNoBreakWarning(entries: TimeEntry[], now: Date, breakInfo: BreakInfo): NoBreakWarning | null {
+function getNoBreakWarning(entries: TimeEntry[], endTime: Date, breakInfo: BreakInfo): NoBreakWarning | null {
   if (breakInfo.breakCount > 0) return null;
 
-  const clockIn = entries.find((e) => e.type === "clock-in");
-  if (!clockIn) return null;
+  const clockIns = entries.filter((e) => e.type === "clock-in");
+  if (clockIns.length === 0) return null;
 
-  const workedMinutes = differenceInMinutes(now, new Date(clockIn.timestamp));
+  const lastClockIn = clockIns[clockIns.length - 1];
+  const workedMinutes = differenceInMinutes(endTime, new Date(lastClockIn.timestamp));
   if (workedMinutes >= 375) {
     return { workedMinutes };
   }
@@ -94,7 +95,8 @@ function getClockStatusForScheduled(shift: Shift, entries: TimeEntry[], now: Dat
   const isClockedOut = lastClockOut && lastClockIn && new Date(lastClockOut.timestamp) > new Date(lastClockIn.timestamp);
 
   if (isClockedOut && lastClockIn && lastClockOut) {
-    return { kind: "clocked-out", clockInTime: lastClockIn.timestamp, clockOutTime: lastClockOut.timestamp, breakInfo };
+    const doneWarning = getNoBreakWarning(entries, new Date(lastClockOut.timestamp), breakInfo);
+    return { kind: "clocked-out", clockInTime: lastClockIn.timestamp, clockOutTime: lastClockOut.timestamp, breakInfo, noBreakWarning: doneWarning };
   }
 
   if (clockIn) {
@@ -134,14 +136,15 @@ function getClockStatusForUnscheduled(entries: TimeEntry[], now: Date): ClockSta
   const isClockedOut = lastClockOut && new Date(lastClockOut.timestamp) > new Date(lastClockIn.timestamp);
 
   if (isClockedOut && lastClockOut) {
-    return { kind: "done-no-schedule", clockInTime: lastClockIn.timestamp, clockOutTime: lastClockOut.timestamp, breakInfo };
+    const doneWarning = getNoBreakWarning(entries, new Date(lastClockOut.timestamp), breakInfo);
+    return { kind: "done-no-schedule", clockInTime: lastClockIn.timestamp, clockOutTime: lastClockOut.timestamp, breakInfo, noBreakWarning: doneWarning };
   }
 
   const noBreakWarning = getNoBreakWarning(entries, now, breakInfo);
   return { kind: "working-no-schedule", clockInTime: lastClockIn.timestamp, breakInfo, noBreakWarning };
 }
 
-function BreakBadge({ breakInfo }: { breakInfo: BreakInfo }) {
+function BreakBadge({ breakInfo, hasWarning, isDone }: { breakInfo: BreakInfo; hasWarning?: boolean; isDone?: boolean }) {
   if (breakInfo.onBreak) {
     return (
       <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30" data-testid="badge-on-break">
@@ -160,6 +163,17 @@ function BreakBadge({ breakInfo }: { breakInfo: BreakInfo }) {
     );
   }
 
+  if (hasWarning) return null;
+
+  if (isDone) {
+    return (
+      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/30" data-testid="badge-no-break-done">
+        <Coffee className="w-3 h-3 text-muted-foreground/50" />
+        <span className="text-[10px] text-muted-foreground/60">Didn't take any break</span>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/30" data-testid="badge-no-break-yet">
       <Coffee className="w-3 h-3 text-muted-foreground/50" />
@@ -168,13 +182,16 @@ function BreakBadge({ breakInfo }: { breakInfo: BreakInfo }) {
   );
 }
 
-function NoBreakWarningBadge({ warning }: { warning: NoBreakWarning }) {
+function NoBreakWarningBadge({ warning, isDone }: { warning: NoBreakWarning; isDone?: boolean }) {
   const hours = Math.floor(warning.workedMinutes / 60);
   const mins = warning.workedMinutes % 60;
+  const label = isDone
+    ? `Worked ${hours}h${mins > 0 ? `${mins}m` : ""} without any break`
+    : `Over ${hours}h${mins > 0 ? `${mins}m` : ""} without a break`;
   return (
     <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30" data-testid="badge-no-break-warning">
       <AlertTriangle className="w-3 h-3 text-amber-600" />
-      <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400">Over {hours}h{mins > 0 ? `${mins}m` : ""} without a break</span>
+      <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400">{label}</span>
     </div>
   );
 }
@@ -187,6 +204,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const workedMins = differenceInMinutes(now, parseISO(status.clockInTime));
       const h = Math.floor(workedMins / 60);
       const m = workedMins % 60;
+      const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
       return (
         <div className="flex flex-col gap-1" data-testid="status-on-time">
           <div className="flex flex-col">
@@ -197,8 +215,8 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
             <span className="text-[10px] text-muted-foreground ml-5">Working for {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
           <div className="flex flex-wrap gap-1 ml-5">
-            <BreakBadge breakInfo={status.breakInfo} />
-            {status.noBreakWarning && !status.breakInfo.onBreak && <NoBreakWarningBadge warning={status.noBreakWarning} />}
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
           </div>
         </div>
       );
@@ -207,6 +225,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const workedMins = differenceInMinutes(now, parseISO(status.clockInTime));
       const h = Math.floor(workedMins / 60);
       const m = workedMins % 60;
+      const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
       return (
         <div className="flex flex-col gap-1" data-testid="status-clocked-late">
           <div className="flex flex-col">
@@ -217,8 +236,8 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
             <span className="text-[10px] text-muted-foreground ml-5">Working for {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
           <div className="flex flex-wrap gap-1 ml-5">
-            <BreakBadge breakInfo={status.breakInfo} />
-            {status.noBreakWarning && !status.breakInfo.onBreak && <NoBreakWarningBadge warning={status.noBreakWarning} />}
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
           </div>
         </div>
       );
@@ -248,6 +267,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const totalMins = differenceInMinutes(parseISO(status.clockOutTime), parseISO(status.clockInTime));
       const h = Math.floor(totalMins / 60);
       const m = totalMins % 60;
+      const hasWarning = !!status.noBreakWarning;
       return (
         <div className="flex flex-col gap-1" data-testid="status-clocked-out">
           <div className="flex flex-col">
@@ -257,8 +277,9 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
             </div>
             <span className="text-[10px] text-muted-foreground ml-5">Total time: {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="ml-5">
-            <BreakBadge breakInfo={status.breakInfo} />
+          <div className="flex flex-wrap gap-1 ml-5">
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} isDone />}
           </div>
         </div>
       );
@@ -274,6 +295,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const workedMins = differenceInMinutes(now, parseISO(status.clockInTime));
       const h = Math.floor(workedMins / 60);
       const m = workedMins % 60;
+      const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
       return (
         <div className="flex flex-col gap-1" data-testid="status-working-no-schedule">
           <div className="flex flex-col">
@@ -284,8 +306,8 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
             <span className="text-[10px] text-muted-foreground ml-5">Working for {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
           <div className="flex flex-wrap gap-1 ml-5">
-            <BreakBadge breakInfo={status.breakInfo} />
-            {status.noBreakWarning && !status.breakInfo.onBreak && <NoBreakWarningBadge warning={status.noBreakWarning} />}
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
           </div>
         </div>
       );
@@ -294,6 +316,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const totalMins = differenceInMinutes(parseISO(status.clockOutTime), parseISO(status.clockInTime));
       const h = Math.floor(totalMins / 60);
       const m = totalMins % 60;
+      const hasWarning = !!status.noBreakWarning;
       return (
         <div className="flex flex-col gap-1" data-testid="status-done-no-schedule">
           <div className="flex flex-col">
@@ -303,8 +326,9 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
             </div>
             <span className="text-[10px] text-muted-foreground ml-5">Total time: {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="ml-5">
-            <BreakBadge breakInfo={status.breakInfo} />
+          <div className="flex flex-wrap gap-1 ml-5">
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} isDone />}
           </div>
         </div>
       );
