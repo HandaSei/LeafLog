@@ -168,10 +168,10 @@ export default function LoginPage() {
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList className="w-full grid grid-cols-3 mb-4">
                 <TabsTrigger value="login" data-testid="tab-login">
-                  <LogIn className="w-3.5 h-3.5 mr-1.5" /> Sign In
+                  <LogIn className="w-3.5 h-3.5 mr-1.5" /> Head Gardener
                 </TabsTrigger>
                 <TabsTrigger value="code" data-testid="tab-code">
-                  <KeyRound className="w-3.5 h-3.5 mr-1.5" /> Code
+                  <KeyRound className="w-3.5 h-3.5 mr-1.5" /> Leaf Login
                 </TabsTrigger>
                 <TabsTrigger value="kiosk" data-testid="tab-kiosk">
                   <Monitor className="w-3.5 h-3.5 mr-1.5" /> SteepIn
@@ -238,17 +238,40 @@ export default function LoginPage() {
 
               <TabsContent value="kiosk" className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Launch SteepIn for employee clock-in, clock-out, and break tracking.
+                  Sign in with manager credentials to launch the SteepIn kiosk.
                 </p>
-                <div className="bg-muted/50 rounded-md p-4 text-center space-y-2">
-                  <Monitor className="w-8 h-8 text-muted-foreground mx-auto" />
-                  <p className="text-xs text-muted-foreground">
-                    SteepIn allows employees to record their work actions without logging into their account.
-                  </p>
-                </div>
-                <Button onClick={handleKiosk} className="w-full" data-testid="button-launch-kiosk">
-                  <Clock className="w-4 h-4 mr-2" /> Launch SteepIn
-                </Button>
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const params = new URLSearchParams(window.location.search);
+                  params.set("redirect", "/SteepIn");
+                  window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+                  handleLogin(e);
+                }} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="kiosk-username">Manager Username</Label>
+                    <Input
+                      id="kiosk-username"
+                      placeholder="Enter manager username"
+                      value={loginForm.username}
+                      onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="kiosk-password">Manager Password</Label>
+                    <Input
+                      id="kiosk-password"
+                      type="password"
+                      placeholder="Enter manager password"
+                      value={loginForm.password}
+                      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? "Launching..." : "Launch SteepIn"}
+                  </Button>
+                </form>
               </TabsContent>
             </Tabs>
           </Card>
