@@ -39,7 +39,7 @@ function formatShiftTime(time: string): string {
 
 export default function Timesheets() {
   const [selectedWeek, setSelectedWeek] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [selectedDay, setSelectedDay] = useState<Date>(() => new Date());
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
   const [viewingShift, setViewingShift] = useState<{ shift: Shift; employee: Employee } | null>(null);
@@ -78,8 +78,9 @@ export default function Timesheets() {
   const navigateWeek = (direction: number) => {
     const next = new Date(selectedWeek);
     next.setDate(next.getDate() + (direction * 7));
-    setSelectedWeek(startOfWeek(next, { weekStartsOn: 1 }));
-    setSelectedDay(null);
+    const newWeekStart = startOfWeek(next, { weekStartsOn: 1 });
+    setSelectedWeek(newWeekStart);
+    setSelectedDay(newWeekStart);
   };
 
   const employeeMap = useMemo(() => {
@@ -94,7 +95,7 @@ export default function Timesheets() {
       const inWeek = shiftDate >= selectedWeek && shiftDate <= weekEnd;
       if (!inWeek) return false;
 
-      if (selectedDay && !isSameDay(shiftDate, selectedDay)) return false;
+      if (!isSameDay(shiftDate, selectedDay)) return false;
 
       if (selectedRole !== "all") {
         const emp = employeeMap.get(shift.employeeId);
@@ -145,28 +146,26 @@ export default function Timesheets() {
       <div className="p-4 pb-0 space-y-4">
         <h1 className="text-xl font-bold" data-testid="text-timesheets-title">Timesheets</h1>
 
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold" data-testid="text-week-month">
-            {format(selectedWeek, "MMM yyyy")}
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => navigateWeek(-1)} data-testid="button-week-prev">
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-sm font-semibold" data-testid="text-week-range">
+            {format(selectedWeek, "MMM d")} - {format(weekEnd, "MMM d")}
           </span>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" onClick={() => navigateWeek(-1)} data-testid="button-week-prev">
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => navigateWeek(1)} data-testid="button-week-next">
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
+          <Button variant="ghost" size="icon" onClick={() => navigateWeek(1)} data-testid="button-week-next">
+            <ChevronRight className="w-4 h-4" />
+          </Button>
         </div>
 
         <div className="flex items-center justify-between gap-1">
           {weekDays.map(day => {
             const dayIsToday = isToday(day);
-            const dayIsSelected = selectedDay && isSameDay(day, selectedDay);
+            const dayIsSelected = isSameDay(day, selectedDay);
             return (
               <button
                 key={day.toISOString()}
-                onClick={() => setSelectedDay(prev => prev && isSameDay(prev, day) ? null : day)}
+                onClick={() => setSelectedDay(day)}
                 className={`flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md flex-1 cursor-pointer transition-colors
                   ${dayIsSelected ? "bg-primary text-primary-foreground" : dayIsToday ? "bg-primary/10" : "hover-elevate"}`}
                 data-testid={`button-day-${format(day, "EEE").toLowerCase()}`}
