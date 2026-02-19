@@ -37,6 +37,7 @@ export function AppSidebar() {
   const navItems = [
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
     { title: "Schedule", url: "/schedule", icon: Calendar },
+    { title: "SteepIn", url: "/SteepIn", icon: Monitor },
     ...(isAdmin || isManager
       ? [
           { title: "Employees", url: "/employees", icon: Users },

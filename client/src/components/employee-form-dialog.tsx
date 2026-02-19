@@ -40,6 +40,7 @@ const employeeFormSchema = z.object({
   department: z.string().min(1, "Department is required"),
   color: z.string().default("#3B82F6"),
   status: z.string().default("active"),
+  accessCode: z.string().length(4, "Passcode must be 4 digits").regex(/^[0-9]+$/, "Passcode must be numeric"),
 });
 
 type EmployeeFormValues = z.infer<typeof employeeFormSchema>;
@@ -68,6 +69,7 @@ export function EmployeeFormDialog({
       department: employee?.department ?? "",
       color: employee?.color ?? EMPLOYEE_COLORS[0],
       status: employee?.status ?? "active",
+      accessCode: employee?.accessCode ?? "",
     },
   });
 
@@ -81,6 +83,7 @@ export function EmployeeFormDialog({
         department: employee?.department ?? "",
         color: employee?.color ?? EMPLOYEE_COLORS[0],
         status: employee?.status ?? "active",
+        accessCode: employee?.accessCode ?? "",
       });
     }
   }, [open, employee]);
@@ -228,6 +231,24 @@ export function EmployeeFormDialog({
                 )}
               />
             </div>
+            <FormField
+              control={form.control}
+              name="accessCode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>SteepIn Passcode (4 digits)</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="e.g. 1234"
+                      maxLength={4}
+                      data-testid="input-employee-passcode"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="color"

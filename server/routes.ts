@@ -103,13 +103,17 @@ export async function registerRoutes(
   });
 
   router.post("/api/kiosk/action", async (req, res) => {
-    const { employeeId, type } = req.body;
-    if (!employeeId || !type) {
-      return res.status(400).json({ message: "Employee ID and action type are required" });
+    const { employeeId, type, passcode } = req.body;
+    if (!employeeId || !type || !passcode) {
+      return res.status(400).json({ message: "Employee ID, action type, and passcode are required" });
     }
 
     const emp = await storage.getEmployee(Number(employeeId));
     if (!emp) return res.status(404).json({ message: "Employee not found" });
+
+    if (emp.accessCode !== passcode) {
+      return res.status(401).json({ message: "Invalid passcode" });
+    }
 
     const date = format(new Date(), "yyyy-MM-dd");
     const entry = await storage.createTimeEntry(Number(employeeId), type, date);

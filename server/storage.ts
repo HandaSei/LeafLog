@@ -56,7 +56,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createEmployee(data: any): Promise<Employee> {
-    const [emp] = await db.insert(employees).values(data).returning();
+    const accessCode = Math.floor(1000 + Math.random() * 9000).toString();
+    const [emp] = await db.insert(employees).values({ ...data, accessCode }).returning();
     return emp;
   }
 

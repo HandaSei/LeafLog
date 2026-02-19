@@ -24,6 +24,7 @@ export const employees = pgTable("employees", {
   status: text("status").notNull().default("active"),
   avatarInitials: text("avatar_initials"),
   accountId: integer("account_id"),
+  accessCode: text("access_code").notNull().default("0000"),
 });
 
 export const shifts = pgTable("shifts", {
@@ -60,6 +61,7 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
   email: z.string().email(),
   role: z.string().min(1),
   department: z.string().min(1),
+  accessCode: z.string().length(4, "Passcode must be 4 digits").regex(/^[0-9]+$/, "Passcode must be numeric"),
 }).omit({ id: true });
 
 export const insertShiftSchema = createInsertSchema(shifts, {

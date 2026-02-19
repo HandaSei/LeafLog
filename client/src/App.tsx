@@ -66,7 +66,7 @@ function AppContent() {
 
   return (
     <Switch>
-      <Route path="/kiosk" component={KioskPage} />
+      <Route path="/SteepIn" component={KioskPage} />
       <Route path="/login">
         {isAuthenticated ? <Redirect to="/" /> : <LoginPage />}
       </Route>

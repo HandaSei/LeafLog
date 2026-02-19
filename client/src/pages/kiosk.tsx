@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -9,8 +9,16 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmployeeAvatar } from "@/components/employee-avatar";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import {
   Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2,
 } from "lucide-react";
@@ -21,11 +29,15 @@ export default function KioskPage() {
   const [, setLocation] = useLocation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [passcode, setPasscode] = useState("");
+  const [passcodeDialogOpen, setPasscodeDialogOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<ActionType | null>(null);
   const { toast } = useToast();
 
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/kiosk/employees"],
     queryFn: getQueryFn({ on401: "returnNull" }),
+    staleTime: Infinity,
   });
 
   const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
@@ -35,8 +47,8 @@ export default function KioskPage() {
   });
 
   const actionMutation = useMutation({
-    mutationFn: async ({ employeeId, type }: { employeeId: number; type: ActionType }) => {
-      const res = await apiRequest("POST", "/api/kiosk/action", { employeeId, type });
+    mutationFn: async ({ employeeId, type, passcode }: { employeeId: number; type: ActionType; passcode: string }) => {
+      const res = await apiRequest("POST", "/api/kiosk/action", { employeeId, type, passcode });
       return res.json();
     },
     onSuccess: (_, variables) => {
@@ -48,9 +60,13 @@ export default function KioskPage() {
         "break-end": "Break Ended",
       };
       toast({ title: labels[variables.type], description: `${selectedEmployee?.name} - ${format(new Date(), "h:mm a")}` });
+      setPasscode("");
+      setPasscodeDialogOpen(false);
+      setPendingAction(null);
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
+      setPasscode("");
     },
   });
 
@@ -69,7 +85,14 @@ export default function KioskPage() {
 
   const handleAction = (type: ActionType) => {
     if (!selectedEmployee) return;
-    actionMutation.mutate({ employeeId: selectedEmployee.id, type });
+    setPendingAction(type);
+    setPasscodeDialogOpen(true);
+  };
+
+  const submitPasscode = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEmployee || !pendingAction || passcode.length !== 4) return;
+    actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode });
   };
 
   const statusInfo = useMemo(() => {
@@ -197,6 +220,53 @@ export default function KioskPage() {
             )}
           </div>
         </div>
+
+        <Dialog open={passcodeDialogOpen} onOpenChange={(open) => {
+          if (!actionMutation.isPending) {
+            setPasscodeDialogOpen(open);
+            if (!open) setPasscode("");
+          }
+        }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Enter Passcode</DialogTitle>
+              <DialogDescription>
+                Please enter your 4-digit passcode to confirm this action.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submitPasscode} className="space-y-4">
+              <div className="flex justify-center">
+                <Input
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={4}
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  className="w-32 text-center text-2xl tracking-[1em] h-12"
+                  autoFocus
+                  required
+                />
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setPasscodeDialogOpen(false)}
+                  disabled={actionMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={passcode.length !== 4 || actionMutation.isPending}
+                >
+                  {actionMutation.isPending ? "Verifying..." : "Confirm"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

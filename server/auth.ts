@@ -20,8 +20,9 @@ export function setupSession(app: any) {
       secret: process.env.SESSION_SECRET || "shiftflow-secret-key-change-me",
       resave: false,
       saveUninitialized: false,
+      rolling: true,
       cookie: {
-        maxAge: 365 * 24 * 60 * 60 * 1000, // 1 year
+        maxAge: 10 * 365 * 24 * 60 * 60 * 1000, // 10 years
         httpOnly: true,
         secure: false,
         sameSite: "lax",
@@ -243,6 +244,11 @@ export function registerAuthRoutes(router: Router) {
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
+
+    if (employee.accessCode !== req.body.passcode) {
+      return res.status(401).json({ message: "Invalid passcode" });
+    }
+
     const todayStr = format(new Date(), "yyyy-MM-dd");
     const entry = await storage.createTimeEntry(employee.id, type, todayStr);
     res.status(201).json(entry);

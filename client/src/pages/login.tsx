@@ -75,7 +75,7 @@ export default function LoginPage() {
   };
 
   const handleKiosk = () => {
-    setLocation("/kiosk");
+    setLocation("/SteepIn");
   };
 
   if (setupLoading) {
@@ -239,7 +239,7 @@ export default function LoginPage() {
                   </p>
                 </div>
                 <Button onClick={handleKiosk} className="w-full" data-testid="button-launch-kiosk">
-                  <Monitor className="w-4 h-4 mr-2" /> Launch SteepIn
+                  <Clock className="w-4 h-4 mr-2" /> Launch SteepIn
                 </Button>
               </TabsContent>
             </Tabs>
