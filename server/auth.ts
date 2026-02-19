@@ -221,7 +221,7 @@ export function registerAuthRoutes(router: Router) {
     res.json(codes);
   });
 
-  // === KIOSK (no auth required) ===
+  // === SteepIn (no auth required) ===
   router.get("/api/kiosk/employees", async (_req, res) => {
     const emps = await storage.getEmployees();
     const safe = emps
@@ -230,14 +230,14 @@ export function registerAuthRoutes(router: Router) {
     res.json(safe);
   });
 
-  router.post("/api/kiosk/punch", async (req, res) => {
+  router.post("/api/kiosk/action", async (req, res) => {
     const { employeeId, type } = req.body;
     if (!employeeId || !type) {
       return res.status(400).json({ message: "employeeId and type are required" });
     }
     const validTypes = ["clock-in", "clock-out", "break-start", "break-end"];
     if (!validTypes.includes(type)) {
-      return res.status(400).json({ message: "Invalid punch type" });
+      return res.status(400).json({ message: "Invalid action type" });
     }
     const employee = await storage.getEmployee(Number(employeeId));
     if (!employee) {

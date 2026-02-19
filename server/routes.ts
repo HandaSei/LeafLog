@@ -102,6 +102,20 @@ export async function registerRoutes(
     res.json(entries);
   });
 
+  router.post("/api/kiosk/action", async (req, res) => {
+    const { employeeId, type } = req.body;
+    if (!employeeId || !type) {
+      return res.status(400).json({ message: "Employee ID and action type are required" });
+    }
+
+    const emp = await storage.getEmployee(Number(employeeId));
+    if (!emp) return res.status(404).json({ message: "Employee not found" });
+
+    const date = format(new Date(), "yyyy-MM-dd");
+    const entry = await storage.createTimeEntry(Number(employeeId), type, date);
+    res.status(201).json(entry);
+  });
+
   router.patch("/api/kiosk/entries/:id", requireRole("admin", "manager"), async (req, res) => {
     const id = parseInt(req.params.id);
     const entry = await storage.updateTimeEntry(id, req.body);

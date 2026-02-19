@@ -15,7 +15,7 @@ import {
   Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2,
 } from "lucide-react";
 
-type PunchType = "clock-in" | "clock-out" | "break-start" | "break-end";
+type ActionType = "clock-in" | "clock-out" | "break-start" | "break-end";
 
 export default function KioskPage() {
   const [, setLocation] = useLocation();
@@ -34,14 +34,14 @@ export default function KioskPage() {
     enabled: !!selectedEmployee,
   });
 
-  const punchMutation = useMutation({
-    mutationFn: async ({ employeeId, type }: { employeeId: number; type: PunchType }) => {
-      const res = await apiRequest("POST", "/api/kiosk/punch", { employeeId, type });
+  const actionMutation = useMutation({
+    mutationFn: async ({ employeeId, type }: { employeeId: number; type: ActionType }) => {
+      const res = await apiRequest("POST", "/api/kiosk/action", { employeeId, type });
       return res.json();
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries", variables.employeeId.toString()] });
-      const labels: Record<PunchType, string> = {
+      const labels: Record<ActionType, string> = {
         "clock-in": "Clocked In",
         "clock-out": "Clocked Out",
         "break-start": "Break Started",
@@ -67,9 +67,9 @@ export default function KioskPage() {
         e.department.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-  const handlePunch = (type: PunchType) => {
+  const handleAction = (type: ActionType) => {
     if (!selectedEmployee) return;
-    punchMutation.mutate({ employeeId: selectedEmployee.id, type });
+    actionMutation.mutate({ employeeId: selectedEmployee.id, type });
   };
 
   const statusInfo = useMemo(() => {
@@ -126,8 +126,8 @@ export default function KioskPage() {
                 size="lg"
                 className="h-20 flex flex-col gap-1 text-sm"
                 style={{ backgroundColor: "#10B981" }}
-                disabled={currentStatus === "clock-in" || currentStatus === "break-start" || punchMutation.isPending}
-                onClick={() => handlePunch("clock-in")}
+                disabled={currentStatus === "clock-in" || currentStatus === "break-start" || actionMutation.isPending}
+                onClick={() => handleAction("clock-in")}
                 data-testid="button-clock-in"
               >
                 <LogIn className="w-6 h-6" />
@@ -137,8 +137,8 @@ export default function KioskPage() {
                 size="lg"
                 className="h-20 flex flex-col gap-1 text-sm"
                 style={{ backgroundColor: "#EF4444" }}
-                disabled={currentStatus !== "clock-in" && currentStatus !== "break-end" || punchMutation.isPending}
-                onClick={() => handlePunch("clock-out")}
+                disabled={(currentStatus !== "clock-in" && currentStatus !== "break-end") || actionMutation.isPending}
+                onClick={() => handleAction("clock-out")}
                 data-testid="button-clock-out"
               >
                 <LogOut className="w-6 h-6" />
@@ -148,8 +148,8 @@ export default function KioskPage() {
                 size="lg"
                 variant="outline"
                 className="h-20 flex flex-col gap-1 text-sm"
-                disabled={currentStatus !== "clock-in" && currentStatus !== "break-end" || punchMutation.isPending}
-                onClick={() => handlePunch("break-start")}
+                disabled={(currentStatus !== "clock-in" && currentStatus !== "break-end") || actionMutation.isPending}
+                onClick={() => handleAction("break-start")}
                 data-testid="button-break-start"
               >
                 <Coffee className="w-6 h-6" />
@@ -159,8 +159,8 @@ export default function KioskPage() {
                 size="lg"
                 variant="outline"
                 className="h-20 flex flex-col gap-1 text-sm"
-                disabled={currentStatus !== "break-start" || punchMutation.isPending}
-                onClick={() => handlePunch("break-end")}
+                disabled={currentStatus !== "break-start" || actionMutation.isPending}
+                onClick={() => handleAction("break-end")}
                 data-testid="button-break-end"
               >
                 <Timer className="w-6 h-6" />
@@ -210,7 +210,7 @@ export default function KioskPage() {
           </div>
           <div>
             <h1 className="text-sm font-semibold">SteepIn</h1>
-            <p className="text-[10px] text-muted-foreground">Select your name to punch in/out</p>
+            <p className="text-[10px] text-muted-foreground">Select your name to record your work actions</p>
           </div>
         </div>
         <Button

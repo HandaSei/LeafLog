@@ -235,7 +235,7 @@ export default function LoginPage() {
                 <div className="bg-muted/50 rounded-md p-4 text-center space-y-2">
                   <Monitor className="w-8 h-8 text-muted-foreground mx-auto" />
                   <p className="text-xs text-muted-foreground">
-                    SteepIn allows employees to punch in/out without logging into their account.
+                    SteepIn allows employees to record their work actions without logging into their account.
                   </p>
                 </div>
                 <Button onClick={handleKiosk} className="w-full" data-testid="button-launch-kiosk">
