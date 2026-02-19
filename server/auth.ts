@@ -3,7 +3,7 @@ import session from "express-session";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { loginSchema, registerManagerSchema, accessCodeLoginSchema } from "@shared/schema";
+import { loginSchema, registerManagerSchema, accessCodeLoginSchema, registerAccountSchema } from "@shared/schema";
 import { format } from "date-fns";
 
 declare module "express-session" {
@@ -11,6 +11,7 @@ declare module "express-session" {
     userId: number;
     role: string;
     employeeId: number | null;
+    steepinMode: boolean;
   }
 }
 
@@ -71,7 +72,7 @@ export function registerAuthRoutes(router: Router) {
     if (account.employeeId) {
       employee = await storage.getEmployee(account.employeeId);
     }
-    res.json({ authenticated: true, user: safe, employee });
+    res.json({ authenticated: true, user: safe, employee, steepinMode: !!req.session.steepinMode });
   });
 
   router.get("/api/auth/setup-required", async (_req, res) => {
@@ -101,6 +102,38 @@ export function registerAuthRoutes(router: Router) {
       password: hashedPassword,
       role: "manager",
       agencyName: parsed.data.agencyName,
+    });
+
+    req.session.userId = account.id;
+    req.session.role = account.role;
+    req.session.employeeId = null;
+
+    const { password, ...safe } = account;
+    res.status(201).json({ user: safe });
+  });
+
+  router.post("/api/auth/register", async (req, res) => {
+    const parsed = registerAccountSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0].message });
+    }
+
+    const existing = await storage.getAccountByUsername(parsed.data.username);
+    if (existing) {
+      return res.status(400).json({ message: "Username already taken" });
+    }
+
+    const allAccounts = await storage.getAccountByEmail(parsed.data.email);
+    if (allAccounts) {
+      return res.status(400).json({ message: "An account with this email already exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
+    const account = await storage.createAccount({
+      username: parsed.data.username,
+      password: hashedPassword,
+      email: parsed.data.email,
+      role: "employee",
     });
 
     req.session.userId = account.id;
@@ -190,6 +223,9 @@ export function registerAuthRoutes(router: Router) {
 
   router.post("/api/auth/steepin-login", async (req, res) => {
     const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ message: "Username and password are required" });
+    }
     const account = await storage.getAccountByUsername(username);
     if (!account || !(await bcrypt.compare(password, account.password))) {
       return res.status(401).json({ message: "Invalid credentials" });
@@ -199,7 +235,15 @@ export function registerAuthRoutes(router: Router) {
     }
     req.session.userId = account.id;
     req.session.role = account.role;
-    res.json({ user: account });
+    req.session.steepinMode = true;
+    const { password: _, ...safe } = account;
+    res.json({ user: safe });
+  });
+
+  router.post("/api/auth/steepin-exit", (req, res) => {
+    req.session.destroy(() => {
+      res.json({ success: true });
+    });
   });
 
   router.post("/api/auth/logout", (req, res) => {

@@ -14,6 +14,7 @@ interface AuthState {
   authenticated: boolean;
   user: AuthUser | null;
   employee: any | null;
+  steepinMode: boolean;
 }
 
 interface AuthContextType {
@@ -24,10 +25,14 @@ interface AuthContextType {
   isAdmin: boolean;
   isManager: boolean;
   isEmployee: boolean;
+  isSteepIn: boolean;
   login: (username: string, password: string) => Promise<void>;
+  loginSteepIn: (username: string, password: string) => Promise<void>;
   loginWithCode: (code: string) => Promise<void>;
   registerManager: (username: string, password: string, agencyName: string) => Promise<void>;
+  registerAccount: (username: string, password: string, confirmPassword: string, email: string) => Promise<void>;
   logout: () => Promise<void>;
+  exitSteepIn: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -43,6 +48,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginMutation = useMutation({
     mutationFn: async ({ username, password }: { username: string; password: string }) => {
       const res = await apiRequest("POST", "/api/auth/login", { username, password });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+  });
+
+  const steepinLoginMutation = useMutation({
+    mutationFn: async ({ username, password }: { username: string; password: string }) => {
+      const res = await apiRequest("POST", "/api/auth/steepin-login", { username, password });
       return res.json();
     },
     onSuccess: () => {
@@ -70,6 +85,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
   });
 
+  const registerAccountMutation = useMutation({
+    mutationFn: async ({ username, password, confirmPassword, email }: { username: string; password: string; confirmPassword: string; email: string }) => {
+      const res = await apiRequest("POST", "/api/auth/register", { username, password, confirmPassword, email });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+  });
+
   const logoutMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("POST", "/api/auth/logout");
@@ -80,27 +105,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
   });
 
+  const exitSteepInMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/auth/steepin-exit");
+    },
+    onSuccess: () => {
+      queryClient.clear();
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+  });
+
   const login = useCallback(async (username: string, password: string) => {
     await loginMutation.mutateAsync({ username, password });
-    
-    // Store credentials for SteepIn persistence if requested
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("redirect")?.includes("SteepIn")) {
-      localStorage.setItem("steepin_session", btoa(`${username}:${password}`));
-    }
-  }, [loginMutation, loginMutation.mutateAsync]);
+  }, [loginMutation]);
+
+  const loginSteepIn = useCallback(async (username: string, password: string) => {
+    await steepinLoginMutation.mutateAsync({ username, password });
+  }, [steepinLoginMutation]);
 
   const loginWithCode = useCallback(async (code: string) => {
     await codeMutation.mutateAsync(code);
-  }, []);
+  }, [codeMutation]);
 
   const registerManager = useCallback(async (username: string, password: string, agencyName: string) => {
     await registerMutation.mutateAsync({ username, password, agencyName });
-  }, []);
+  }, [registerMutation]);
+
+  const registerAccount = useCallback(async (username: string, password: string, confirmPassword: string, email: string) => {
+    await registerAccountMutation.mutateAsync({ username, password, confirmPassword, email });
+  }, [registerAccountMutation]);
 
   const logout = useCallback(async () => {
     await logoutMutation.mutateAsync();
-  }, []);
+  }, [logoutMutation]);
+
+  const exitSteepIn = useCallback(async () => {
+    await exitSteepInMutation.mutateAsync();
+  }, [exitSteepInMutation]);
 
   const user = authState?.authenticated ? authState.user : null;
 
@@ -112,10 +153,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAdmin: user?.role === "admin",
     isManager: user?.role === "manager",
     isEmployee: user?.role === "employee",
+    isSteepIn: !!authState?.steepinMode,
     login,
+    loginSteepIn,
     loginWithCode,
     registerManager,
+    registerAccount,
     logout,
+    exitSteepIn,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

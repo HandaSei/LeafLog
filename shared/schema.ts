@@ -7,6 +7,7 @@ export const accounts = pgTable("accounts", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+  email: text("email"),
   role: text("role").notNull().default("employee"),
   employeeId: integer("employee_id"),
   agencyName: text("agency_name"),
@@ -90,6 +91,16 @@ export const registerManagerSchema = z.object({
 
 export const accessCodeLoginSchema = z.object({
   code: z.string().min(1, "Access code is required"),
+});
+
+export const registerAccountSchema = z.object({
+  username: z.string().min(3, "Username must be at least 3 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string().min(1, "Please confirm your password"),
+  email: z.string().email("Valid email is required"),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
 });
 
 export type Account = typeof accounts.$inferSelect;

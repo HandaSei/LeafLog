@@ -8,11 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Clock, LogIn, KeyRound, Monitor, Building2, UserPlus } from "lucide-react";
+import { Clock, LogIn, KeyRound, Monitor, UserPlus } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function LoginPage() {
-  const { isAuthenticated, login, loginWithCode, registerManager } = useAuth();
+  const { isAuthenticated, login, loginSteepIn, loginWithCode, registerManager, registerAccount } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
@@ -28,8 +28,11 @@ export default function LoginPage() {
   const [tab, setTab] = useState<string>("login");
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [codeForm, setCodeForm] = useState({ code: "" });
+  const [steepinForm, setSteepinForm] = useState({ username: "", password: "" });
   const [registerForm, setRegisterForm] = useState({ username: "", password: "", agencyName: "" });
+  const [signupForm, setSignupForm] = useState({ username: "", password: "", confirmPassword: "", email: "" });
   const [loading, setLoading] = useState(false);
+  const [showSignup, setShowSignup] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,14 +40,7 @@ export default function LoginPage() {
     try {
       await login(loginForm.username, loginForm.password);
       toast({ title: "Welcome back", description: "You have been logged in." });
-      
-      const params = new URLSearchParams(window.location.search);
-      const redirect = params.get("redirect");
-      if (redirect) {
-        setLocation(redirect);
-      } else {
-        setLocation("/");
-      }
+      setLocation("/");
     } catch (err: any) {
       toast({ title: "Login failed", description: err.message, variant: "destructive" });
     } finally {
@@ -60,6 +56,20 @@ export default function LoginPage() {
       toast({ title: "Welcome", description: "You have been logged in with your access code." });
     } catch (err: any) {
       toast({ title: "Access code error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSteepInLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await loginSteepIn(steepinForm.username, steepinForm.password);
+      toast({ title: "SteepIn Active", description: "Kiosk mode is now active." });
+      setLocation("/SteepIn");
+    } catch (err: any) {
+      toast({ title: "SteepIn login failed", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -82,8 +92,22 @@ export default function LoginPage() {
     }
   };
 
-  const handleKiosk = () => {
-    setLocation("/SteepIn");
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (signupForm.password !== signupForm.confirmPassword) {
+      toast({ title: "Error", description: "Passwords do not match", variant: "destructive" });
+      return;
+    }
+    setLoading(true);
+    try {
+      await registerAccount(signupForm.username, signupForm.password, signupForm.confirmPassword, signupForm.email);
+      toast({ title: "Account created", description: "Your account is ready." });
+      setLocation("/");
+    } catch (err: any) {
+      toast({ title: "Registration failed", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (setupLoading) {
@@ -95,6 +119,85 @@ export default function LoginPage() {
   }
 
   const showSetup = setupData?.setupRequired;
+
+  if (showSignup) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="w-full max-w-[420px] space-y-6">
+          <div className="text-center space-y-2">
+            <div className="flex items-center justify-center mx-auto w-12 h-12 rounded-md bg-primary mb-3">
+              <Clock className="w-7 h-7 text-primary-foreground" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-signup-title">Create Account</h1>
+            <p className="text-sm text-muted-foreground">Register a new LeafLog account</p>
+          </div>
+
+          <Card className="p-6">
+            <form onSubmit={handleSignup} className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-username">Username</Label>
+                <Input
+                  id="signup-username"
+                  placeholder="Choose a unique username"
+                  value={signupForm.username}
+                  onChange={(e) => setSignupForm({ ...signupForm, username: e.target.value })}
+                  required
+                  minLength={3}
+                  data-testid="input-signup-username"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-email">Email</Label>
+                <Input
+                  id="signup-email"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={signupForm.email}
+                  onChange={(e) => setSignupForm({ ...signupForm, email: e.target.value })}
+                  required
+                  data-testid="input-signup-email"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-password">Password</Label>
+                <Input
+                  id="signup-password"
+                  type="password"
+                  placeholder="Min 6 characters"
+                  value={signupForm.password}
+                  onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
+                  required
+                  minLength={6}
+                  data-testid="input-signup-password"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-confirm">Confirm Password</Label>
+                <Input
+                  id="signup-confirm"
+                  type="password"
+                  placeholder="Re-enter your password"
+                  value={signupForm.confirmPassword}
+                  onChange={(e) => setSignupForm({ ...signupForm, confirmPassword: e.target.value })}
+                  required
+                  minLength={6}
+                  data-testid="input-signup-confirm"
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={loading} data-testid="button-signup">
+                {loading ? "Creating account..." : "Create Account"}
+              </Button>
+            </form>
+            <div className="mt-4 pt-4 border-t text-center">
+              <Button variant="ghost" onClick={() => setShowSignup(false)} data-testid="button-back-to-login">
+                Already have an account? Sign in
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -157,11 +260,6 @@ export default function LoginPage() {
                 {loading ? "Creating account..." : "Create Manager Account"}
               </Button>
             </form>
-            <div className="mt-4 pt-4 border-t">
-              <Button variant="outline" className="w-full" onClick={handleKiosk} data-testid="button-kiosk-from-setup">
-                <Monitor className="w-4 h-4 mr-2" /> Use as Kiosk
-              </Button>
-            </div>
           </Card>
         ) : (
           <Card className="p-6">
@@ -238,42 +336,44 @@ export default function LoginPage() {
 
               <TabsContent value="kiosk" className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Sign in with manager credentials to launch the SteepIn kiosk.
+                  Sign in with manager or admin credentials to launch the SteepIn kiosk for employee time tracking.
                 </p>
-                <form onSubmit={(e) => {
-                  e.preventDefault();
-                  const params = new URLSearchParams(window.location.search);
-                  params.set("redirect", "/SteepIn");
-                  window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
-                  handleLogin(e);
-                }} className="space-y-3">
+                <form onSubmit={handleSteepInLogin} className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="kiosk-username">Manager Username</Label>
+                    <Label htmlFor="steepin-username">Username</Label>
                     <Input
-                      id="kiosk-username"
-                      placeholder="Enter manager username"
-                      value={loginForm.username}
-                      onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                      id="steepin-username"
+                      placeholder="Manager or admin username"
+                      value={steepinForm.username}
+                      onChange={(e) => setSteepinForm({ ...steepinForm, username: e.target.value })}
                       required
+                      data-testid="input-steepin-username"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="kiosk-password">Manager Password</Label>
+                    <Label htmlFor="steepin-password">Password</Label>
                     <Input
-                      id="kiosk-password"
+                      id="steepin-password"
                       type="password"
-                      placeholder="Enter manager password"
-                      value={loginForm.password}
-                      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                      placeholder="Enter password"
+                      value={steepinForm.password}
+                      onChange={(e) => setSteepinForm({ ...steepinForm, password: e.target.value })}
                       required
+                      data-testid="input-steepin-password"
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={loading}>
+                  <Button type="submit" className="w-full" disabled={loading} data-testid="button-steepin-login">
                     {loading ? "Launching..." : "Launch SteepIn"}
                   </Button>
                 </form>
               </TabsContent>
             </Tabs>
+
+            <div className="mt-4 pt-4 border-t text-center">
+              <Button variant="ghost" onClick={() => setShowSignup(true)} data-testid="button-go-to-signup">
+                Don't have an account? Register
+              </Button>
+            </div>
           </Card>
         )}
       </div>

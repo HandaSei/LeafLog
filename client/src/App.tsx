@@ -54,15 +54,7 @@ function AuthenticatedLayout() {
 }
 
 function AppContent() {
-  const { isAuthenticated, isLoading } = useAuth();
-  
-  // Use a try-catch for localStorage to handle security errors in some environments
-  let isSteepInSession = false;
-  try {
-    isSteepInSession = !!localStorage.getItem("steepin_session");
-  } catch (e) {
-    console.warn("localStorage access denied", e);
-  }
+  const { isAuthenticated, isLoading, isSteepIn } = useAuth();
 
   if (isLoading) {
     return (
@@ -72,20 +64,23 @@ function AppContent() {
     );
   }
 
+  if (isSteepIn) {
+    return (
+      <Switch>
+        <Route path="/SteepIn" component={KioskPage} />
+        <Route><Redirect to="/SteepIn" /></Route>
+      </Switch>
+    );
+  }
+
   return (
     <Switch>
       <Route path="/SteepIn" component={KioskPage} />
       <Route path="/login">
-        {isAuthenticated ? <Redirect to={isSteepInSession ? "/SteepIn" : "/"} /> : <LoginPage />}
+        {isAuthenticated ? <Redirect to="/" /> : <LoginPage />}
       </Route>
       <Route>
-        {isSteepInSession ? (
-          <Redirect to="/SteepIn" />
-        ) : isAuthenticated ? (
-          <AuthenticatedLayout />
-        ) : (
-          <Redirect to="/login" />
-        )}
+        {isAuthenticated ? <AuthenticatedLayout /> : <Redirect to="/login" />}
       </Route>
     </Switch>
   );

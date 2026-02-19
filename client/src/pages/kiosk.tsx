@@ -8,9 +8,7 @@ import type { Employee, TimeEntry } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import {
@@ -27,7 +25,7 @@ import {
 type ActionType = "clock-in" | "clock-out" | "break-start" | "break-end";
 
 export default function KioskPage() {
-  const { user, isLoading: authLoading, login } = useAuth();
+  const { user, isLoading: authLoading, isSteepIn, exitSteepIn } = useAuth();
   const [, setLocation] = useLocation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -36,55 +34,25 @@ export default function KioskPage() {
   const [pendingAction, setPendingAction] = useState<ActionType | null>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      if (!authLoading && !user) {
-        // Try to recover session from localStorage
-        let saved = null;
-        try {
-          saved = localStorage.getItem("steepin_session");
-        } catch (e) {
-          console.warn("localStorage access denied", e);
-        }
+  const isActive = !!user && isSteepIn;
 
-        if (saved) {
-          try {
-            const [username, password] = atob(saved).split(":");
-            await login(username, password);
-            return;
-          } catch (e) {
-            try {
-              localStorage.removeItem("steepin_session");
-            } catch (err) {}
-          }
-        }
-        setLocation("/login?redirect=/SteepIn");
-      }
-    };
-    checkAuth();
-  }, [user, authLoading, setLocation, login]);
+  useEffect(() => {
+    if (!authLoading && !isActive) {
+      setLocation("/login");
+    }
+  }, [authLoading, isActive, setLocation]);
 
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/kiosk/employees"],
     queryFn: getQueryFn({ on401: "returnNull" }),
-    enabled: !!user,
+    enabled: isActive,
     staleTime: Infinity,
   });
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Skeleton className="w-[300px] h-[400px] rounded-md" />
-      </div>
-    );
-  }
-
-  if (!user) return null;
-
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
+  const { data: entries = [] } = useQuery<TimeEntry[]>({
     queryKey: ["/api/kiosk/entries", selectedEmployee?.id?.toString() || ""],
     queryFn: getQueryFn({ on401: "returnNull" }),
-    enabled: !!selectedEmployee,
+    enabled: isActive && !!selectedEmployee,
   });
 
   const actionMutation = useMutation({
@@ -117,25 +85,6 @@ export default function KioskPage() {
     return last.type;
   }, [entries]);
 
-  const filteredEmployees = employees
-    .filter(
-      (e) =>
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.department.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-
-  const handleAction = (type: ActionType) => {
-    if (!selectedEmployee) return;
-    setPendingAction(type);
-    setPasscodeDialogOpen(true);
-  };
-
-  const submitPasscode = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedEmployee || !pendingAction || passcode.length !== 4) return;
-    actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode });
-  };
-
   const statusInfo = useMemo(() => {
     switch (currentStatus) {
       case "clock-in":
@@ -149,10 +98,36 @@ export default function KioskPage() {
     }
   }, [currentStatus]);
 
-  const exitKiosk = () => {
-    try {
-      localStorage.removeItem("steepin_session");
-    } catch (e) {}
+  const filteredEmployees = useMemo(() => {
+    return employees.filter(
+      (e) =>
+        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        e.department.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [employees, searchQuery]);
+
+  if (authLoading || !isActive) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Skeleton className="w-[300px] h-[400px] rounded-md" />
+      </div>
+    );
+  }
+
+  const handleAction = (type: ActionType) => {
+    if (!selectedEmployee) return;
+    setPendingAction(type);
+    setPasscodeDialogOpen(true);
+  };
+
+  const submitPasscode = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEmployee || !pendingAction || passcode.length !== 4) return;
+    actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode });
+  };
+
+  const handleExitSteepIn = async () => {
+    await exitSteepIn();
     setLocation("/login");
   };
 
@@ -174,7 +149,7 @@ export default function KioskPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={exitKiosk}
+            onClick={handleExitSteepIn}
             data-testid="button-exit-kiosk"
           >
             Exit SteepIn
@@ -322,7 +297,7 @@ export default function KioskPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="flex items-center justify-between gap-4 p-4 border-b">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
             <Clock className="w-5 h-5 text-primary-foreground" />
           </div>
@@ -334,7 +309,7 @@ export default function KioskPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={exitKiosk}
+          onClick={handleExitSteepIn}
           data-testid="button-exit-kiosk-list"
         >
           Exit SteepIn
