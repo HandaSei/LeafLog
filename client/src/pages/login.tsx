@@ -12,6 +12,7 @@ import { useLocation } from "wouter";
 import logoImage from "@assets/m3MJU_1771476103365.png";
 
 const LEAF_YELLOW = "#D4C5A0";
+const LEAF_YELLOW_BG = "#E8DCC4";
 const LEAF_GREEN = "#8B9E8B";
 
 export default function LoginPage() {
@@ -115,7 +116,7 @@ export default function LoginPage() {
 
   if (setupLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW }}>
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
         <Skeleton className="w-[420px] h-[500px] rounded-md" />
       </div>
     );
@@ -128,16 +129,16 @@ export default function LoginPage() {
 
   if (showSignup) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW }}>
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
         <div className="w-full max-w-[420px] space-y-6">
           <div className="text-center space-y-2">
             <img
               src={logoImage}
               alt="LeafLog"
-              className="w-20 h-20 mx-auto rounded-xl object-cover"
+              className="w-28 h-28 mx-auto rounded-xl object-cover"
               data-testid="img-logo"
             />
-            <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_YELLOW }} data-testid="text-signup-title">
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-signup-title">
               Create Account
             </h1>
             <p className="text-sm" style={{ color: "#8a7d60" }}>Register a new LeafLog account</p>
@@ -226,13 +227,13 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW }}>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
       <div className="w-full max-w-[420px] space-y-6">
         <div className="text-center space-y-2">
           <img
             src={logoImage}
             alt="LeafLog"
-            className="w-24 h-24 mx-auto rounded-xl object-cover"
+            className="w-28 h-28 mx-auto rounded-xl object-cover"
             data-testid="img-logo"
           />
           <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-login-title">
