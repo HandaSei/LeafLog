@@ -40,14 +40,22 @@ export default function KioskPage() {
     const checkAuth = async () => {
       if (!authLoading && !user) {
         // Try to recover session from localStorage
-        const saved = localStorage.getItem("steepin_session");
+        let saved = null;
+        try {
+          saved = localStorage.getItem("steepin_session");
+        } catch (e) {
+          console.warn("localStorage access denied", e);
+        }
+
         if (saved) {
           try {
             const [username, password] = atob(saved).split(":");
             await login(username, password);
             return;
           } catch (e) {
-            localStorage.removeItem("steepin_session");
+            try {
+              localStorage.removeItem("steepin_session");
+            } catch (err) {}
           }
         }
         setLocation("/login?redirect=/SteepIn");
@@ -142,7 +150,9 @@ export default function KioskPage() {
   }, [currentStatus]);
 
   const exitKiosk = () => {
-    localStorage.removeItem("steepin_session");
+    try {
+      localStorage.removeItem("steepin_session");
+    } catch (e) {}
     setLocation("/login");
   };
 

@@ -55,7 +55,14 @@ function AuthenticatedLayout() {
 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
-  const isSteepInSession = !!localStorage.getItem("steepin_session");
+  
+  // Use a try-catch for localStorage to handle security errors in some environments
+  let isSteepInSession = false;
+  try {
+    isSteepInSession = !!localStorage.getItem("steepin_session");
+  } catch (e) {
+    console.warn("localStorage access denied", e);
+  }
 
   if (isLoading) {
     return (
