@@ -6,7 +6,7 @@ import type { Shift, Employee } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, ArrowRight, CalendarDays, CheckCircle2, Clock, AlertTriangle, XCircle, Coffee, Ban } from "lucide-react";
+import { Calendar, ArrowRight, CalendarDays, CheckCircle2, Clock, AlertTriangle, XCircle, Coffee, AlertCircle } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { formatTime } from "@/lib/constants";
 
@@ -36,8 +36,7 @@ type ClockStatus =
   | { kind: "late"; minutesLate: number }
   | { kind: "very-late"; minutesLate: number }
   | { kind: "clocked-out"; breakInfo: BreakInfo }
-  | { kind: "upcoming" }
-  | { kind: "no-schedule" };
+  | { kind: "waiting" };
 
 function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
   const breakStarts = entries.filter((e) => e.type === "break-start").map((e) => new Date(e.timestamp));
@@ -78,11 +77,7 @@ function getNoBreakWarning(entries: TimeEntry[], now: Date, breakInfo: BreakInfo
   return null;
 }
 
-function getClockStatus(shift: Shift | null, entries: TimeEntry[], now: Date): ClockStatus {
-  if (!shift) {
-    return { kind: "no-schedule" };
-  }
-
+function getClockStatus(shift: Shift, entries: TimeEntry[], now: Date): ClockStatus {
   const shiftStartParts = shift.startTime.split(":");
   const shiftStart = new Date(now);
   shiftStart.setHours(parseInt(shiftStartParts[0]), parseInt(shiftStartParts[1]), 0, 0);
@@ -108,7 +103,7 @@ function getClockStatus(shift: Shift | null, entries: TimeEntry[], now: Date): C
   if (now < shiftStart) {
     const minsUntil = differenceInMinutes(shiftStart, now);
     if (minsUntil > 60) {
-      return { kind: "upcoming" };
+      return { kind: "waiting" };
     }
     return { kind: "not-yet", minutesUntil: minsUntil };
   }
@@ -162,8 +157,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
             <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
             <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Clocked in on time</span>
           </div>
-          {status.breakInfo.onBreak && <BreakBadge breakInfo={status.breakInfo} />}
-          {!status.breakInfo.onBreak && status.breakInfo.totalBreakMinutes > 0 && <BreakBadge breakInfo={status.breakInfo} />}
+          <BreakBadge breakInfo={status.breakInfo} />
           {status.noBreakWarning && !status.breakInfo.onBreak && <NoBreakWarningBadge warning={status.noBreakWarning} />}
         </div>
       );
@@ -174,8 +168,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
             <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
             <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Clocked in {status.minutesLate}min late</span>
           </div>
-          {status.breakInfo.onBreak && <BreakBadge breakInfo={status.breakInfo} />}
-          {!status.breakInfo.onBreak && status.breakInfo.totalBreakMinutes > 0 && <BreakBadge breakInfo={status.breakInfo} />}
+          <BreakBadge breakInfo={status.breakInfo} />
           {status.noBreakWarning && !status.breakInfo.onBreak && <NoBreakWarningBadge warning={status.noBreakWarning} />}
         </div>
       );
@@ -210,18 +203,11 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
           {status.breakInfo.totalBreakMinutes > 0 && <BreakBadge breakInfo={status.breakInfo} />}
         </div>
       );
-    case "upcoming":
+    case "waiting":
       return (
-        <div className="flex items-center gap-1.5" data-testid="status-upcoming">
-          <CalendarDays className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground">Upcoming</span>
-        </div>
-      );
-    case "no-schedule":
-      return (
-        <div className="flex items-center gap-1.5" data-testid="status-no-schedule">
-          <Ban className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground">No schedule set for today</span>
+        <div className="flex items-center gap-1.5" data-testid="status-waiting">
+          <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-[11px] text-muted-foreground">Waiting for shift</span>
         </div>
       );
   }
@@ -229,7 +215,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
 
 interface EmployeeRow {
   employee: Employee;
-  shift: Shift | null;
+  shift: Shift;
   status: ClockStatus;
 }
 
@@ -274,23 +260,17 @@ export default function Dashboard() {
     [shifts, todayStr]
   );
 
-  const shiftByEmployee = useMemo(() => {
-    const map = new Map<number, Shift>();
-    todayShifts.forEach((s) => map.set(s.employeeId, s));
-    return map;
-  }, [todayShifts]);
-
   const now = new Date();
 
-  const employeeRows: EmployeeRow[] = useMemo(() => {
-    const activeEmployees = employees.filter((e) => e.status === "active");
-    return activeEmployees.map((emp) => {
-      const shift = shiftByEmployee.get(emp.id) || null;
-      const entries = entriesByEmployee.get(emp.id) || [];
+  const scheduledRows: EmployeeRow[] = useMemo(() => {
+    return todayShifts.map((shift) => {
+      const emp = employeeMap.get(shift.employeeId);
+      if (!emp) return null;
+      const entries = entriesByEmployee.get(shift.employeeId) || [];
       const status = getClockStatus(shift, entries, now);
       return { employee: emp, shift, status };
-    });
-  }, [employees, shiftByEmployee, entriesByEmployee, now]);
+    }).filter(Boolean) as EmployeeRow[];
+  }, [todayShifts, employeeMap, entriesByEmployee, now]);
 
   const sortedRows = useMemo(() => {
     const priority: Record<string, number> = {
@@ -299,17 +279,24 @@ export default function Dashboard() {
       "on-time": 2,
       "clocked-late": 3,
       "not-yet": 4,
-      "upcoming": 5,
-      "clocked-out": 6,
-      "no-schedule": 7,
+      "clocked-out": 5,
+      "waiting": 6,
     };
-    return [...employeeRows].sort((a, b) => {
+    return [...scheduledRows].sort((a, b) => {
       const pa = priority[a.status.kind] ?? 99;
       const pb = priority[b.status.kind] ?? 99;
       if (pa !== pb) return pa - pb;
+      if (a.status.kind === "waiting" && b.status.kind === "waiting") {
+        return a.shift.startTime.localeCompare(b.shift.startTime);
+      }
       return a.employee.name.localeCompare(b.employee.name);
     });
-  }, [employeeRows]);
+  }, [scheduledRows]);
+
+  const todayEmployeeIds = new Set(todayShifts.map((s) => s.employeeId));
+  const unscheduledEmployees = employees.filter(
+    (e) => e.status === "active" && !todayEmployeeIds.has(e.id)
+  );
 
   return (
     <div className="flex flex-col h-full overflow-auto">
@@ -324,7 +311,7 @@ export default function Dashboard() {
       <div className="p-4 space-y-4">
         <Card className="p-4">
           <div className="flex items-center justify-between gap-2 mb-3">
-            <h3 className="text-sm font-semibold" data-testid="text-working-now">Working Right Now</h3>
+            <h3 className="text-sm font-semibold" data-testid="text-flow">Flow</h3>
             <Button
               variant="ghost"
               size="sm"
@@ -336,14 +323,14 @@ export default function Dashboard() {
           </div>
           {isLoading ? (
             <div className="space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
+              {Array.from({ length: 4 }).map((_, i) => (
                 <Skeleton key={i} className="h-14 rounded-md" />
               ))}
             </div>
           ) : sortedRows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <CalendarDays className="w-8 h-8 text-muted-foreground/30 mb-2" />
-              <p className="text-sm text-muted-foreground">No active employees</p>
+              <p className="text-sm text-muted-foreground">No shifts scheduled today</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -351,21 +338,19 @@ export default function Dashboard() {
                 <div
                   key={emp.id}
                   className="flex items-center gap-3 p-2.5 rounded-md bg-muted/50"
-                  data-testid={`employee-row-${emp.id}`}
+                  data-testid={`flow-row-${emp.id}`}
                 >
                   <div
                     className="w-1 h-10 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: shift?.color || emp.color || "#8B9E8B" }}
+                    style={{ backgroundColor: shift.color || emp.color || "#8B9E8B" }}
                   />
                   <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-medium truncate">{emp.name}</span>
-                      {shift && (
-                        <span className="text-[10px] text-muted-foreground">
-                          {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
-                        </span>
-                      )}
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
+                      </span>
                     </div>
                     <StatusIndicator status={status} />
                   </div>
@@ -374,6 +359,27 @@ export default function Dashboard() {
             </div>
           )}
         </Card>
+
+        {!isLoading && unscheduledEmployees.length > 0 && (
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              <h3 className="text-sm font-semibold" data-testid="text-unscheduled">Unscheduled Employees Today</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {unscheduledEmployees.map((emp) => (
+                <div
+                  key={emp.id}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/50"
+                  data-testid={`unscheduled-${emp.id}`}
+                >
+                  <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
+                  <span className="text-xs">{emp.name}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );
