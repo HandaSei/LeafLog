@@ -36,7 +36,9 @@ type ClockStatus =
   | { kind: "late"; minutesLate: number }
   | { kind: "very-late"; minutesLate: number }
   | { kind: "clocked-out"; breakInfo: BreakInfo }
-  | { kind: "waiting" };
+  | { kind: "waiting" }
+  | { kind: "working-no-schedule"; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
+  | { kind: "done-no-schedule"; breakInfo: BreakInfo };
 
 function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
   const breakStarts = entries.filter((e) => e.type === "break-start").map((e) => new Date(e.timestamp));
@@ -77,16 +79,21 @@ function getNoBreakWarning(entries: TimeEntry[], now: Date, breakInfo: BreakInfo
   return null;
 }
 
-function getClockStatus(shift: Shift, entries: TimeEntry[], now: Date): ClockStatus {
+function getClockStatusForScheduled(shift: Shift, entries: TimeEntry[], now: Date): ClockStatus {
   const shiftStartParts = shift.startTime.split(":");
   const shiftStart = new Date(now);
   shiftStart.setHours(parseInt(shiftStartParts[0]), parseInt(shiftStartParts[1]), 0, 0);
 
   const clockIn = entries.find((e) => e.type === "clock-in");
-  const clockOut = entries.find((e) => e.type === "clock-out");
+  const clockOuts = entries.filter((e) => e.type === "clock-out");
+  const clockIns = entries.filter((e) => e.type === "clock-in");
+  const lastClockOut = clockOuts.length > 0 ? clockOuts[clockOuts.length - 1] : null;
+  const lastClockIn = clockIns.length > 0 ? clockIns[clockIns.length - 1] : null;
   const breakInfo = getBreakInfo(entries, now);
 
-  if (clockOut) {
+  const isClockedOut = lastClockOut && lastClockIn && new Date(lastClockOut.timestamp) > new Date(lastClockIn.timestamp);
+
+  if (isClockedOut) {
     return { kind: "clocked-out", breakInfo };
   }
 
@@ -113,6 +120,25 @@ function getClockStatus(shift: Shift, entries: TimeEntry[], now: Date): ClockSta
     return { kind: "very-late", minutesLate: minsLate };
   }
   return { kind: "late", minutesLate: minsLate };
+}
+
+function getClockStatusForUnscheduled(entries: TimeEntry[], now: Date): ClockStatus | null {
+  const clockIns = entries.filter((e) => e.type === "clock-in");
+  const clockOuts = entries.filter((e) => e.type === "clock-out");
+  if (clockIns.length === 0) return null;
+
+  const lastClockIn = clockIns[clockIns.length - 1];
+  const lastClockOut = clockOuts.length > 0 ? clockOuts[clockOuts.length - 1] : null;
+  const breakInfo = getBreakInfo(entries, now);
+
+  const isClockedOut = lastClockOut && new Date(lastClockOut.timestamp) > new Date(lastClockIn.timestamp);
+
+  if (isClockedOut) {
+    return { kind: "done-no-schedule", breakInfo };
+  }
+
+  const noBreakWarning = getNoBreakWarning(entries, now, breakInfo);
+  return { kind: "working-no-schedule", breakInfo, noBreakWarning };
 }
 
 function BreakBadge({ breakInfo }: { breakInfo: BreakInfo }) {
@@ -210,12 +236,33 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
           <span className="text-[11px] text-muted-foreground">Waiting for shift</span>
         </div>
       );
+    case "working-no-schedule":
+      return (
+        <div className="flex flex-col gap-1" data-testid="status-working-no-schedule">
+          <div className="flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+            <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Working (no schedule set)</span>
+          </div>
+          <BreakBadge breakInfo={status.breakInfo} />
+          {status.noBreakWarning && !status.breakInfo.onBreak && <NoBreakWarningBadge warning={status.noBreakWarning} />}
+        </div>
+      );
+    case "done-no-schedule":
+      return (
+        <div className="flex flex-col gap-1" data-testid="status-done-no-schedule">
+          <div className="flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-[11px] text-muted-foreground">Done for today (no schedule set)</span>
+          </div>
+          {status.breakInfo.totalBreakMinutes > 0 && <BreakBadge breakInfo={status.breakInfo} />}
+        </div>
+      );
   }
 }
 
-interface EmployeeRow {
+interface FlowRow {
   employee: Employee;
-  shift: Shift;
+  shift: Shift | null;
   status: ClockStatus;
 }
 
@@ -262,14 +309,31 @@ export default function Dashboard() {
 
   const now = new Date();
 
-  const scheduledRows: EmployeeRow[] = useMemo(() => {
-    return todayShifts.map((shift) => {
+  const flowRows: FlowRow[] = useMemo(() => {
+    const rows: FlowRow[] = [];
+    const includedEmployeeIds = new Set<number>();
+
+    todayShifts.forEach((shift) => {
       const emp = employeeMap.get(shift.employeeId);
-      if (!emp) return null;
+      if (!emp) return;
       const entries = entriesByEmployee.get(shift.employeeId) || [];
-      const status = getClockStatus(shift, entries, now);
-      return { employee: emp, shift, status };
-    }).filter(Boolean) as EmployeeRow[];
+      const status = getClockStatusForScheduled(shift, entries, now);
+      rows.push({ employee: emp, shift, status });
+      includedEmployeeIds.add(emp.id);
+    });
+
+    entriesByEmployee.forEach((entries, employeeId) => {
+      if (includedEmployeeIds.has(employeeId)) return;
+      const emp = employeeMap.get(employeeId);
+      if (!emp || emp.status !== "active") return;
+      const status = getClockStatusForUnscheduled(entries, now);
+      if (status) {
+        rows.push({ employee: emp, shift: null, status });
+        includedEmployeeIds.add(emp.id);
+      }
+    });
+
+    return rows;
   }, [todayShifts, employeeMap, entriesByEmployee, now]);
 
   const sortedRows = useMemo(() => {
@@ -278,24 +342,31 @@ export default function Dashboard() {
       "late": 1,
       "on-time": 2,
       "clocked-late": 3,
-      "not-yet": 4,
-      "clocked-out": 5,
-      "waiting": 6,
+      "working-no-schedule": 4,
+      "not-yet": 5,
+      "clocked-out": 6,
+      "done-no-schedule": 7,
+      "waiting": 8,
     };
-    return [...scheduledRows].sort((a, b) => {
+    return [...flowRows].sort((a, b) => {
       const pa = priority[a.status.kind] ?? 99;
       const pb = priority[b.status.kind] ?? 99;
       if (pa !== pb) return pa - pb;
-      if (a.status.kind === "waiting" && b.status.kind === "waiting") {
+      if (a.status.kind === "waiting" && b.status.kind === "waiting" && a.shift && b.shift) {
         return a.shift.startTime.localeCompare(b.shift.startTime);
       }
       return a.employee.name.localeCompare(b.employee.name);
     });
-  }, [scheduledRows]);
+  }, [flowRows]);
 
-  const todayEmployeeIds = new Set(todayShifts.map((s) => s.employeeId));
+  const inFlowIds = useMemo(() => {
+    const ids = new Set<number>();
+    todayShifts.forEach((s) => ids.add(s.employeeId));
+    todayEntries.filter((e) => e.type === "clock-in").forEach((e) => ids.add(e.employeeId));
+    return ids;
+  }, [todayShifts, todayEntries]);
   const unscheduledEmployees = employees.filter(
-    (e) => e.status === "active" && !todayEmployeeIds.has(e.id)
+    (e) => e.status === "active" && !inFlowIds.has(e.id)
   );
 
   return (
@@ -330,7 +401,7 @@ export default function Dashboard() {
           ) : sortedRows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <CalendarDays className="w-8 h-8 text-muted-foreground/30 mb-2" />
-              <p className="text-sm text-muted-foreground">No shifts scheduled today</p>
+              <p className="text-sm text-muted-foreground">No one working or scheduled today</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -342,15 +413,17 @@ export default function Dashboard() {
                 >
                   <div
                     className="w-1 h-10 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: shift.color || emp.color || "#8B9E8B" }}
+                    style={{ backgroundColor: shift?.color || emp.color || "#8B9E8B" }}
                   />
                   <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-medium truncate">{emp.name}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
-                      </span>
+                      {shift && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
+                        </span>
+                      )}
                     </div>
                     <StatusIndicator status={status} />
                   </div>

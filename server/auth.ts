@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import session from "express-session";
+import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { storage } from "./storage";
@@ -16,8 +17,14 @@ declare module "express-session" {
 }
 
 export function setupSession(app: any) {
+  const PgStore = pgSession(session);
+
   app.use(
     session({
+      store: new PgStore({
+        conString: process.env.DATABASE_URL,
+        createTableIfMissing: true,
+      }),
       secret: process.env.SESSION_SECRET || "shiftflow-secret-key-change-me",
       resave: false,
       saveUninitialized: false,
