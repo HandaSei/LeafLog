@@ -1,39 +1,18 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, differenceInMinutes } from "date-fns";
+import { useQuery } from "@tanstack/react-query";
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, addDays, subDays } from "date-fns";
 import { useState, useMemo } from "react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FileText, ChevronLeft, ChevronRight, Edit2, Clock, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { EmployeeAvatar } from "@/components/employee-avatar";
 import type { Employee, TimeEntry } from "@shared/schema";
 
 export default function Timesheets() {
   const [selectedWeek, setSelectedWeek] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("all");
-  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
-  const [viewingDetails, setViewingDetails] = useState<{ employeeId: number; date: string } | null>(null);
-  const { toast } = useToast();
+  const [selectedRole, setSelectedRole] = useState<string>("all");
 
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
@@ -43,21 +22,6 @@ export default function Timesheets() {
     queryKey: ["/api/kiosk/entries"],
   });
 
-  const updateEntryMutation = useMutation({
-    mutationFn: async (entry: Partial<TimeEntry> & { id: number }) => {
-      const res = await apiRequest("PATCH", `/api/kiosk/entries/${entry.id}`, entry);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] });
-      toast({ title: "Success", description: "Entry updated successfully" });
-      setEditingEntry(null);
-    },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
-
   const weekDays = useMemo(() => {
     return eachDayOfInterval({
       start: selectedWeek,
@@ -65,221 +29,162 @@ export default function Timesheets() {
     });
   }, [selectedWeek]);
 
-  const calculateWorkedTime = (dayEntries: TimeEntry[]) => {
-    if (dayEntries.length < 2) return null;
-    
-    const sorted = [...dayEntries].sort((a, b) => 
-      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-    
-    const start = sorted.find(e => e.type === "clock-in");
-    const end = [...sorted].reverse().find(e => e.type === "clock-out");
-    
-    if (!start || !end) return null;
-    
-    const startTime = new Date(start.timestamp);
-    const endTime = new Date(end.timestamp);
-    
-    const totalMinutes = differenceInMinutes(endTime, startTime);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    
-    return {
-      start: format(startTime, "HH:mm"),
-      end: format(endTime, "HH:mm"),
-      duration: `${hours}h ${minutes}m`
-    };
+  const navigateWeek = (direction: number) => {
+    setSelectedWeek(prev => direction > 0 ? addDays(prev, 7) : subDays(prev, 7));
   };
 
-  const navigateWeek = (direction: number) => {
-    const next = new Date(selectedWeek);
-    next.setDate(next.getDate() + (direction * 7));
-    setSelectedWeek(next);
+  const roles = useMemo(() => {
+    const r = new Set(employees.map(e => e.role));
+    return Array.from(r);
+  }, [employees]);
+
+  const calculateHours = (empEntries: TimeEntry[]) => {
+    // Basic calculation for display: count duration between clock-in and clock-out
+    if (empEntries.length < 2) return 0;
+    const sorted = [...empEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    let totalMs = 0;
+    let lastIn: Date | null = null;
+
+    sorted.forEach(entry => {
+      if (entry.type === "clock-in") lastIn = new Date(entry.timestamp);
+      else if (entry.type === "clock-out" && lastIn) {
+        totalMs += new Date(entry.timestamp).getTime() - lastIn.getTime();
+        lastIn = null;
+      }
+    });
+    return totalMs / (1000 * 60 * 60);
   };
 
   if (empsLoading || entriesLoading) {
     return <div className="p-8"><Skeleton className="h-64 w-full" /></div>;
   }
 
+  const filteredEmployees = employees.filter(emp => selectedRole === "all" || emp.role === selectedRole);
+
+  const totalWeeklyHours = filteredEmployees.reduce((acc, emp) => {
+    const empEntries = entries.filter(e => e.employeeId === emp.id && weekDays.some(d => format(d, "yyyy-MM-dd") === e.date));
+    return acc + calculateHours(empEntries);
+  }, 0);
+
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <FileText className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold">Timesheets</h1>
+    <div className="flex flex-col h-full bg-slate-50/50">
+      {/* Header */}
+      <div className="px-4 py-3 flex items-center justify-between bg-white border-b">
+        <Button variant="ghost" size="icon" className="h-8 w-8">
+          <ChevronLeft className="h-5 w-5" />
+        </Button>
+        <h1 className="text-lg font-semibold text-slate-900">Timesheets</h1>
+        <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600">
+          <Plus className="h-6 w-6" />
+        </Button>
+      </div>
+
+      {/* Date Navigation */}
+      <div className="px-4 py-4 bg-white space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1 font-semibold text-slate-900">
+            {format(selectedWeek, "MMM yyyy")}
+            <ChevronLeft className="h-4 w-4 ml-1 rotate-270" />
+          </div>
+          <div className="flex items-center gap-4">
+            <button onClick={() => navigateWeek(-1)} className="text-slate-400 hover:text-slate-600">
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button onClick={() => navigateWeek(1)} className="text-slate-400 hover:text-slate-600">
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 bg-muted rounded-md p-1">
-          <Button variant="ghost" size="icon" onClick={() => navigateWeek(-1)}>
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <span className="text-sm font-medium px-2">
-            {format(selectedWeek, "MMM d")} - {format(endOfWeek(selectedWeek, { weekStartsOn: 1 }), "MMM d")}
-          </span>
-          <Button variant="ghost" size="icon" onClick={() => navigateWeek(1)}>
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+
+        {/* Days Header */}
+        <div className="grid grid-cols-7 gap-1">
+          {weekDays.map((day, idx) => {
+            const isToday = format(day, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
+            return (
+              <div key={idx} className="flex flex-col items-center gap-2">
+                <span className="text-[10px] font-medium text-slate-400 uppercase">{format(day, "EEEEE")}</span>
+                <div className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium transition-colors
+                  ${isToday ? "bg-blue-600 text-white" : "text-slate-600"}`}>
+                  {format(day, "d")}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <CardTitle className="text-sm font-medium">Weekly Overview</CardTitle>
-          <div className="flex items-center gap-2">
-            <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="All Employees" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Employees</SelectItem>
-                {employees.map(emp => (
-                  <SelectItem key={emp.id} value={emp.id.toString()}>{emp.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Employee</TableHead>
-                  {weekDays.map(day => (
-                    <TableHead key={day.toISOString()} className="text-center">
-                      {format(day, "EEE d")}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {employees
-                  .filter(emp => selectedEmployeeId === "all" || emp.id.toString() === selectedEmployeeId)
-                  .map(emp => (
-                    <TableRow key={emp.id}>
-                      <TableCell className="font-medium">{emp.name}</TableCell>
-                      {weekDays.map(day => {
-                        const dateStr = format(day, "yyyy-MM-dd");
-                        const dayEntries = entries.filter(e => e.employeeId === emp.id && e.date === dateStr);
-                        const worked = calculateWorkedTime(dayEntries);
-                        
-                        return (
-                          <TableCell key={day.toISOString()} className="text-center">
-                            {worked ? (
-                              <button 
-                                onClick={() => setViewingDetails({ employeeId: emp.id, date: dateStr })}
-                                className="group flex flex-col items-center hover-elevate p-1 rounded-sm w-full transition-colors"
-                              >
-                                <span className="text-xs font-bold text-primary">{worked.start} - {worked.end}</span>
-                                <Badge variant="secondary" className="text-[10px] mt-1">
-                                  {worked.duration}
-                                </Badge>
-                              </button>
-                            ) : (
-                              dayEntries.length > 0 ? (
-                                <button 
-                                  onClick={() => setViewingDetails({ employeeId: emp.id, date: dateStr })}
-                                  className="text-[10px] text-muted-foreground hover:text-primary underline flex items-center justify-center gap-1 mx-auto"
-                                >
-                                  <Info className="w-3 h-3" /> {dayEntries.length} actions
-                                </button>
-                              ) : "-"
-                            )}
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Filter Bar */}
+      <div className="px-4 py-3 flex items-center gap-2 overflow-x-auto">
+        <div className="p-1.5 rounded-md bg-white border border-slate-200">
+          <ChevronLeft className="h-4 w-4 text-slate-400" />
+        </div>
+        <Select value={selectedRole} onValueChange={setSelectedRole}>
+          <SelectTrigger className="h-9 w-auto min-w-[120px] bg-white border-slate-200 rounded-lg text-slate-600">
+            <SelectValue placeholder="Positions" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Positions</SelectItem>
+            {roles.map(role => (
+              <SelectItem key={role} value={role}>{role}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-      {/* Details Dialog */}
-      <Dialog open={!!viewingDetails} onOpenChange={() => setViewingDetails(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Daily Actions</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {viewingDetails && entries
-              .filter(e => e.employeeId === viewingDetails.employeeId && e.date === viewingDetails.date)
-              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-              .map(entry => (
-                <div key={entry.id} className="flex items-center justify-between p-2 rounded-md border bg-muted/30">
-                  <div className="flex items-center gap-3">
-                    <Clock className="w-4 h-4 text-muted-foreground" />
-                    <div>
-                      <div className="text-sm font-medium capitalize">{entry.type.replace('-', ' ')}</div>
-                      <div className="text-xs text-muted-foreground">{format(new Date(entry.timestamp), "h:mm:ss a")}</div>
+      {/* Week Range Display */}
+      <div className="px-6 py-2">
+        <p className="text-xs font-medium text-slate-400">
+          &lt; {format(selectedWeek, "MMM d")} - {format(endOfWeek(selectedWeek, { weekStartsOn: 1 }), "MMM d")} &gt;
+        </p>
+      </div>
+
+      {/* Timesheet List */}
+      <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-3">
+        {filteredEmployees.map(emp => {
+          const empEntries = entries.filter(e => e.employeeId === emp.id && weekDays.some(d => format(d, "yyyy-MM-dd") === e.date));
+          const hours = calculateHours(empEntries);
+          
+          if (empEntries.length === 0) return null;
+
+          // Group by date for range display
+          const sorted = [...empEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+          const start = sorted.find(e => e.type === "clock-in");
+          const end = [...sorted].reverse().find(e => e.type === "clock-out");
+
+          return (
+            <Card key={emp.id} className="border-none shadow-sm rounded-xl overflow-hidden">
+              <div className="p-4 flex items-start justify-between bg-white">
+                <div className="flex gap-3">
+                  <EmployeeAvatar name={emp.name} color={emp.color} size="sm" className="h-10 w-10 text-xs" />
+                  <div className="space-y-1">
+                    <h3 className="font-medium text-slate-900">{emp.name}</h3>
+                    <div className="text-sm font-bold text-slate-950">
+                      {start ? format(new Date(start.timestamp), "HH:mm") : "--:--"} - {end ? format(new Date(end.timestamp), "HH:mm") : "--:--"}
                     </div>
+                    <p className="text-xs text-slate-400 font-medium">Bar New Prosit</p>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => setEditingEntry(entry)}>
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </Button>
                 </div>
-              ))}
-          </div>
-        </DialogContent>
-      </Dialog>
+                <div className="flex flex-col items-end gap-3">
+                  <Badge variant="secondary" className="bg-orange-50 text-orange-700 hover:bg-orange-50 border-none font-semibold px-2 py-0.5 rounded-lg text-[10px]">
+                    Pending
+                  </Badge>
+                  <div className="text-sm font-semibold text-slate-400">
+                    {hours.toFixed(2)} h
+                  </div>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
 
-      {/* Edit Dialog */}
-      <Dialog open={!!editingEntry} onOpenChange={() => setEditingEntry(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Action</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Type</Label>
-              <Select 
-                value={editingEntry?.type} 
-                onValueChange={(val: any) => setEditingEntry(prev => prev ? {...prev, type: val} : null)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="clock-in">Clock In</SelectItem>
-                  <SelectItem value="clock-out">Clock Out</SelectItem>
-                  <SelectItem value="break-start">Break Start</SelectItem>
-                  <SelectItem value="break-end">Break End</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Timestamp</Label>
-              <Input 
-                type="datetime-local" 
-                value={editingEntry ? format(new Date(editingEntry.timestamp), "yyyy-MM-dd'T'HH:mm") : ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setEditingEntry(prev => {
-                    if (!prev) return null;
-                    return {
-                      ...prev,
-                      timestamp: new Date(val)
-                    };
-                  });
-                }}
-              />
-            </div>
+        {/* Total Display */}
+        <div className="pt-2 pr-2 flex justify-end">
+          <div className="text-lg font-bold text-slate-900 flex items-baseline gap-2">
+            <span className="text-slate-400 font-semibold text-sm uppercase tracking-wide">Total:</span>
+            {totalWeeklyHours.toFixed(2)} h
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingEntry(null)}>Cancel</Button>
-            <Button 
-              onClick={() => editingEntry && updateEntryMutation.mutate({
-                id: editingEntry.id,
-                type: editingEntry.type,
-                timestamp: editingEntry.timestamp
-              })}
-              disabled={updateEntryMutation.isPending}
-            >
-              Save Changes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
     </div>
   );
 }
