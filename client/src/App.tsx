@@ -55,6 +55,7 @@ function AuthenticatedLayout() {
 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
+  const isSteepInSession = !!localStorage.getItem("steepin_session");
 
   if (isLoading) {
     return (
@@ -68,10 +69,16 @@ function AppContent() {
     <Switch>
       <Route path="/SteepIn" component={KioskPage} />
       <Route path="/login">
-        {isAuthenticated ? <Redirect to="/" /> : <LoginPage />}
+        {isAuthenticated ? <Redirect to={isSteepInSession ? "/SteepIn" : "/"} /> : <LoginPage />}
       </Route>
       <Route>
-        {isAuthenticated ? <AuthenticatedLayout /> : <Redirect to="/login" />}
+        {isSteepInSession ? (
+          <Redirect to="/SteepIn" />
+        ) : isAuthenticated ? (
+          <AuthenticatedLayout />
+        ) : (
+          <Redirect to="/login" />
+        )}
       </Route>
     </Switch>
   );

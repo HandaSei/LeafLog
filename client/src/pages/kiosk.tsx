@@ -141,6 +141,11 @@ export default function KioskPage() {
     }
   }, [currentStatus]);
 
+  const exitKiosk = () => {
+    localStorage.removeItem("steepin_session");
+    setLocation("/login");
+  };
+
   if (selectedEmployee) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
@@ -159,10 +164,10 @@ export default function KioskPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setLocation("/login")}
+            onClick={exitKiosk}
             data-testid="button-exit-kiosk"
           >
-            Exit Kiosk
+            Exit SteepIn
           </Button>
         </header>
 
@@ -319,10 +324,10 @@ export default function KioskPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setLocation("/login")}
+          onClick={exitKiosk}
           data-testid="button-exit-kiosk-list"
         >
-          Exit Kiosk
+          Exit SteepIn
         </Button>
       </header>
 
