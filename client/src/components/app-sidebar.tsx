@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Calendar, Users, LayoutDashboard, Clock, KeyRound, LogOut, FileText } from "lucide-react";
+import { Calendar, Users, LayoutDashboard, Clock, KeyRound, LogOut, FileText, Monitor } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
