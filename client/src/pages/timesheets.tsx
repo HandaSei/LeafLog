@@ -1,10 +1,9 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isSameDay, differenceInMinutes, parse, addDays } from "date-fns";
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isSameDay, differenceInMinutes } from "date-fns";
 import { useState, useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, Clock, Edit2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,22 +18,133 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { ROLES } from "@/lib/constants";
-import type { Employee, Shift, TimeEntry } from "@shared/schema";
+import type { Employee, TimeEntry } from "@shared/schema";
 
-function calculateShiftHours(startTime: string, endTime: string): number {
-  const [sh, sm] = startTime.split(":").map(Number);
-  const [eh, em] = endTime.split(":").map(Number);
-  let startMinutes = sh * 60 + sm;
-  let endMinutes = eh * 60 + em;
-  if (endMinutes <= startMinutes) {
-    endMinutes += 24 * 60;
-  }
-  return (endMinutes - startMinutes) / 60;
+interface EmployeeWorkday {
+  employee: Employee;
+  entries: TimeEntry[];
+  clockIn: Date | null;
+  clockOut: Date | null;
+  totalWorkedMinutes: number;
+  totalBreakMinutes: number;
+  netWorkedMinutes: number;
+  status: "working" | "on-break" | "completed";
 }
 
-function formatShiftTime(time: string): string {
-  const [h, m] = time.split(":");
-  return `${h}:${m}`;
+function buildWorkdays(entries: TimeEntry[], employees: Employee[], selectedDay: Date, selectedRole: string): EmployeeWorkday[] {
+  const dateStr = format(selectedDay, "yyyy-MM-dd");
+  const empMap = new Map<number, Employee>();
+  employees.forEach(e => empMap.set(e.id, e));
+
+  const grouped = new Map<number, TimeEntry[]>();
+  entries.forEach(entry => {
+    if (entry.date !== dateStr) return;
+    const list = grouped.get(entry.employeeId) || [];
+    list.push(entry);
+    grouped.set(entry.employeeId, list);
+  });
+
+  const workdays: EmployeeWorkday[] = [];
+
+  grouped.forEach((dayEntries, employeeId) => {
+    const emp = empMap.get(employeeId);
+    if (!emp) return;
+    if (selectedRole !== "all" && emp.role !== selectedRole) return;
+
+    const sorted = [...dayEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    let clockIn: Date | null = null;
+    let clockOut: Date | null = null;
+    let totalWorkedMinutes = 0;
+    let totalBreakMinutes = 0;
+    let status: "working" | "on-break" | "completed" = "working";
+
+    let lastClockIn: Date | null = null;
+    let lastBreakStart: Date | null = null;
+    let onBreak = false;
+
+    for (const entry of sorted) {
+      const ts = new Date(entry.timestamp);
+      switch (entry.type) {
+        case "clock-in":
+          if (!clockIn) clockIn = ts;
+          lastClockIn = ts;
+          onBreak = false;
+          break;
+        case "clock-out":
+          clockOut = ts;
+          if (lastClockIn) {
+            totalWorkedMinutes += differenceInMinutes(ts, lastClockIn);
+            lastClockIn = null;
+          }
+          break;
+        case "break-start":
+          lastBreakStart = ts;
+          onBreak = true;
+          if (lastClockIn) {
+            totalWorkedMinutes += differenceInMinutes(ts, lastClockIn);
+            lastClockIn = null;
+          }
+          break;
+        case "break-end":
+          onBreak = false;
+          if (lastBreakStart) {
+            totalBreakMinutes += differenceInMinutes(ts, lastBreakStart);
+            lastBreakStart = null;
+          }
+          lastClockIn = ts;
+          break;
+      }
+    }
+
+    if (lastClockIn && !clockOut) {
+      const now = new Date();
+      totalWorkedMinutes += differenceInMinutes(now, lastClockIn);
+    }
+    if (lastBreakStart && onBreak) {
+      const now = new Date();
+      totalBreakMinutes += differenceInMinutes(now, lastBreakStart);
+    }
+
+    if (clockOut) {
+      status = "completed";
+    } else if (onBreak) {
+      status = "on-break";
+    } else {
+      status = "working";
+    }
+
+    workdays.push({
+      employee: emp,
+      entries: sorted,
+      clockIn,
+      clockOut,
+      totalWorkedMinutes,
+      totalBreakMinutes,
+      netWorkedMinutes: totalWorkedMinutes,
+      status,
+    });
+  });
+
+  workdays.sort((a, b) => {
+    if (a.clockIn && b.clockIn) return a.clockIn.getTime() - b.clockIn.getTime();
+    if (a.clockIn) return -1;
+    if (b.clockIn) return 1;
+    return 0;
+  });
+
+  return workdays;
+}
+
+function formatMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m.toString().padStart(2, "0")}m`;
+}
+
+function formatHoursDecimal(minutes: number): string {
+  return (minutes / 60).toFixed(2);
 }
 
 export default function Timesheets() {
@@ -42,7 +152,7 @@ export default function Timesheets() {
   const [selectedDay, setSelectedDay] = useState<Date>(() => new Date());
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
-  const [viewingShift, setViewingShift] = useState<{ shift: Shift; employee: Employee } | null>(null);
+  const [viewingWorkday, setViewingWorkday] = useState<EmployeeWorkday | null>(null);
   const { toast } = useToast();
 
   const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
@@ -52,11 +162,7 @@ export default function Timesheets() {
     queryKey: ["/api/employees"],
   });
 
-  const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
-    queryKey: ["/api/shifts"],
-  });
-
-  const { data: entries = [] } = useQuery<TimeEntry[]>({
+  const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
     queryKey: ["/api/kiosk/entries"],
   });
 
@@ -83,52 +189,22 @@ export default function Timesheets() {
     setSelectedDay(newWeekStart);
   };
 
-  const employeeMap = useMemo(() => {
-    const map = new Map<number, Employee>();
-    employees.forEach(e => map.set(e.id, e));
-    return map;
-  }, [employees]);
-
-  const filteredShifts = useMemo(() => {
-    return shifts.filter(shift => {
-      const shiftDate = new Date(shift.date + "T00:00:00");
-      const inWeek = shiftDate >= selectedWeek && shiftDate <= weekEnd;
-      if (!inWeek) return false;
-
-      if (!isSameDay(shiftDate, selectedDay)) return false;
-
-      if (selectedRole !== "all") {
-        const emp = employeeMap.get(shift.employeeId);
-        if (!emp || emp.role !== selectedRole) return false;
-      }
-
-      return true;
-    }).sort((a, b) => {
-      const dateCompare = a.date.localeCompare(b.date);
-      if (dateCompare !== 0) return dateCompare;
-      return a.startTime.localeCompare(b.startTime);
-    });
-  }, [shifts, selectedWeek, weekEnd, selectedDay, selectedRole, employeeMap]);
+  const workdays = useMemo(
+    () => buildWorkdays(entries, employees, selectedDay, selectedRole),
+    [entries, employees, selectedDay, selectedRole]
+  );
 
   const totalHours = useMemo(() => {
-    return filteredShifts.reduce((sum, s) => sum + calculateShiftHours(s.startTime, s.endTime), 0);
-  }, [filteredShifts]);
+    return workdays.reduce((sum, w) => sum + w.netWorkedMinutes, 0);
+  }, [workdays]);
 
-  const statusColors: Record<string, string> = {
-    scheduled: "#3B82F6",
-    "in-progress": "#F59E0B",
-    completed: "#10B981",
-    cancelled: "#EF4444",
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    working: { label: "Working", color: "#10B981" },
+    "on-break": { label: "On Break", color: "#F59E0B" },
+    completed: { label: "Completed", color: "#3B82F6" },
   };
 
-  const statusLabels: Record<string, string> = {
-    scheduled: "Pending",
-    "in-progress": "In Progress",
-    completed: "Completed",
-    cancelled: "Cancelled",
-  };
-
-  if (empsLoading || shiftsLoading) {
+  if (empsLoading || entriesLoading) {
     return (
       <div className="h-full overflow-auto p-6 space-y-4">
         <Skeleton className="h-8 w-48" />
@@ -195,40 +271,42 @@ export default function Timesheets() {
       </div>
 
       <div className="flex-1 overflow-auto px-4 pb-4 space-y-3">
-        {filteredShifts.length === 0 ? (
+        {workdays.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground text-sm">
-            No shifts found for this period.
+            No one worked on this day.
           </div>
         ) : (
-          filteredShifts.map(shift => {
-            const emp = employeeMap.get(shift.employeeId);
-            if (!emp) return null;
-            const hours = calculateShiftHours(shift.startTime, shift.endTime);
-            const statusColor = statusColors[shift.status] || "#6B7280";
-            const statusLabel = statusLabels[shift.status] || shift.status;
+          workdays.map(wd => {
+            const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, status } = wd;
+            const sc = statusConfig[status];
 
             return (
               <button
-                key={shift.id}
-                onClick={() => setViewingShift({ shift, employee: emp })}
+                key={emp.id}
+                onClick={() => setViewingWorkday(wd)}
                 className="w-full flex items-start gap-3 p-4 rounded-md border bg-card hover-elevate text-left cursor-pointer"
-                data-testid={`timesheet-card-${shift.id}`}
+                data-testid={`timesheet-card-${emp.id}`}
               >
                 <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-sm font-semibold truncate">{emp.name}</span>
-                    <span className="text-xs font-semibold whitespace-nowrap" style={{ color: statusColor }}>
-                      {statusLabel}
+                    <span className="text-xs font-semibold whitespace-nowrap" style={{ color: sc.color }}>
+                      {sc.label}
                     </span>
                   </div>
-                  <div className="text-base font-bold mt-0.5" data-testid={`text-shift-time-${shift.id}`}>
-                    {formatShiftTime(shift.startTime)} - {formatShiftTime(shift.endTime)}
+                  <div className="text-base font-bold mt-0.5" data-testid={`text-work-time-${emp.id}`}>
+                    {clockIn ? format(clockIn, "HH:mm") : "--:--"} - {clockOut ? format(clockOut, "HH:mm") : "--:--"}
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
                     <span className="text-xs text-muted-foreground">{emp.department}</span>
-                    <span className="text-sm font-semibold text-muted-foreground">{hours.toFixed(2)} h</span>
+                    <span className="text-sm font-semibold text-muted-foreground">{formatHoursDecimal(netWorkedMinutes)} h</span>
                   </div>
+                  {totalBreakMinutes > 0 && (
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      Break: {formatMinutes(totalBreakMinutes)}
+                    </div>
+                  )}
                 </div>
               </button>
             );
@@ -236,99 +314,90 @@ export default function Timesheets() {
         )}
       </div>
 
-      {filteredShifts.length > 0 && (
+      {workdays.length > 0 && (
         <div className="border-t px-4 py-3 flex items-center justify-end gap-2">
           <span className="text-sm text-muted-foreground">Total:</span>
-          <span className="text-lg font-bold" data-testid="text-total-hours">{totalHours.toFixed(2)} h</span>
+          <span className="text-lg font-bold" data-testid="text-total-hours">{formatHoursDecimal(totalHours)} h</span>
         </div>
       )}
 
-      <Dialog open={!!viewingShift} onOpenChange={() => setViewingShift(null)}>
+      <Dialog open={!!viewingWorkday} onOpenChange={() => setViewingWorkday(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Shift Details</DialogTitle>
+            <DialogTitle>Timesheet Details</DialogTitle>
           </DialogHeader>
-          {viewingShift && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <EmployeeAvatar name={viewingShift.employee.name} color={viewingShift.employee.color} size="lg" />
-                <div>
-                  <div className="font-semibold">{viewingShift.employee.name}</div>
-                  <div className="text-xs text-muted-foreground">{viewingShift.employee.department} &middot; {viewingShift.employee.role}</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <div className="text-xs text-muted-foreground mb-0.5">Date</div>
-                  <div className="font-medium">{format(new Date(viewingShift.shift.date + "T00:00:00"), "EEE, MMM d, yyyy")}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground mb-0.5">Hours</div>
-                  <div className="font-medium">{calculateShiftHours(viewingShift.shift.startTime, viewingShift.shift.endTime).toFixed(2)} h</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground mb-0.5">Start</div>
-                  <div className="font-medium">{formatShiftTime(viewingShift.shift.startTime)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground mb-0.5">End</div>
-                  <div className="font-medium">{formatShiftTime(viewingShift.shift.endTime)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground mb-0.5">Status</div>
-                  <span className="text-xs font-semibold" style={{ color: statusColors[viewingShift.shift.status] || "#6B7280" }}>
-                    {statusLabels[viewingShift.shift.status] || viewingShift.shift.status}
-                  </span>
-                </div>
-              </div>
-              {viewingShift.shift.notes && (
-                <div>
-                  <div className="text-xs text-muted-foreground mb-0.5">Notes</div>
-                  <div className="text-sm">{viewingShift.shift.notes}</div>
-                </div>
-              )}
-
-              {(() => {
-                const dayEntries = entries.filter(
-                  e => e.employeeId === viewingShift.shift.employeeId && e.date === viewingShift.shift.date
-                ).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-                if (dayEntries.length === 0) return null;
-                return (
+          {viewingWorkday && (() => {
+            const { employee: emp, entries: dayEntries, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, status } = viewingWorkday;
+            const sc = statusConfig[status];
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                   <div>
-                    <div className="text-xs text-muted-foreground mb-2">SteepIn Activity</div>
-                    <div className="space-y-1.5">
-                      {dayEntries.map(entry => {
-                        const typeLabels: Record<string, { label: string; color: string }> = {
-                          "clock-in": { label: "Clock In", color: "#10B981" },
-                          "clock-out": { label: "Clock Out", color: "#EF4444" },
-                          "break-start": { label: "Break Start", color: "#F59E0B" },
-                          "break-end": { label: "Break End", color: "#3B82F6" },
-                        };
-                        const info = typeLabels[entry.type] || { label: entry.type, color: "#6B7280" };
-                        return (
-                          <div key={entry.id} className="flex items-center justify-between text-xs p-2 rounded-md border">
-                            <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />
-                              <span>{info.label}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground font-mono">
-                                {format(new Date(entry.timestamp), "HH:mm:ss")}
-                              </span>
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingEntry(entry)}>
-                                <Edit2 className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <div className="font-semibold">{emp.name}</div>
+                    <div className="text-xs text-muted-foreground">{emp.department} &middot; {emp.role}</div>
                   </div>
-                );
-              })()}
-            </div>
-          )}
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Date</div>
+                    <div className="font-medium">{format(selectedDay, "EEE, MMM d, yyyy")}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Status</div>
+                    <span className="text-xs font-semibold" style={{ color: sc.color }}>{sc.label}</span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Clock In</div>
+                    <div className="font-medium">{clockIn ? format(clockIn, "HH:mm:ss") : "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Clock Out</div>
+                    <div className="font-medium">{clockOut ? format(clockOut, "HH:mm:ss") : "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Worked</div>
+                    <div className="font-medium">{formatMinutes(netWorkedMinutes)} ({formatHoursDecimal(netWorkedMinutes)} h)</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Break</div>
+                    <div className="font-medium">{totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "No break"}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-muted-foreground mb-2">Activity Log</div>
+                  <div className="space-y-1.5">
+                    {dayEntries.map(entry => {
+                      const typeLabels: Record<string, { label: string; color: string }> = {
+                        "clock-in": { label: "Clock In", color: "#10B981" },
+                        "clock-out": { label: "Clock Out", color: "#EF4444" },
+                        "break-start": { label: "Break Start", color: "#F59E0B" },
+                        "break-end": { label: "Break End", color: "#3B82F6" },
+                      };
+                      const info = typeLabels[entry.type] || { label: entry.type, color: "#6B7280" };
+                      return (
+                        <div key={entry.id} className="flex items-center justify-between text-xs p-2 rounded-md border">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />
+                            <span>{info.label}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground font-mono">
+                              {format(new Date(entry.timestamp), "HH:mm:ss")}
+                            </span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingEntry(entry)} data-testid={`button-edit-entry-${entry.id}`}>
+                              <Edit2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
