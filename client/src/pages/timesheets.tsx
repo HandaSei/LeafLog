@@ -12,12 +12,12 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { ROLES } from "@/lib/constants";
+import { TimeInput } from "@/components/time-input";
 import type { Employee, TimeEntry } from "@shared/schema";
 
 interface EmployeeWorkday {
@@ -158,8 +158,13 @@ export default function Timesheets() {
   const [newTimesheetEmployeeId, setNewTimesheetEmployeeId] = useState<string>("");
   const [newTimesheetClockIn, setNewTimesheetClockIn] = useState<string>("");
   const [newTimesheetClockOut, setNewTimesheetClockOut] = useState<string>("");
+  const [newTimesheetBreakStart, setNewTimesheetBreakStart] = useState<string>("");
+  const [newTimesheetBreakEnd, setNewTimesheetBreakEnd] = useState<string>("");
   const [addingClockOut, setAddingClockOut] = useState<EmployeeWorkday | null>(null);
   const [clockOutTime, setClockOutTime] = useState<string>("");
+  const [addingBreak, setAddingBreak] = useState<EmployeeWorkday | null>(null);
+  const [breakStartTime, setBreakStartTime] = useState<string>("");
+  const [breakEndTime, setBreakEndTime] = useState<string>("");
   const { toast } = useToast();
 
   const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
@@ -195,7 +200,6 @@ export default function Timesheets() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] });
-      toast({ title: "Success", description: "Entry added successfully" });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -231,31 +235,32 @@ export default function Timesheets() {
   };
 
   const handleSaveEdit = () => {
-    if (!editingEntry || !editTime) return;
+    if (!editingEntry || !editTime || !/^\d{2}:\d{2}$/.test(editTime)) return;
     const entryDate = editingEntry.date;
-    const [hours, minutes] = editTime.split(":").map(Number);
-    const newTimestamp = new Date(`${entryDate}T${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:00`);
+    const newTimestamp = new Date(`${entryDate}T${editTime}:00`);
     updateEntryMutation.mutate({ id: editingEntry.id, timestamp: newTimestamp.toISOString() });
   };
 
-  const handleAddBreak = (wd: EmployeeWorkday) => {
+  const handleAddBreak = () => {
+    if (!addingBreak || !breakStartTime || !breakEndTime) return;
+    if (!/^\d{2}:\d{2}$/.test(breakStartTime) || !/^\d{2}:\d{2}$/.test(breakEndTime)) return;
     const dateStr = format(selectedDay, "yyyy-MM-dd");
-    const now = new Date();
-    const breakStartTime = format(now, "HH:mm");
-
-    const breakStart = new Date(`${dateStr}T${breakStartTime}:00`);
-    const breakEnd = new Date(breakStart.getTime() + 30 * 60 * 1000);
+    const bsTs = new Date(`${dateStr}T${breakStartTime}:00`);
+    const beTs = new Date(`${dateStr}T${breakEndTime}:00`);
 
     addEntryMutation.mutate(
-      { employeeId: wd.employee.id, type: "break-start", date: dateStr, timestamp: breakStart.toISOString() },
+      { employeeId: addingBreak.employee.id, type: "break-start", date: dateStr, timestamp: bsTs.toISOString() },
       {
         onSuccess: () => {
           addEntryMutation.mutate(
-            { employeeId: wd.employee.id, type: "break-end", date: dateStr, timestamp: breakEnd.toISOString() },
+            { employeeId: addingBreak!.employee.id, type: "break-end", date: dateStr, timestamp: beTs.toISOString() },
             {
               onSuccess: () => {
+                setAddingBreak(null);
+                setBreakStartTime("");
+                setBreakEndTime("");
                 setViewingWorkday(null);
-                toast({ title: "Success", description: "30-minute break added" });
+                toast({ title: "Success", description: "Break added" });
               }
             }
           );
@@ -265,7 +270,7 @@ export default function Timesheets() {
   };
 
   const handleAddClockOut = () => {
-    if (!addingClockOut || !clockOutTime) return;
+    if (!addingClockOut || !clockOutTime || !/^\d{2}:\d{2}$/.test(clockOutTime)) return;
     const dateStr = format(selectedDay, "yyyy-MM-dd");
     const ts = new Date(`${dateStr}T${clockOutTime}:00`);
     addEntryMutation.mutate(
@@ -275,42 +280,48 @@ export default function Timesheets() {
           setAddingClockOut(null);
           setClockOutTime("");
           setViewingWorkday(null);
+          toast({ title: "Success", description: "Clock out added" });
         }
       }
     );
   };
 
-  const handleAddTimesheet = () => {
-    if (!newTimesheetEmployeeId || !newTimesheetClockIn) return;
+  const handleAddTimesheet = async () => {
+    if (!newTimesheetEmployeeId || !newTimesheetClockIn || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)) return;
     const dateStr = format(selectedDay, "yyyy-MM-dd");
-    const clockInTs = new Date(`${dateStr}T${newTimesheetClockIn}:00`);
+    const empId = Number(newTimesheetEmployeeId);
 
-    addEntryMutation.mutate(
-      { employeeId: Number(newTimesheetEmployeeId), type: "clock-in", date: dateStr, timestamp: clockInTs.toISOString() },
-      {
-        onSuccess: () => {
-          if (newTimesheetClockOut) {
-            const clockOutTs = new Date(`${dateStr}T${newTimesheetClockOut}:00`);
-            addEntryMutation.mutate(
-              { employeeId: Number(newTimesheetEmployeeId), type: "clock-out", date: dateStr, timestamp: clockOutTs.toISOString() },
-              {
-                onSuccess: () => {
-                  setAddingTimesheet(false);
-                  setNewTimesheetEmployeeId("");
-                  setNewTimesheetClockIn("");
-                  setNewTimesheetClockOut("");
-                }
-              }
-            );
-          } else {
-            setAddingTimesheet(false);
-            setNewTimesheetEmployeeId("");
-            setNewTimesheetClockIn("");
-            setNewTimesheetClockOut("");
-          }
-        }
-      }
+    const clockInTs = new Date(`${dateStr}T${newTimesheetClockIn}:00`);
+    await addEntryMutation.mutateAsync(
+      { employeeId: empId, type: "clock-in", date: dateStr, timestamp: clockInTs.toISOString() }
     );
+
+    if (newTimesheetBreakStart && newTimesheetBreakEnd &&
+        /^\d{2}:\d{2}$/.test(newTimesheetBreakStart) && /^\d{2}:\d{2}$/.test(newTimesheetBreakEnd)) {
+      const bsTs = new Date(`${dateStr}T${newTimesheetBreakStart}:00`);
+      const beTs = new Date(`${dateStr}T${newTimesheetBreakEnd}:00`);
+      await addEntryMutation.mutateAsync(
+        { employeeId: empId, type: "break-start", date: dateStr, timestamp: bsTs.toISOString() }
+      );
+      await addEntryMutation.mutateAsync(
+        { employeeId: empId, type: "break-end", date: dateStr, timestamp: beTs.toISOString() }
+      );
+    }
+
+    if (newTimesheetClockOut && /^\d{2}:\d{2}$/.test(newTimesheetClockOut)) {
+      const clockOutTs = new Date(`${dateStr}T${newTimesheetClockOut}:00`);
+      await addEntryMutation.mutateAsync(
+        { employeeId: empId, type: "clock-out", date: dateStr, timestamp: clockOutTs.toISOString() }
+      );
+    }
+
+    toast({ title: "Success", description: "Timesheet added" });
+    setAddingTimesheet(false);
+    setNewTimesheetEmployeeId("");
+    setNewTimesheetClockIn("");
+    setNewTimesheetClockOut("");
+    setNewTimesheetBreakStart("");
+    setNewTimesheetBreakEnd("");
   };
 
   if (empsLoading || entriesLoading) {
@@ -447,7 +458,6 @@ export default function Timesheets() {
           {viewingWorkday && (() => {
             const { employee: emp, entries: dayEntries, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, status } = viewingWorkday;
             const sc = statusConfig[status];
-            const hasBreak = dayEntries.some(e => e.type === "break-start");
             return (
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -499,20 +509,6 @@ export default function Timesheets() {
                   </div>
                 </div>
 
-                {!hasBreak && status !== "completed" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => handleAddBreak(viewingWorkday!)}
-                    disabled={addEntryMutation.isPending}
-                    data-testid="button-add-break"
-                  >
-                    <Coffee className="w-4 h-4 mr-2" />
-                    Add 30min Break
-                  </Button>
-                )}
-
                 <div>
                   <div className="text-xs text-muted-foreground mb-2">Activity Log</div>
                   <div className="space-y-1.5">
@@ -543,6 +539,21 @@ export default function Timesheets() {
                     })}
                   </div>
                 </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    setAddingBreak(viewingWorkday);
+                    setBreakStartTime("");
+                    setBreakEndTime("");
+                  }}
+                  data-testid="button-add-break"
+                >
+                  <Coffee className="w-4 h-4 mr-2" />
+                  Add Break
+                </Button>
               </div>
             );
           })()}
@@ -571,10 +582,9 @@ export default function Timesheets() {
               </div>
               <div className="space-y-2">
                 <Label>Time</Label>
-                <Input
-                  type="time"
+                <TimeInput
                   value={editTime}
-                  onChange={(e) => setEditTime(e.target.value)}
+                  onChange={setEditTime}
                   data-testid="input-edit-time"
                 />
               </div>
@@ -584,7 +594,7 @@ export default function Timesheets() {
             <Button variant="outline" onClick={() => setEditingEntry(null)}>Cancel</Button>
             <Button
               onClick={handleSaveEdit}
-              disabled={updateEntryMutation.isPending}
+              disabled={updateEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(editTime)}
               data-testid="button-save-edit"
             >
               Save Changes
@@ -604,10 +614,9 @@ export default function Timesheets() {
             </div>
             <div className="space-y-2">
               <Label>Clock Out Time</Label>
-              <Input
-                type="time"
+              <TimeInput
                 value={clockOutTime}
-                onChange={(e) => setClockOutTime(e.target.value)}
+                onChange={setClockOutTime}
                 data-testid="input-clock-out-time"
               />
             </div>
@@ -616,10 +625,49 @@ export default function Timesheets() {
             <Button variant="outline" onClick={() => setAddingClockOut(null)}>Cancel</Button>
             <Button
               onClick={handleAddClockOut}
-              disabled={addEntryMutation.isPending}
+              disabled={addEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(clockOutTime)}
               data-testid="button-save-clock-out"
             >
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!addingBreak} onOpenChange={() => setAddingBreak(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Break</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="text-sm text-muted-foreground">
+              {addingBreak?.employee.name} — {format(selectedDay, "EEE, MMM d, yyyy")}
+            </div>
+            <div className="space-y-2">
+              <Label>Break Start</Label>
+              <TimeInput
+                value={breakStartTime}
+                onChange={setBreakStartTime}
+                data-testid="input-break-start"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Break End</Label>
+              <TimeInput
+                value={breakEndTime}
+                onChange={setBreakEndTime}
+                data-testid="input-break-end"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddingBreak(null)}>Cancel</Button>
+            <Button
+              onClick={handleAddBreak}
+              disabled={addEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(breakStartTime) || !/^\d{2}:\d{2}$/.test(breakEndTime)}
+              data-testid="button-save-break"
+            >
+              Add Break
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -651,20 +699,34 @@ export default function Timesheets() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Clock In Time</Label>
-              <Input
-                type="time"
+              <Label>Clock In</Label>
+              <TimeInput
                 value={newTimesheetClockIn}
-                onChange={(e) => setNewTimesheetClockIn(e.target.value)}
+                onChange={setNewTimesheetClockIn}
                 data-testid="input-timesheet-clock-in"
               />
             </div>
             <div className="space-y-2">
-              <Label>Clock Out Time (optional)</Label>
-              <Input
-                type="time"
+              <Label>Break Start (optional)</Label>
+              <TimeInput
+                value={newTimesheetBreakStart}
+                onChange={setNewTimesheetBreakStart}
+                data-testid="input-timesheet-break-start"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Break End (optional)</Label>
+              <TimeInput
+                value={newTimesheetBreakEnd}
+                onChange={setNewTimesheetBreakEnd}
+                data-testid="input-timesheet-break-end"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Clock Out (optional)</Label>
+              <TimeInput
                 value={newTimesheetClockOut}
-                onChange={(e) => setNewTimesheetClockOut(e.target.value)}
+                onChange={setNewTimesheetClockOut}
                 data-testid="input-timesheet-clock-out"
               />
             </div>
@@ -673,7 +735,7 @@ export default function Timesheets() {
             <Button variant="outline" onClick={() => setAddingTimesheet(false)}>Cancel</Button>
             <Button
               onClick={handleAddTimesheet}
-              disabled={addEntryMutation.isPending || !newTimesheetEmployeeId || !newTimesheetClockIn}
+              disabled={addEntryMutation.isPending || !newTimesheetEmployeeId || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)}
               data-testid="button-save-timesheet"
             >
               Add Timesheet
