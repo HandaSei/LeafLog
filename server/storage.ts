@@ -40,6 +40,7 @@ export interface IStorage {
   expireAccessCodesForEmployee(employeeId: number): Promise<void>;
 
   createTimeEntry(employeeId: number, type: string, date: string): Promise<TimeEntry>;
+  createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date): Promise<TimeEntry>;
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
   getTimeEntriesByDate(date: string): Promise<TimeEntry[]>;
   getAllTimeEntries(): Promise<TimeEntry[]>;
@@ -168,6 +169,16 @@ export class DatabaseStorage implements IStorage {
       type,
       date,
       timestamp: new Date(),
+    }).returning();
+    return entry;
+  }
+
+  async createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date): Promise<TimeEntry> {
+    const [entry] = await db.insert(timeEntries).values({
+      employeeId,
+      type,
+      date,
+      timestamp,
     }).returning();
     return entry;
   }

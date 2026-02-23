@@ -4,6 +4,7 @@ import { Router } from "express";
 import { storage } from "./storage";
 import { insertEmployeeSchema, insertShiftSchema } from "@shared/schema";
 import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./auth";
+import { format } from "date-fns";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -122,9 +123,25 @@ export async function registerRoutes(
 
   router.patch("/api/kiosk/entries/:id", requireRole("admin", "manager"), async (req, res) => {
     const id = parseInt(req.params.id);
-    const entry = await storage.updateTimeEntry(id, req.body);
+    const updateData: any = {};
+    if (req.body.timestamp) {
+      updateData.timestamp = new Date(req.body.timestamp);
+    }
+    if (req.body.type) {
+      updateData.type = req.body.type;
+    }
+    const entry = await storage.updateTimeEntry(id, updateData);
     if (!entry) return res.status(404).json({ message: "Entry not found" });
     res.json(entry);
+  });
+
+  router.post("/api/kiosk/entries", requireRole("admin", "manager"), async (req, res) => {
+    const { employeeId, type, date, timestamp } = req.body;
+    if (!employeeId || !type || !date) {
+      return res.status(400).json({ message: "Employee ID, type, and date are required" });
+    }
+    const entry = await storage.createTimeEntryManual(Number(employeeId), type, date, timestamp ? new Date(timestamp) : new Date());
+    res.status(201).json(entry);
   });
 
   app.use(router);
