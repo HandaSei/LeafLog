@@ -153,7 +153,7 @@ export default function Timesheets() {
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
   const [editTime, setEditTime] = useState<string>("");
-  const [viewingWorkday, setViewingWorkday] = useState<EmployeeWorkday | null>(null);
+  const [viewingEmployeeId, setViewingEmployeeId] = useState<number | null>(null);
   const [addingTimesheet, setAddingTimesheet] = useState(false);
   const [newTimesheetEmployeeId, setNewTimesheetEmployeeId] = useState<string>("");
   const [newTimesheetClockIn, setNewTimesheetClockIn] = useState<string>("");
@@ -219,6 +219,11 @@ export default function Timesheets() {
     [entries, employees, selectedDay, selectedRole]
   );
 
+  const viewingWorkday = useMemo(() => {
+    if (viewingEmployeeId === null) return null;
+    return workdays.find(w => w.employee.id === viewingEmployeeId) || null;
+  }, [viewingEmployeeId, workdays]);
+
   const totalHours = useMemo(() => {
     return workdays.reduce((sum, w) => sum + w.netWorkedMinutes, 0);
   }, [workdays]);
@@ -259,7 +264,7 @@ export default function Timesheets() {
                 setAddingBreak(null);
                 setBreakStartTime("");
                 setBreakEndTime("");
-                setViewingWorkday(null);
+                setViewingEmployeeId(null);
                 toast({ title: "Success", description: "Break added" });
               }
             }
@@ -279,7 +284,7 @@ export default function Timesheets() {
         onSuccess: () => {
           setAddingClockOut(null);
           setClockOutTime("");
-          setViewingWorkday(null);
+          setViewingEmployeeId(null);
           toast({ title: "Success", description: "Clock out added" });
         }
       }
@@ -412,7 +417,7 @@ export default function Timesheets() {
             return (
               <button
                 key={emp.id}
-                onClick={() => setViewingWorkday(wd)}
+                onClick={() => setViewingEmployeeId(wd.employee.id)}
                 className="w-full flex items-start gap-3 p-4 rounded-md border bg-card hover-elevate text-left cursor-pointer"
                 data-testid={`timesheet-card-${emp.id}`}
               >
@@ -450,7 +455,7 @@ export default function Timesheets() {
         </div>
       )}
 
-      <Dialog open={!!viewingWorkday} onOpenChange={() => setViewingWorkday(null)}>
+      <Dialog open={!!viewingWorkday} onOpenChange={() => setViewingEmployeeId(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Timesheet Details</DialogTitle>
