@@ -319,15 +319,4 @@ export function registerAuthRoutes(router: Router) {
     res.status(201).json(entry);
   });
 
-  router.get("/api/kiosk/entries/:employeeId", async (req, res) => {
-    const todayStr = format(new Date(), "yyyy-MM-dd");
-    const entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), todayStr);
-    res.json(entries);
-  });
-
-  router.get("/api/kiosk/entries", async (_req, res) => {
-    const todayStr = format(new Date(), "yyyy-MM-dd");
-    const entries = await storage.getTimeEntriesByDate(todayStr);
-    res.json(entries);
-  });
 }

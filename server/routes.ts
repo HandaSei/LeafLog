@@ -15,9 +15,13 @@ export async function registerRoutes(
   const router = Router();
 
   router.use("/api", (_req, res, next) => {
-    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.removeHeader("ETag");
     next();
   });
+
+  app.set("etag", false);
 
   registerAuthRoutes(router);
 
@@ -93,10 +97,15 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  router.get("/api/kiosk/entries/:employeeId", async (req, res) => {
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    const entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), todayStr);
+    res.json(entries);
+  });
+
   router.get("/api/kiosk/entries", requireAuth, async (req, res) => {
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
     const date = typeof req.query.date === 'string' ? req.query.date : undefined;
-
     if (employeeId && date) {
       const entries = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
       return res.json(entries);

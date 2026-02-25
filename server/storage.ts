@@ -9,7 +9,7 @@ import {
   type AccessCode, type TimeEntry,
 } from "@shared/schema";
 
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool);
 
 export interface IStorage {
@@ -184,17 +184,42 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]> {
-    return db.select().from(timeEntries).where(
-      and(eq(timeEntries.employeeId, employeeId), eq(timeEntries.date, date))
-    ).orderBy(timeEntries.timestamp);
+    const result = await pool.query(
+      "SELECT id, employee_id, type, timestamp, entry_date FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
+      [employeeId, date]
+    );
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      type: row.type,
+      timestamp: row.timestamp,
+      date: row.entry_date,
+    }));
   }
 
   async getTimeEntriesByDate(date: string): Promise<TimeEntry[]> {
-    return db.select().from(timeEntries).where(eq(timeEntries.date, date)).orderBy(timeEntries.timestamp);
+    const result = await pool.query(
+      "SELECT id, employee_id, type, timestamp, entry_date FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
+      [date]
+    );
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      type: row.type,
+      timestamp: row.timestamp,
+      date: row.entry_date,
+    }));
   }
 
   async getAllTimeEntries(): Promise<TimeEntry[]> {
-    return db.select().from(timeEntries).orderBy(timeEntries.timestamp);
+    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date FROM time_entries ORDER BY timestamp");
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      type: row.type,
+      timestamp: row.timestamp,
+      date: row.entry_date,
+    }));
   }
 
   async updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined> {
