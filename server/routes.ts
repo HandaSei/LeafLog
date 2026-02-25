@@ -26,14 +26,18 @@ export async function registerRoutes(
   registerAuthRoutes(router);
 
   // === EMPLOYEES ===
-  router.get("/api/employees", requireAuth, async (_req, res) => {
-    const employees = await storage.getEmployees();
-    res.json(employees);
+  router.get("/api/employees", requireAuth, async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    const emps = await storage.getEmployees(ownerAccountId);
+    res.json(emps);
   });
 
   router.get("/api/employees/:id", requireAuth, async (req, res) => {
     const emp = await storage.getEmployee(Number(req.params.id));
     if (!emp) return res.status(404).json({ message: "Employee not found" });
+    if (emp.ownerAccountId !== req.session.userId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
     res.json(emp);
   });
 
@@ -42,28 +46,38 @@ export async function registerRoutes(
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
     }
-    const emp = await storage.createEmployee(parsed.data);
+    const emp = await storage.createEmployee({ ...parsed.data, ownerAccountId: req.session.userId });
     res.status(201).json(emp);
   });
 
   router.patch("/api/employees/:id", requireRole("admin", "manager"), async (req, res) => {
+    const emp = await storage.getEmployee(Number(req.params.id));
+    if (!emp) return res.status(404).json({ message: "Employee not found" });
+    if (emp.ownerAccountId !== req.session.userId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
     const partial = insertEmployeeSchema.partial().safeParse(req.body);
     if (!partial.success) {
       return res.status(400).json({ message: partial.error.issues[0].message });
     }
-    const emp = await storage.updateEmployee(Number(req.params.id), partial.data);
-    if (!emp) return res.status(404).json({ message: "Employee not found" });
-    res.json(emp);
+    const updated = await storage.updateEmployee(Number(req.params.id), partial.data);
+    res.json(updated);
   });
 
   router.delete("/api/employees/:id", requireRole("admin", "manager"), async (req, res) => {
+    const emp = await storage.getEmployee(Number(req.params.id));
+    if (!emp) return res.status(404).json({ message: "Employee not found" });
+    if (emp.ownerAccountId !== req.session.userId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
     await storage.deleteEmployee(Number(req.params.id));
     res.status(204).send();
   });
 
   // === SHIFTS ===
-  router.get("/api/shifts", requireAuth, async (_req, res) => {
-    const allShifts = await storage.getShifts();
+  router.get("/api/shifts", requireAuth, async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    const allShifts = await storage.getShifts(ownerAccountId);
     res.json(allShifts);
   });
 
@@ -77,6 +91,10 @@ export async function registerRoutes(
     const parsed = insertShiftSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
+    }
+    const emp = await storage.getEmployee(parsed.data.employeeId);
+    if (!emp || emp.ownerAccountId !== req.session.userId) {
+      return res.status(403).json({ message: "Access denied" });
     }
     const shift = await storage.createShift(parsed.data);
     res.status(201).json(shift);
@@ -104,17 +122,18 @@ export async function registerRoutes(
   });
 
   router.get("/api/kiosk/entries", requireAuth, async (req, res) => {
+    const ownerAccountId = req.session.userId!;
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
     const date = typeof req.query.date === 'string' ? req.query.date : undefined;
     if (employeeId && date) {
       const entries = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
       return res.json(entries);
     } else if (date) {
-      const entries = await storage.getTimeEntriesByDate(date);
+      const entries = await storage.getTimeEntriesByDate(date, ownerAccountId);
       return res.json(entries);
     }
 
-    const entries = await storage.getAllTimeEntries();
+    const entries = await storage.getAllTimeEntries(ownerAccountId);
     res.json(entries);
   });
 

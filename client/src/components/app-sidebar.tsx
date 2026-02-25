@@ -117,7 +117,7 @@ export function AppSidebar() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-medium truncate">{user?.username}</div>
-                <div className="text-[10px] text-muted-foreground capitalize">{user?.role}</div>
+                <div className="text-[10px] text-muted-foreground capitalize">{user?.role === "admin" ? "Manager" : user?.role}</div>
               </div>
             </div>
             <Button

@@ -1,4 +1,4 @@
-import { eq, and, gt, desc } from "drizzle-orm";
+import { eq, and, gt, desc, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
@@ -13,13 +13,13 @@ export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool);
 
 export interface IStorage {
-  getEmployees(): Promise<Employee[]>;
+  getEmployees(ownerAccountId?: number): Promise<Employee[]>;
   getEmployee(id: number): Promise<Employee | undefined>;
   createEmployee(data: any): Promise<Employee>;
   updateEmployee(id: number, data: any): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<void>;
 
-  getShifts(): Promise<Shift[]>;
+  getShifts(ownerAccountId?: number): Promise<Shift[]>;
   getShift(id: number): Promise<Shift | undefined>;
   getShiftsByEmployee(employeeId: number): Promise<Shift[]>;
   createShift(data: any): Promise<Shift>;
@@ -42,13 +42,17 @@ export interface IStorage {
   createTimeEntry(employeeId: number, type: string, date: string): Promise<TimeEntry>;
   createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date): Promise<TimeEntry>;
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
-  getTimeEntriesByDate(date: string): Promise<TimeEntry[]>;
-  getAllTimeEntries(): Promise<TimeEntry[]>;
+  getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
+  getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
   updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
+  getEmployeeIdsByOwner(ownerAccountId: number): Promise<number[]>;
 }
 
 export class DatabaseStorage implements IStorage {
-  async getEmployees(): Promise<Employee[]> {
+  async getEmployees(ownerAccountId?: number): Promise<Employee[]> {
+    if (ownerAccountId) {
+      return db.select().from(employees).where(eq(employees.ownerAccountId, ownerAccountId));
+    }
     return db.select().from(employees);
   }
 
@@ -58,7 +62,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createEmployee(data: any): Promise<Employee> {
-    const accessCode = Math.floor(1000 + Math.random() * 9000).toString();
+    const accessCode = data.accessCode || Math.floor(1000 + Math.random() * 9000).toString();
     const [emp] = await db.insert(employees).values({ ...data, accessCode }).returning();
     return emp;
   }
@@ -72,7 +76,17 @@ export class DatabaseStorage implements IStorage {
     await db.delete(employees).where(eq(employees.id, id));
   }
 
-  async getShifts(): Promise<Shift[]> {
+  async getEmployeeIdsByOwner(ownerAccountId: number): Promise<number[]> {
+    const rows = await db.select({ id: employees.id }).from(employees).where(eq(employees.ownerAccountId, ownerAccountId));
+    return rows.map(r => r.id);
+  }
+
+  async getShifts(ownerAccountId?: number): Promise<Shift[]> {
+    if (ownerAccountId) {
+      const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
+      if (empIds.length === 0) return [];
+      return db.select().from(shifts).where(inArray(shifts.employeeId, empIds));
+    }
     return db.select().from(shifts);
   }
 
@@ -197,7 +211,23 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getTimeEntriesByDate(date: string): Promise<TimeEntry[]> {
+  async getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]> {
+    if (ownerAccountId) {
+      const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
+      if (empIds.length === 0) return [];
+      const placeholders = empIds.map((_, i) => `$${i + 2}`).join(',');
+      const result = await pool.query(
+        `SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE entry_date = $1 AND employee_id IN (${placeholders}) ORDER BY timestamp`,
+        [date, ...empIds]
+      );
+      return result.rows.map((row: any) => ({
+        id: row.id,
+        employeeId: row.employee_id,
+        type: row.type,
+        timestamp: row.timestamp,
+        date: row.entry_date,
+      }));
+    }
     const result = await pool.query(
       "SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
       [date]
@@ -211,7 +241,23 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getAllTimeEntries(): Promise<TimeEntry[]> {
+  async getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]> {
+    if (ownerAccountId) {
+      const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
+      if (empIds.length === 0) return [];
+      const placeholders = empIds.map((_, i) => `$${i + 1}`).join(',');
+      const result = await pool.query(
+        `SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE employee_id IN (${placeholders}) ORDER BY timestamp`,
+        [...empIds]
+      );
+      return result.rows.map((row: any) => ({
+        id: row.id,
+        employeeId: row.employee_id,
+        type: row.type,
+        timestamp: row.timestamp,
+        date: row.entry_date,
+      }));
+    }
     const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries ORDER BY timestamp");
     return result.rows.map((row: any) => ({
       id: row.id,

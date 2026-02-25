@@ -17,7 +17,7 @@ export const accounts = pgTable("accounts", {
 export const employees = pgTable("employees", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
-  email: text("email").notNull().unique(),
+  email: text("email").notNull(),
   phone: text("phone"),
   role: text("role").notNull(),
   department: text("department").notNull(),
@@ -25,6 +25,7 @@ export const employees = pgTable("employees", {
   status: text("status").notNull().default("active"),
   avatarInitials: text("avatar_initials"),
   accountId: integer("account_id"),
+  ownerAccountId: integer("owner_account_id"),
   accessCode: text("access_code").notNull().default("0000"),
 });
 

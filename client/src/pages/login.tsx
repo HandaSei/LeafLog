@@ -34,7 +34,7 @@ export default function LoginPage() {
   const [codeForm, setCodeForm] = useState({ code: "" });
   const [steepinForm, setSteepinForm] = useState({ username: "", password: "" });
   const [registerForm, setRegisterForm] = useState({ username: "", password: "", agencyName: "" });
-  const [signupForm, setSignupForm] = useState({ username: "", password: "", confirmPassword: "", email: "" });
+  const [signupForm, setSignupForm] = useState({ username: "", password: "", agencyName: "" });
   const [loading, setLoading] = useState(false);
   const [showSignup, setShowSignup] = useState(false);
 
@@ -98,14 +98,14 @@ export default function LoginPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (signupForm.password !== signupForm.confirmPassword) {
-      toast({ title: "Error", description: "Passwords do not match", variant: "destructive" });
+    if (signupForm.password.length < 6) {
+      toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
       return;
     }
     setLoading(true);
     try {
-      await registerAccount(signupForm.username, signupForm.password, signupForm.confirmPassword, signupForm.email);
-      toast({ title: "Account created", description: "Your account is ready." });
+      await registerManager(signupForm.username, signupForm.password, signupForm.agencyName);
+      toast({ title: "Account created", description: "Your manager account is ready." });
       setLocation("/");
     } catch (err: any) {
       toast({ title: "Registration failed", description: err.message, variant: "destructive" });
@@ -147,6 +147,18 @@ export default function LoginPage() {
           <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
             <form onSubmit={handleSignup} className="space-y-3">
               <div className="space-y-1.5">
+                <Label htmlFor="signup-agency" style={labelStyle}>Agency / Business Name</Label>
+                <Input
+                  id="signup-agency"
+                  placeholder="e.g. Sunrise Cafe"
+                  value={signupForm.agencyName}
+                  onChange={(e) => setSignupForm({ ...signupForm, agencyName: e.target.value })}
+                  required
+                  className={inputStyle}
+                  data-testid="input-signup-agency"
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="signup-username" style={labelStyle}>Username</Label>
                 <Input
                   id="signup-username"
@@ -157,19 +169,6 @@ export default function LoginPage() {
                   minLength={3}
                   className={inputStyle}
                   data-testid="input-signup-username"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="signup-email" style={labelStyle}>Email</Label>
-                <Input
-                  id="signup-email"
-                  type="email"
-                  placeholder="your@email.com"
-                  value={signupForm.email}
-                  onChange={(e) => setSignupForm({ ...signupForm, email: e.target.value })}
-                  required
-                  className={inputStyle}
-                  data-testid="input-signup-email"
                 />
               </div>
               <div className="space-y-1.5">
@@ -186,20 +185,6 @@ export default function LoginPage() {
                   data-testid="input-signup-password"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="signup-confirm" style={labelStyle}>Confirm Password</Label>
-                <Input
-                  id="signup-confirm"
-                  type="password"
-                  placeholder="Re-enter your password"
-                  value={signupForm.confirmPassword}
-                  onChange={(e) => setSignupForm({ ...signupForm, confirmPassword: e.target.value })}
-                  required
-                  minLength={6}
-                  className={inputStyle}
-                  data-testid="input-signup-confirm"
-                />
-              </div>
               <Button
                 type="submit"
                 className="w-full font-semibold"
@@ -207,7 +192,7 @@ export default function LoginPage() {
                 disabled={loading}
                 data-testid="button-signup"
               >
-                {loading ? "Creating account..." : "Create Account"}
+                {loading ? "Creating account..." : "Create Manager Account"}
               </Button>
             </form>
             <div className="mt-4 pt-4 border-t border-white/20 text-center">

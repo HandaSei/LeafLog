@@ -4,7 +4,7 @@ import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { loginSchema, registerManagerSchema, accessCodeLoginSchema, registerAccountSchema } from "@shared/schema";
+import { loginSchema, registerManagerSchema, accessCodeLoginSchema } from "@shared/schema";
 import { format } from "date-fns";
 
 declare module "express-session" {
@@ -93,11 +93,6 @@ export function registerAuthRoutes(router: Router) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
     }
 
-    const hasManagers = await storage.hasAnyManagers();
-    if (hasManagers) {
-      return res.status(400).json({ message: "A manager account already exists. Contact your admin." });
-    }
-
     const existing = await storage.getAccountByUsername(parsed.data.username);
     if (existing) {
       return res.status(400).json({ message: "Username already taken" });
@@ -109,38 +104,6 @@ export function registerAuthRoutes(router: Router) {
       password: hashedPassword,
       role: "manager",
       agencyName: parsed.data.agencyName,
-    });
-
-    req.session.userId = account.id;
-    req.session.role = account.role;
-    req.session.employeeId = null;
-
-    const { password, ...safe } = account;
-    res.status(201).json({ user: safe });
-  });
-
-  router.post("/api/auth/register", async (req, res) => {
-    const parsed = registerAccountSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0].message });
-    }
-
-    const existing = await storage.getAccountByUsername(parsed.data.username);
-    if (existing) {
-      return res.status(400).json({ message: "Username already taken" });
-    }
-
-    const allAccounts = await storage.getAccountByEmail(parsed.data.email);
-    if (allAccounts) {
-      return res.status(400).json({ message: "An account with this email already exists" });
-    }
-
-    const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
-    const account = await storage.createAccount({
-      username: parsed.data.username,
-      password: hashedPassword,
-      email: parsed.data.email,
-      role: "employee",
     });
 
     req.session.userId = account.id;
@@ -287,9 +250,9 @@ export function registerAuthRoutes(router: Router) {
     res.json(codes);
   });
 
-  // === SteepIn (no auth required) ===
-  router.get("/api/kiosk/employees", async (_req, res) => {
-    const emps = await storage.getEmployees();
+  router.get("/api/kiosk/employees", async (req, res) => {
+    const ownerAccountId = req.session?.userId;
+    const emps = await storage.getEmployees(ownerAccountId);
     const safe = emps
       .filter((e) => e.status === "active")
       .map(({ id, name, role, department, color }) => ({ id, name, role, department, color }));
