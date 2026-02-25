@@ -38,7 +38,8 @@ function buildWorkdays(entries: TimeEntry[], employees: Employee[], selectedDay:
 
   const grouped = new Map<number, TimeEntry[]>();
   entries.forEach(entry => {
-    if (entry.date !== dateStr) return;
+    const entryDateStr = typeof entry.date === 'string' ? entry.date.substring(0, 10) : format(new Date(entry.date), "yyyy-MM-dd");
+    if (entryDateStr !== dateStr) return;
     const list = grouped.get(entry.employeeId) || [];
     list.push(entry);
     grouped.set(entry.employeeId, list);

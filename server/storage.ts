@@ -185,7 +185,7 @@ export class DatabaseStorage implements IStorage {
 
   async getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]> {
     const result = await pool.query(
-      "SELECT id, employee_id, type, timestamp, entry_date FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
+      "SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
       [employeeId, date]
     );
     return result.rows.map((row: any) => ({
@@ -199,7 +199,7 @@ export class DatabaseStorage implements IStorage {
 
   async getTimeEntriesByDate(date: string): Promise<TimeEntry[]> {
     const result = await pool.query(
-      "SELECT id, employee_id, type, timestamp, entry_date FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
+      "SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
       [date]
     );
     return result.rows.map((row: any) => ({
@@ -212,7 +212,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllTimeEntries(): Promise<TimeEntry[]> {
-    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date FROM time_entries ORDER BY timestamp");
+    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries ORDER BY timestamp");
     return result.rows.map((row: any) => ({
       id: row.id,
       employeeId: row.employee_id,
