@@ -125,7 +125,12 @@ export function TimeInput({ value, onChange, placeholder = "HH:MM", "data-testid
         inputMode="numeric"
         value={inputValue}
         onChange={(e) => handleInputChange(e.target.value)}
-        onFocus={() => { setShowSuggestions(true); setHighlightIndex(0); }}
+        onFocus={(e) => {
+          const len = e.target.value.length;
+          requestAnimationFrame(() => e.target.setSelectionRange(len, len));
+          setShowSuggestions(true);
+          setHighlightIndex(0);
+        }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         data-testid={testId}

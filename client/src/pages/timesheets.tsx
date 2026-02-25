@@ -154,6 +154,9 @@ export default function Timesheets() {
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
   const [editTime, setEditTime] = useState<string>("");
+  const [editingShift, setEditingShift] = useState<EmployeeWorkday | null>(null);
+  const [editShiftClockIn, setEditShiftClockIn] = useState<string>("");
+  const [editShiftClockOut, setEditShiftClockOut] = useState<string>("");
   const [viewingEmployeeId, setViewingEmployeeId] = useState<number | null>(null);
   const [addingTimesheet, setAddingTimesheet] = useState(false);
   const [newTimesheetEmployeeId, setNewTimesheetEmployeeId] = useState<string>("");
@@ -245,6 +248,20 @@ export default function Timesheets() {
     const entryDate = editingEntry.date;
     const newTimestamp = new Date(`${entryDate}T${editTime}:00`);
     updateEntryMutation.mutate({ id: editingEntry.id, timestamp: newTimestamp.toISOString() });
+  };
+
+  const handleSaveShiftEdit = () => {
+    if (!editingShift || !/^\d{2}:\d{2}$/.test(editShiftClockIn)) return;
+    const dateStr = format(selectedDay, "yyyy-MM-dd");
+    const clockInEntry = editingShift.entries.find(e => e.type === "clock-in");
+    const clockOutEntry = editingShift.entries.find(e => e.type === "clock-out");
+    if (clockInEntry) {
+      updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockIn}:00`).toISOString() });
+    }
+    if (clockOutEntry && /^\d{2}:\d{2}$/.test(editShiftClockOut)) {
+      updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockOut}:00`).toISOString() });
+    }
+    setEditingShift(null);
   };
 
   const handleAddBreak = () => {
@@ -483,35 +500,58 @@ export default function Timesheets() {
                     <span className="text-xs font-semibold" style={{ color: sc.color }}>{sc.label}</span>
                   </div>
                   <div>
-                    <div className="text-xs text-muted-foreground mb-0.5">Clock In</div>
-                    <div className="font-medium">{clockIn ? format(clockIn, "HH:mm:ss") : "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-0.5">Clock Out</div>
-                    {clockOut ? (
-                      <div className="font-medium">{format(clockOut, "HH:mm:ss")}</div>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => {
-                          setAddingClockOut(viewingWorkday);
-                          setClockOutTime(format(new Date(), "HH:mm"));
-                        }}
-                        data-testid="button-add-clock-out"
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> Add
-                      </Button>
-                    )}
-                  </div>
-                  <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Worked</div>
                     <div className="font-medium">{formatMinutes(netWorkedMinutes)} ({formatHoursDecimal(netWorkedMinutes)} h)</div>
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Break</div>
                     <div className="font-medium">{totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "No break"}</div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border p-3 text-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Shift Time</span>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => {
+                          setEditingShift(viewingWorkday);
+                          setEditShiftClockIn(clockIn ? format(clockIn, "HH:mm") : "");
+                          setEditShiftClockOut(clockOut ? format(clockOut, "HH:mm") : "");
+                        }}
+                        data-testid="button-edit-shift-time"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </Button>
+                      {!clockOut && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          onClick={() => {
+                            setAddingClockOut(viewingWorkday);
+                            setClockOutTime(format(new Date(), "HH:mm"));
+                          }}
+                          data-testid="button-add-clock-out"
+                        >
+                          <Plus className="w-3 h-3 mr-1" /> Add Clock Out
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <div className="text-xs text-muted-foreground mb-0.5">Clock In</div>
+                      <div className="font-medium font-mono">{clockIn ? format(clockIn, "HH:mm:ss") : "—"}</div>
+                    </div>
+                    <div className="text-muted-foreground mt-3">→</div>
+                    <div>
+                      <div className="text-xs text-muted-foreground mb-0.5">Clock Out</div>
+                      <div className="font-medium font-mono">{clockOut ? format(clockOut, "HH:mm:ss") : "—"}</div>
+                    </div>
                   </div>
                 </div>
 
@@ -526,6 +566,7 @@ export default function Timesheets() {
                         "break-end": { label: "Break End", color: "#3B82F6" },
                       };
                       const info = typeLabels[entry.type] || { label: entry.type, color: "#6B7280" };
+                      const isBreakEntry = entry.type === "break-start" || entry.type === "break-end";
                       return (
                         <div key={entry.id} className="flex items-center justify-between text-xs p-2 rounded-md border">
                           <div className="flex items-center gap-2">
@@ -536,9 +577,11 @@ export default function Timesheets() {
                             <span className="text-muted-foreground font-mono">
                               {format(new Date(entry.timestamp), "HH:mm:ss")}
                             </span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleEditEntry(entry)} data-testid={`button-edit-entry-${entry.id}`}>
-                              <Edit2 className="w-3 h-3" />
-                            </Button>
+                            {isBreakEntry && (
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleEditEntry(entry)} data-testid={`button-edit-entry-${entry.id}`}>
+                                <Edit2 className="w-3 h-3" />
+                              </Button>
+                            )}
                           </div>
                         </div>
                       );
@@ -602,6 +645,42 @@ export default function Timesheets() {
               onClick={handleSaveEdit}
               disabled={updateEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(editTime)}
               data-testid="button-save-edit"
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingShift} onOpenChange={() => setEditingShift(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Shift Time</DialogTitle>
+          </DialogHeader>
+          {editingShift && (
+            <div className="space-y-4 py-4">
+              <div className="text-sm text-muted-foreground">
+                {editingShift.employee.name} — {format(selectedDay, "EEE, MMM d, yyyy")}
+              </div>
+              <div className="space-y-2">
+                <Label>Shift Time</Label>
+                <TimeRangeInput
+                  startValue={editShiftClockIn}
+                  endValue={editShiftClockOut}
+                  onStartChange={setEditShiftClockIn}
+                  onEndChange={setEditShiftClockOut}
+                  startTestId="input-edit-shift-clock-in"
+                  endTestId="input-edit-shift-clock-out"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingShift(null)}>Cancel</Button>
+            <Button
+              onClick={handleSaveShiftEdit}
+              disabled={updateEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(editShiftClockIn)}
+              data-testid="button-save-shift-edit"
             >
               Save Changes
             </Button>
