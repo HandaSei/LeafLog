@@ -17,7 +17,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { ROLES } from "@/lib/constants";
-import { TimeInput } from "@/components/time-input";
+import { TimeInput, TimeRangeInput } from "@/components/time-input";
 import type { Employee, TimeEntry } from "@shared/schema";
 
 interface EmployeeWorkday {
@@ -650,19 +650,14 @@ export default function Timesheets() {
               {addingBreak?.employee.name} — {format(selectedDay, "EEE, MMM d, yyyy")}
             </div>
             <div className="space-y-2">
-              <Label>Break Start</Label>
-              <TimeInput
-                value={breakStartTime}
-                onChange={setBreakStartTime}
-                data-testid="input-break-start"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Break End</Label>
-              <TimeInput
-                value={breakEndTime}
-                onChange={setBreakEndTime}
-                data-testid="input-break-end"
+              <Label>Break Time</Label>
+              <TimeRangeInput
+                startValue={breakStartTime}
+                endValue={breakEndTime}
+                onStartChange={setBreakStartTime}
+                onEndChange={setBreakEndTime}
+                startTestId="input-break-start"
+                endTestId="input-break-end"
               />
             </div>
           </div>
@@ -705,35 +700,26 @@ export default function Timesheets() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Clock In</Label>
-              <TimeInput
-                value={newTimesheetClockIn}
-                onChange={setNewTimesheetClockIn}
-                data-testid="input-timesheet-clock-in"
+              <Label>Shift Time</Label>
+              <TimeRangeInput
+                startValue={newTimesheetClockIn}
+                endValue={newTimesheetClockOut}
+                onStartChange={setNewTimesheetClockIn}
+                onEndChange={setNewTimesheetClockOut}
+                startTestId="input-timesheet-clock-in"
+                endTestId="input-timesheet-clock-out"
               />
+              <p className="text-xs text-muted-foreground">Clock out is optional</p>
             </div>
             <div className="space-y-2">
-              <Label>Break Start (optional)</Label>
-              <TimeInput
-                value={newTimesheetBreakStart}
-                onChange={setNewTimesheetBreakStart}
-                data-testid="input-timesheet-break-start"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Break End (optional)</Label>
-              <TimeInput
-                value={newTimesheetBreakEnd}
-                onChange={setNewTimesheetBreakEnd}
-                data-testid="input-timesheet-break-end"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Clock Out (optional)</Label>
-              <TimeInput
-                value={newTimesheetClockOut}
-                onChange={setNewTimesheetClockOut}
-                data-testid="input-timesheet-clock-out"
+              <Label>Break <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <TimeRangeInput
+                startValue={newTimesheetBreakStart}
+                endValue={newTimesheetBreakEnd}
+                onStartChange={setNewTimesheetBreakStart}
+                onEndChange={setNewTimesheetBreakEnd}
+                startTestId="input-timesheet-break-start"
+                endTestId="input-timesheet-break-end"
               />
             </div>
           </div>

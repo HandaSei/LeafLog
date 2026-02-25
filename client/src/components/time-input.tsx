@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { Input } from "@/components/ui/input";
 
 interface TimeInputProps {
   value: string;
@@ -56,7 +55,7 @@ function generateSuggestions(partial: string): string[] {
 export function TimeInput({ value, onChange, placeholder = "HH:MM", "data-testid": testId }: TimeInputProps) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [inputValue, setInputValue] = useState(value);
-  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const [highlightIndex, setHighlightIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -78,17 +77,13 @@ export function TimeInput({ value, onChange, placeholder = "HH:MM", "data-testid
 
   const handleInputChange = (raw: string) => {
     let cleaned = raw.replace(/[^0-9:]/g, "");
-
     if (cleaned.length === 2 && !cleaned.includes(":") && inputValue.length < cleaned.length) {
       cleaned = cleaned + ":";
     }
-
     if (cleaned.length > 5) cleaned = cleaned.slice(0, 5);
-
     setInputValue(cleaned);
     setShowSuggestions(true);
     setHighlightIndex(0);
-
     if (/^\d{2}:\d{2}$/.test(cleaned)) {
       const [h, m] = cleaned.split(":").map(Number);
       if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
@@ -101,12 +96,11 @@ export function TimeInput({ value, onChange, placeholder = "HH:MM", "data-testid
     setInputValue(s);
     onChange(s);
     setShowSuggestions(false);
-    setHighlightIndex(-1);
+    setHighlightIndex(0);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!showSuggestions || suggestions.length === 0) return;
-
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setHighlightIndex(prev => Math.min(prev + 1, suggestions.length - 1));
@@ -124,34 +118,33 @@ export function TimeInput({ value, onChange, placeholder = "HH:MM", "data-testid
   };
 
   return (
-    <div ref={containerRef} className="relative">
-      <Input
+    <div ref={containerRef} className="relative inline-block">
+      <input
         ref={inputRef}
         type="text"
         inputMode="numeric"
         value={inputValue}
         onChange={(e) => handleInputChange(e.target.value)}
-        onFocus={() => {
-          setShowSuggestions(true);
-          setHighlightIndex(0);
-        }}
+        onFocus={() => { setShowSuggestions(true); setHighlightIndex(0); }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         data-testid={testId}
         autoComplete="off"
+        className="w-20 px-2.5 py-1.5 text-sm font-mono text-center rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 placeholder:text-muted-foreground"
       />
       {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute z-50 top-full left-0 mt-1 w-full bg-popover border rounded-md shadow-md overflow-hidden">
+        <div className="absolute z-50 top-full left-0 mt-1 min-w-[80px] bg-popover border border-border rounded-md shadow-lg overflow-hidden">
           {suggestions.map((s, i) => (
             <button
               key={s}
               type="button"
-              className={`w-full text-left px-3 py-1.5 text-sm font-mono cursor-pointer transition-colors
-                ${i === highlightIndex ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                selectSuggestion(s);
-              }}
+              className={`w-full text-left px-3 py-1.5 text-sm font-mono transition-colors
+                ${i === 0 && highlightIndex === 0
+                  ? "text-primary font-semibold bg-primary/8"
+                  : i === highlightIndex
+                  ? "bg-accent text-accent-foreground"
+                  : "hover:bg-accent/60 text-foreground"}`}
+              onMouseDown={(e) => { e.preventDefault(); selectSuggestion(s); }}
               onMouseEnter={() => setHighlightIndex(i)}
             >
               {s}
@@ -159,6 +152,25 @@ export function TimeInput({ value, onChange, placeholder = "HH:MM", "data-testid
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+interface TimeRangeInputProps {
+  startValue: string;
+  endValue: string;
+  onStartChange: (v: string) => void;
+  onEndChange: (v: string) => void;
+  startTestId?: string;
+  endTestId?: string;
+}
+
+export function TimeRangeInput({ startValue, endValue, onStartChange, onEndChange, startTestId, endTestId }: TimeRangeInputProps) {
+  return (
+    <div className="flex items-center gap-2">
+      <TimeInput value={startValue} onChange={onStartChange} data-testid={startTestId} />
+      <span className="text-sm text-muted-foreground font-medium select-none">to</span>
+      <TimeInput value={endValue} onChange={onEndChange} data-testid={endTestId} />
     </div>
   );
 }
