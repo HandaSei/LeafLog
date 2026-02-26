@@ -2,11 +2,11 @@ import { eq, and, gt, desc, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
-  employees, shifts, accounts, accessCodes, timeEntries, roles,
+  employees, shifts, accounts, accessCodes, timeEntries,
   type Employee, type InsertEmployee,
   type Shift, type InsertShift,
   type Account, type InsertAccount,
-  type AccessCode, type TimeEntry, type Role,
+  type AccessCode, type TimeEntry,
 } from "@shared/schema";
 
 const connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
@@ -51,11 +51,6 @@ export interface IStorage {
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
   updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
   getEmployeeIdsByOwner(ownerAccountId: number): Promise<number[]>;
-
-  getRoles(ownerAccountId: number): Promise<Role[]>;
-  createRole(data: { name: string; ownerAccountId: number }): Promise<Role>;
-  updateRole(id: number, name: string): Promise<Role | undefined>;
-  deleteRole(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -281,24 +276,6 @@ export class DatabaseStorage implements IStorage {
   async updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined> {
     const [entry] = await db.update(timeEntries).set(data).where(eq(timeEntries.id, id)).returning();
     return entry;
-  }
-
-  async getRoles(ownerAccountId: number): Promise<Role[]> {
-    return db.select().from(roles).where(eq(roles.ownerAccountId, ownerAccountId));
-  }
-
-  async createRole(data: { name: string; ownerAccountId: number }): Promise<Role> {
-    const [role] = await db.insert(roles).values(data).returning();
-    return role;
-  }
-
-  async updateRole(id: number, name: string): Promise<Role | undefined> {
-    const [role] = await db.update(roles).set({ name }).where(eq(roles.id, id)).returning();
-    return role;
-  }
-
-  async deleteRole(id: number): Promise<void> {
-    await db.delete(roles).where(eq(roles.id, id));
   }
 }
 

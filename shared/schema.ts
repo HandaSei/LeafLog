@@ -104,16 +104,11 @@ export const registerAccountSchema = z.object({
   path: ["confirmPassword"],
 });
 
-export const roles = pgTable("roles", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  name: text("name").notNull(),
-  ownerAccountId: integer("owner_account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertRoleSchema = createInsertSchema(roles, {
-  name: z.string().min(1, "Role name is required").max(50),
-}).omit({ id: true, createdAt: true, ownerAccountId: true });
-
-export type Role = typeof roles.$inferSelect;
-export type InsertRole = z.infer<typeof insertRoleSchema>;
+export type Account = typeof accounts.$inferSelect;
+export type InsertAccount = z.infer<typeof insertAccountSchema>;
+export type Employee = typeof employees.$inferSelect;
+export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
+export type Shift = typeof shifts.$inferSelect;
+export type InsertShift = z.infer<typeof insertShiftSchema>;
+export type AccessCode = typeof accessCodes.$inferSelect;
+export type TimeEntry = typeof timeEntries.$inferSelect;

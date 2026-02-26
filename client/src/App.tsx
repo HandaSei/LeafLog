@@ -14,7 +14,6 @@ import Dashboard from "@/pages/dashboard";
 import Schedule from "@/pages/schedule";
 import Employees from "@/pages/employees";
 import Timesheets from "@/pages/timesheets";
-import Settings from "@/pages/settings";
 import LoginPage from "@/pages/login";
 import KioskPage from "@/pages/kiosk";
 
@@ -25,7 +24,6 @@ function AuthenticatedRouter() {
       <Route path="/schedule" component={Schedule} />
       <Route path="/employees" component={Employees} />
       <Route path="/timesheets" component={Timesheets} />
-      <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
   );
