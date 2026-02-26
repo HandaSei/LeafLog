@@ -58,9 +58,8 @@ export default function Employees() {
   const filtered = employees.filter(
     (e) =>
       e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.role.toLowerCase().includes(searchQuery.toLowerCase())
+      (e.email && e.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const handleEdit = (emp: Employee) => {
@@ -170,10 +169,12 @@ export default function Employees() {
                   </DropdownMenu>
                 </div>
                 <div className="mt-3 space-y-1.5">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Mail className="w-3 h-3" />
-                    <span className="truncate">{emp.email}</span>
-                  </div>
+                  {emp.email && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Mail className="w-3 h-3" />
+                      <span className="truncate">{emp.email}</span>
+                    </div>
+                  )}
                   {emp.phone && (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Phone className="w-3 h-3" />
@@ -182,9 +183,6 @@ export default function Employees() {
                   )}
                 </div>
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
-                  <Badge variant="secondary" className="text-[10px]">
-                    {emp.department}
-                  </Badge>
                   <Badge
                     variant={emp.status === "active" ? "default" : "secondary"}
                     className="text-[10px]"

@@ -17,10 +17,10 @@ export const accounts = pgTable("accounts", {
 export const employees = pgTable("employees", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
-  email: text("email").notNull(),
+  email: text("email"),
   phone: text("phone"),
-  role: text("role").notNull(),
-  department: text("department").notNull(),
+  role: text("role").default("Staff"),
+  department: text("department"),
   color: text("color").notNull().default("#3B82F6"),
   status: text("status").notNull().default("active"),
   avatarInitials: text("avatar_initials"),
@@ -59,10 +59,10 @@ export const timeEntries = pgTable("time_entries", {
 });
 
 export const insertEmployeeSchema = createInsertSchema(employees, {
-  name: z.string().min(1),
-  email: z.string().email(),
-  role: z.string().min(1),
-  department: z.string().min(1),
+  name: z.string().min(1, "Full name is required"),
+  email: z.string().email().optional().or(z.literal("")),
+  role: z.string().optional(),
+  department: z.string().optional(),
   accessCode: z.string().length(4, "Passcode must be 4 digits").regex(/^[0-9]+$/, "Passcode must be numeric").optional(),
 }).omit({ id: true });
 

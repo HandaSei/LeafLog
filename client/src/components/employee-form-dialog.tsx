@@ -33,11 +33,11 @@ import {
 import { DEPARTMENTS, ROLES, EMPLOYEE_COLORS } from "@/lib/constants";
 
 const employeeFormSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.string().email("Valid email is required"),
+  name: z.string().min(1, "Full name is required"),
+  email: z.string().email("Valid email is required").optional().or(z.literal("")),
   phone: z.string().optional(),
-  role: z.string().min(1, "Role is required"),
-  department: z.string().min(1, "Department is required"),
+  role: z.string().optional(),
+  department: z.string().optional(),
   color: z.string().default("#3B82F6"),
   status: z.string().default("active"),
   accessCode: z.string().length(4, "Passcode must be 4 digits").regex(/^[0-9]+$/, "Passcode must be numeric"),
@@ -65,7 +65,7 @@ export function EmployeeFormDialog({
       name: employee?.name ?? "",
       email: employee?.email ?? "",
       phone: employee?.phone ?? "",
-      role: employee?.role ?? "",
+      role: employee?.role ?? "Staff",
       department: employee?.department ?? "",
       color: employee?.color ?? EMPLOYEE_COLORS[0],
       status: employee?.status ?? "active",
@@ -79,7 +79,7 @@ export function EmployeeFormDialog({
         name: employee?.name ?? "",
         email: employee?.email ?? "",
         phone: employee?.phone ?? "",
-        role: employee?.role ?? "",
+        role: employee?.role ?? "Staff",
         department: employee?.department ?? "",
         color: employee?.color ?? EMPLOYEE_COLORS[0],
         status: employee?.status ?? "active",
@@ -151,7 +151,7 @@ export function EmployeeFormDialog({
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Email</FormLabel>
+                  <FormLabel>Email (optional)</FormLabel>
                   <FormControl>
                     <Input
                       type="email"
@@ -181,37 +181,13 @@ export function EmployeeFormDialog({
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-2 gap-3">
-              <FormField
-                control={form.control}
-                name="department"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Department</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-department">
-                          <SelectValue placeholder="Select" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {DEPARTMENTS.map((d) => (
-                          <SelectItem key={d} value={d}>
-                            {d}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <div className="grid grid-cols-1 gap-3">
               <FormField
                 control={form.control}
                 name="role"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Role</FormLabel>
+                    <FormLabel>Role (optional)</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger data-testid="select-role">

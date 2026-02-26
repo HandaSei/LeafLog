@@ -487,7 +487,7 @@ export default function Timesheets() {
                   <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                   <div>
                     <div className="font-semibold">{emp.name}</div>
-                    <div className="text-xs text-muted-foreground">{emp.department} &middot; {emp.role}</div>
+                    <div className="text-xs text-muted-foreground">{emp.role}</div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">

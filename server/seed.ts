@@ -3,14 +3,14 @@ import { format, addDays } from "date-fns";
 import bcrypt from "bcryptjs";
 
 const EMPLOYEE_DATA = [
-  { name: "Sarah Chen", email: "sarah.chen@company.com", phone: "(555) 234-5678", role: "Manager", department: "Management", color: "#3B82F6" },
-  { name: "Marcus Rivera", email: "marcus.r@company.com", phone: "(555) 345-6789", role: "Supervisor", department: "Kitchen", color: "#10B981" },
-  { name: "Emily Watson", email: "emily.w@company.com", phone: "(555) 456-7890", role: "Team Lead", department: "Front of House", color: "#8B5CF6" },
-  { name: "James O'Brien", email: "james.ob@company.com", phone: "(555) 567-8901", role: "Staff", department: "Bar", color: "#F59E0B" },
-  { name: "Aisha Patel", email: "aisha.p@company.com", phone: "(555) 678-9012", role: "Staff", department: "Front of House", color: "#F43F5E" },
-  { name: "David Kim", email: "david.kim@company.com", phone: "(555) 789-0123", role: "Part-time", department: "Kitchen", color: "#06B6D4" },
-  { name: "Lisa Thompson", email: "lisa.t@company.com", phone: "(555) 890-1234", role: "Staff", department: "Delivery", color: "#F97316" },
-  { name: "Carlos Mendez", email: "carlos.m@company.com", phone: "(555) 901-2345", role: "Supervisor", department: "Kitchen", color: "#6366F1" },
+  { name: "Sarah Chen", email: "sarah.chen@company.com", phone: "(555) 234-5678", role: "Manager", color: "#3B82F6" },
+  { name: "Marcus Rivera", email: "marcus.r@company.com", phone: "(555) 345-6789", role: "Supervisor", color: "#10B981" },
+  { name: "Emily Watson", email: "emily.w@company.com", phone: "(555) 456-7890", role: "Team Lead", color: "#8B5CF6" },
+  { name: "James O'Brien", email: "james.ob@company.com", phone: "(555) 567-8901", role: "Staff", color: "#F59E0B" },
+  { name: "Aisha Patel", email: "aisha.p@company.com", phone: "(555) 678-9012", role: "Staff", color: "#F43F5E" },
+  { name: "David Kim", email: "david.kim@company.com", phone: "(555) 789-0123", role: "Part-time", color: "#06B6D4" },
+  { name: "Lisa Thompson", email: "lisa.t@company.com", phone: "(555) 890-1234", role: "Staff", color: "#F97316" },
+  { name: "Carlos Mendez", email: "carlos.m@company.com", phone: "(555) 901-2345", role: "Supervisor", color: "#6366F1" },
 ];
 
 const SHIFT_TEMPLATES = [

@@ -256,7 +256,7 @@ export function registerAuthRoutes(router: Router) {
     const emps = await storage.getEmployees(ownerAccountId);
     const safe = emps
       .filter((e) => e.status === "active")
-      .map(({ id, name, role, department, color }) => ({ id, name, role, department, color }));
+      .map(({ id, name, role, color }) => ({ id, name, role, color }));
     res.json(safe);
   });
 

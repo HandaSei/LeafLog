@@ -15,10 +15,6 @@ export const EMPLOYEE_COLORS = [
   "#EC4899", "#14B8A6",
 ];
 
-export const DEPARTMENTS = [
-  "Kitchen", "Front of House", "Management", "Bar", "Delivery", "Maintenance",
-];
-
 export const ROLES = [
   "Manager", "Supervisor", "Team Lead", "Staff", "Part-time", "Intern",
 ];

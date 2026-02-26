@@ -102,7 +102,7 @@ export default function KioskPage() {
     return employees.filter(
       (e) =>
         e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.department.toLowerCase().includes(searchQuery.toLowerCase())
+        (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
     );
   }, [employees, searchQuery]);
 
@@ -162,7 +162,7 @@ export default function KioskPage() {
               <EmployeeAvatar name={selectedEmployee.name} color={selectedEmployee.color} size="lg" />
               <div>
                 <h2 className="text-xl font-bold" data-testid="text-kiosk-employee-name">{selectedEmployee.name}</h2>
-                <p className="text-sm text-muted-foreground">{selectedEmployee.department} &middot; {selectedEmployee.role}</p>
+                <p className="text-sm text-muted-foreground">{selectedEmployee.role}</p>
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-primary">SteepIn</h1>
             </div>
@@ -320,7 +320,7 @@ export default function KioskPage() {
         <div className="relative max-w-md mx-auto">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search by name or department..."
+            placeholder="Search by name or role..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8"
@@ -348,7 +348,7 @@ export default function KioskPage() {
                 <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                 <div className="text-center">
                   <div className="text-sm font-medium">{emp.name}</div>
-                  <div className="text-[10px] text-muted-foreground">{emp.department}</div>
+                  <div className="text-[10px] text-muted-foreground">{emp.role}</div>
                 </div>
               </button>
             ))}
