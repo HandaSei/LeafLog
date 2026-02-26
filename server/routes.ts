@@ -155,6 +155,38 @@ export async function registerRoutes(
     res.status(201).json(entry);
   });
 
+  // === ROLES ===
+  router.get("/api/roles", requireAuth, async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    const roles = await storage.getRoles(ownerAccountId);
+    res.json(roles);
+  });
+
+  router.post("/api/roles", requireRole("admin", "manager"), async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    const existingRoles = await storage.getRoles(ownerAccountId);
+    if (existingRoles.length >= 6) {
+      return res.status(400).json({ message: "Maximum limit of 6 roles reached" });
+    }
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ message: "Role name is required" });
+    const role = await storage.createRole({ name, ownerAccountId });
+    res.status(201).json(role);
+  });
+
+  router.patch("/api/roles/:id", requireRole("admin", "manager"), async (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ message: "Role name is required" });
+    const role = await storage.updateRole(Number(req.params.id), name);
+    if (!role) return res.status(404).json({ message: "Role not found" });
+    res.json(role);
+  });
+
+  router.delete("/api/roles/:id", requireRole("admin", "manager"), async (req, res) => {
+    await storage.deleteRole(Number(req.params.id));
+    res.sendStatus(204);
+  });
+
   router.patch("/api/kiosk/entries/:id", requireRole("admin", "manager"), async (req, res) => {
     const id = parseInt(req.params.id);
     const updateData: any = {};

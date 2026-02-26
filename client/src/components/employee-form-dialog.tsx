@@ -1,11 +1,11 @@
 import { useForm } from "react-hook-form";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee } from "@shared/schema";
+import type { Employee, Role } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +30,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DEPARTMENTS, ROLES, EMPLOYEE_COLORS } from "@/lib/constants";
+import { ROLES, EMPLOYEE_COLORS } from "@/lib/constants";
+import { useQuery } from "@tanstack/react-query";
+import { getQueryFn } from "@/lib/queryClient";
 
 const employeeFormSchema = z.object({
   name: z.string().min(1, "Full name is required"),
@@ -58,6 +60,17 @@ export function EmployeeFormDialog({
 }: EmployeeFormDialogProps) {
   const { toast } = useToast();
   const isEditing = !!employee;
+
+  const { data: customRoles = [] } = useQuery<Role[]>({
+    queryKey: ["/api/roles"],
+    queryFn: getQueryFn(),
+    enabled: open,
+  });
+
+  const allRoles = useMemo(() => {
+    const customNames = customRoles.map(r => r.name);
+    return [...new Set([...ROLES, ...customNames])];
+  }, [customRoles]);
 
   const form = useForm<EmployeeFormValues>({
     resolver: zodResolver(employeeFormSchema),
@@ -195,7 +208,7 @@ export function EmployeeFormDialog({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {ROLES.map((r) => (
+                        {allRoles.map((r) => (
                           <SelectItem key={r} value={r}>
                             {r}
                           </SelectItem>
