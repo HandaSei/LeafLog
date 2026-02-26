@@ -22,8 +22,9 @@ export function setupSession(app: any) {
   app.use(
     session({
       store: new PgStore({
-        conString: process.env.DATABASE_URL,
+        conString: process.env.NEON_DATABASE_URL || process.env.DATABASE_URL,
         createTableIfMissing: true,
+        ssl: (process.env.NEON_DATABASE_URL || process.env.DATABASE_URL)?.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
       }),
       secret: process.env.SESSION_SECRET || "shiftflow-secret-key-change-me",
       resave: false,

@@ -9,7 +9,12 @@ import {
   type AccessCode, type TimeEntry,
 } from "@shared/schema";
 
-export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
+const isNeon = connectionString?.includes("neon.tech");
+export const pool = new pg.Pool({
+  connectionString,
+  ssl: isNeon ? { rejectUnauthorized: false } : undefined,
+});
 const db = drizzle(pool);
 
 export interface IStorage {

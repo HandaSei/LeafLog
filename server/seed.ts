@@ -29,7 +29,7 @@ export async function seedDatabase() {
     await storage.createAccount({
       username: "admin",
       password: adminPassword,
-      role: "admin",
+      role: "manager",
       agencyName: "ShiftFlow HQ",
     });
     console.log("Admin account created (username: admin, password: admin123)");
@@ -38,11 +38,14 @@ export async function seedDatabase() {
   const existing = await storage.getEmployees();
   if (existing.length > 0) return;
 
+  const adminAccount = await storage.getAccountByUsername("admin");
+  const adminId = adminAccount?.id;
+
   console.log("Seeding database with sample data...");
 
   const createdEmployees = [];
   for (const empData of EMPLOYEE_DATA) {
-    const emp = await storage.createEmployee({ ...empData, status: "active" });
+    const emp = await storage.createEmployee({ ...empData, status: "active", ownerAccountId: adminId });
     createdEmployees.push(emp);
   }
 
