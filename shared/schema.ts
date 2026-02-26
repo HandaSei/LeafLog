@@ -58,6 +58,12 @@ export const timeEntries = pgTable("time_entries", {
   date: date("entry_date").notNull(),
 });
 
+export const customRoles = pgTable("custom_roles", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  ownerAccountId: integer("owner_account_id").notNull(),
+});
+
 export const insertEmployeeSchema = createInsertSchema(employees, {
   name: z.string().min(1, "Full name is required"),
   email: z.string().email().optional().or(z.literal("")),
@@ -104,6 +110,8 @@ export const registerAccountSchema = z.object({
   path: ["confirmPassword"],
 });
 
+export const insertCustomRoleSchema = createInsertSchema(customRoles).omit({ id: true });
+
 export type Account = typeof accounts.$inferSelect;
 export type InsertAccount = z.infer<typeof insertAccountSchema>;
 export type Employee = typeof employees.$inferSelect;
@@ -112,3 +120,4 @@ export type Shift = typeof shifts.$inferSelect;
 export type InsertShift = z.infer<typeof insertShiftSchema>;
 export type AccessCode = typeof accessCodes.$inferSelect;
 export type TimeEntry = typeof timeEntries.$inferSelect;
+export type CustomRole = typeof customRoles.$inferSelect;

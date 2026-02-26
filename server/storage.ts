@@ -2,11 +2,11 @@ import { eq, and, gt, desc, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
-  employees, shifts, accounts, accessCodes, timeEntries,
+  employees, shifts, accounts, accessCodes, timeEntries, customRoles,
   type Employee, type InsertEmployee,
   type Shift, type InsertShift,
   type Account, type InsertAccount,
-  type AccessCode, type TimeEntry,
+  type AccessCode, type TimeEntry, type CustomRole,
 } from "@shared/schema";
 
 const connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
@@ -51,6 +51,11 @@ export interface IStorage {
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
   updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
   getEmployeeIdsByOwner(ownerAccountId: number): Promise<number[]>;
+
+  getCustomRoles(ownerAccountId: number): Promise<CustomRole[]>;
+  createCustomRole(ownerAccountId: number, name: string): Promise<CustomRole>;
+  updateCustomRole(id: number, name: string): Promise<CustomRole | undefined>;
+  deleteCustomRole(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -276,6 +281,24 @@ export class DatabaseStorage implements IStorage {
   async updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined> {
     const [entry] = await db.update(timeEntries).set(data).where(eq(timeEntries.id, id)).returning();
     return entry;
+  }
+
+  async getCustomRoles(ownerAccountId: number): Promise<CustomRole[]> {
+    return db.select().from(customRoles).where(eq(customRoles.ownerAccountId, ownerAccountId));
+  }
+
+  async createCustomRole(ownerAccountId: number, name: string): Promise<CustomRole> {
+    const [role] = await db.insert(customRoles).values({ ownerAccountId, name }).returning();
+    return role;
+  }
+
+  async updateCustomRole(id: number, name: string): Promise<CustomRole | undefined> {
+    const [role] = await db.update(customRoles).set({ name }).where(eq(customRoles.id, id)).returning();
+    return role;
+  }
+
+  async deleteCustomRole(id: number): Promise<void> {
+    await db.delete(customRoles).where(eq(customRoles.id, id));
   }
 }
 

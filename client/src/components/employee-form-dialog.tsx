@@ -30,7 +30,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DEPARTMENTS, ROLES, EMPLOYEE_COLORS } from "@/lib/constants";
+import { EMPLOYEE_COLORS } from "@/lib/constants";
+import { useQuery } from "@tanstack/react-query";
+import type { CustomRole } from "@shared/schema";
 
 const employeeFormSchema = z.object({
   name: z.string().min(1, "Full name is required"),
@@ -58,6 +60,10 @@ export function EmployeeFormDialog({
 }: EmployeeFormDialogProps) {
   const { toast } = useToast();
   const isEditing = !!employee;
+
+  const { data: customRoles = [] } = useQuery<CustomRole[]>({
+    queryKey: ["/api/roles"],
+  });
 
   const form = useForm<EmployeeFormValues>({
     resolver: zodResolver(employeeFormSchema),
@@ -188,16 +194,16 @@ export function EmployeeFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Role (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
                       <FormControl>
                         <SelectTrigger data-testid="select-role">
-                          <SelectValue placeholder="Select" />
+                          <SelectValue placeholder={customRoles.length === 0 ? "No roles — add them in Settings" : "Select a role"} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {ROLES.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {r}
+                        {customRoles.map((r) => (
+                          <SelectItem key={r.id} value={r.name}>
+                            {r.name}
                           </SelectItem>
                         ))}
                       </SelectContent>

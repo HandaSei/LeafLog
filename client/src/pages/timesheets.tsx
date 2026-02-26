@@ -16,9 +16,8 @@ import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
-import { ROLES } from "@/lib/constants";
 import { TimeInput, TimeRangeInput } from "@/components/time-input";
-import type { Employee, TimeEntry } from "@shared/schema";
+import type { Employee, TimeEntry, CustomRole } from "@shared/schema";
 
 interface EmployeeWorkday {
   employee: Employee;
@@ -173,6 +172,10 @@ export default function Timesheets() {
 
   const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
   const weekDays = useMemo(() => eachDayOfInterval({ start: selectedWeek, end: weekEnd }), [selectedWeek]);
+
+  const { data: customRoles = [] } = useQuery<CustomRole[]>({
+    queryKey: ["/api/roles"],
+  });
 
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
@@ -405,8 +408,8 @@ export default function Timesheets() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Positions</SelectItem>
-              {ROLES.map(role => (
-                <SelectItem key={role} value={role}>{role}</SelectItem>
+              {customRoles.map(role => (
+                <SelectItem key={role.id} value={role.name}>{role.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -451,7 +454,7 @@ export default function Timesheets() {
                     {clockIn ? format(clockIn, "HH:mm") : "--:--"} - {clockOut ? format(clockOut, "HH:mm") : ""}
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
-                    <span className="text-xs text-muted-foreground">{emp.department}</span>
+                    <span className="text-xs text-muted-foreground">{emp.role}</span>
                     <span className="text-sm font-semibold text-muted-foreground">{formatHoursDecimal(netWorkedMinutes)} h</span>
                   </div>
                   {totalBreakMinutes > 0 && (

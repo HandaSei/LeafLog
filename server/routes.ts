@@ -178,6 +178,49 @@ export async function registerRoutes(
     res.status(201).json(entry);
   });
 
+  // === CUSTOM ROLES ===
+  router.get("/api/roles", requireRole("admin", "manager"), async (req, res) => {
+    const roles = await storage.getCustomRoles(req.session.userId!);
+    res.json(roles);
+  });
+
+  router.post("/api/roles", requireRole("admin", "manager"), async (req, res) => {
+    const { name } = req.body;
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ message: "Role name is required" });
+    }
+    const existing = await storage.getCustomRoles(req.session.userId!);
+    if (existing.length >= 6) {
+      return res.status(400).json({ message: "Maximum of 6 roles allowed" });
+    }
+    const duplicate = existing.find((r) => r.name.toLowerCase() === name.trim().toLowerCase());
+    if (duplicate) {
+      return res.status(400).json({ message: "A role with this name already exists" });
+    }
+    const role = await storage.createCustomRole(req.session.userId!, name.trim());
+    res.status(201).json(role);
+  });
+
+  router.patch("/api/roles/:id", requireRole("admin", "manager"), async (req, res) => {
+    const { name } = req.body;
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ message: "Role name is required" });
+    }
+    const existing = await storage.getCustomRoles(req.session.userId!);
+    const duplicate = existing.find((r) => r.name.toLowerCase() === name.trim().toLowerCase() && r.id !== Number(req.params.id));
+    if (duplicate) {
+      return res.status(400).json({ message: "A role with this name already exists" });
+    }
+    const role = await storage.updateCustomRole(Number(req.params.id), name.trim());
+    if (!role) return res.status(404).json({ message: "Role not found" });
+    res.json(role);
+  });
+
+  router.delete("/api/roles/:id", requireRole("admin", "manager"), async (req, res) => {
+    await storage.deleteCustomRole(Number(req.params.id));
+    res.status(204).send();
+  });
+
   app.use(router);
 
   return httpServer;
