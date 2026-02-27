@@ -506,6 +506,9 @@ export default function Dashboard() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-medium truncate">{emp.name}</span>
+                      <span className="text-[10px] text-muted-foreground ml-auto">
+                        {emp.role || "Loose Leaf"}
+                      </span>
                       {shift && (
                         <span className="text-[10px] text-muted-foreground">
                           {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
@@ -535,7 +538,10 @@ export default function Dashboard() {
                 >
                   <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium truncate">{emp.name}</div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-medium truncate">{emp.name}</div>
+                      <div className="text-[10px] text-muted-foreground">{emp.role || "Loose Leaf"}</div>
+                    </div>
                     {shift && (
                       <div className="text-[10px] text-muted-foreground">
                         {formatTime(shift.startTime)} - {formatTime(shift.endTime)}

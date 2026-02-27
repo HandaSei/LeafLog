@@ -488,7 +488,7 @@ export default function Timesheets() {
             {clockIn ? format(clockIn, "HH:mm") : "--:--"} - {clockOut ? format(clockOut, "HH:mm") : ""}
           </div>
           <div className="flex items-center justify-between gap-2 mt-0.5">
-            <span className="text-xs text-muted-foreground">{emp.role || "Unassigned"}</span>
+            <span className="text-xs text-muted-foreground">{emp.role || "Loose Leaf"}</span>
             <span className="text-sm font-semibold text-muted-foreground">{formatHoursDecimal(netWorkedMinutes)} h</span>
           </div>
           {totalBreakMinutes > 0 && (
@@ -776,7 +776,7 @@ export default function Timesheets() {
                   <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                   <div>
                     <div className="font-semibold">{emp.name}</div>
-                    <div className="text-xs text-muted-foreground">{emp.role || "Unassigned"}</div>
+                    <div className="text-xs text-muted-foreground">{emp.role || "Loose Leaf"}</div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">

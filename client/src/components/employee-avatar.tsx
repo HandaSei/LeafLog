@@ -14,10 +14,11 @@ const sizeClasses = {
 };
 
 export function EmployeeAvatar({ name, color, size = "md" }: EmployeeAvatarProps) {
+  const displayColor = color === "#3B82F6" || !color ? "#9CA3AF" : color;
   return (
     <Avatar className={sizeClasses[size]}>
       <AvatarFallback
-        style={{ backgroundColor: color, color: "white" }}
+        style={{ backgroundColor: displayColor, color: "white" }}
         className="font-medium"
       >
         {getInitials(name)}
