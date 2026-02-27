@@ -336,7 +336,7 @@ export function TimeInput({ value, onChange, placeholder = "HH:MM", "data-testid
       <button
         type="button"
         onClick={() => setPickerOpen(true)}
-        className="w-20 px-2.5 py-1.5 text-sm font-mono text-center rounded-md border border-input bg-background hover:bg-accent/50 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 cursor-pointer"
+        className="w-full h-10 px-2.5 py-1.5 text-sm font-mono text-center rounded-md border border-input bg-background hover:bg-accent/50 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 cursor-pointer"
         data-testid={testId}
       >
         {value && /^\d{2}:\d{2}$/.test(value) ? value : <span className="text-muted-foreground">{placeholder}</span>}

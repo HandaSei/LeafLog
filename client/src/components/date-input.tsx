@@ -181,7 +181,7 @@ export function DateInput({ value, onChange, placeholder = "Select date", "data-
       <button
         type="button"
         onClick={() => setPickerOpen(true)}
-        className={`px-3 py-1.5 text-sm text-left rounded-md border border-input bg-background hover:bg-accent/50 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 cursor-pointer ${className || "w-full"}`}
+        className={`px-3 h-10 py-1.5 text-sm text-left rounded-md border border-input bg-background hover:bg-accent/50 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 cursor-pointer ${className || "w-full"}`}
         data-testid={testId}
       >
         {displayValue || <span className="text-muted-foreground">{placeholder}</span>}

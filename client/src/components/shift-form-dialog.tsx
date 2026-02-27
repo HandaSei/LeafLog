@@ -179,12 +179,12 @@ export function ShiftFormDialog({
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-3 gap-3">
+            <div className="flex items-end gap-3">
               <FormField
                 control={form.control}
                 name="date"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="flex-1">
                     <FormLabel>Date</FormLabel>
                     <FormControl>
                       <DateInput value={field.value} onChange={field.onChange} data-testid="input-shift-date" />
@@ -197,7 +197,7 @@ export function ShiftFormDialog({
                 control={form.control}
                 name="startTime"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="w-[80px]">
                     <FormLabel>Start</FormLabel>
                     <FormControl>
                       <TimeInput value={field.value} onChange={field.onChange} data-testid="input-shift-start" />
@@ -210,7 +210,7 @@ export function ShiftFormDialog({
                 control={form.control}
                 name="endTime"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="w-[80px]">
                     <FormLabel>End</FormLabel>
                     <FormControl>
                       <TimeInput value={field.value} onChange={field.onChange} data-testid="input-shift-end" />
