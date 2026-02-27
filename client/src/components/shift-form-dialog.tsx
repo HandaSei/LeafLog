@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { TimeInput } from "@/components/time-input";
+import { DateInput } from "@/components/date-input";
 import {
   Select,
   SelectContent,
@@ -186,7 +187,7 @@ export function ShiftFormDialog({
                   <FormItem>
                     <FormLabel>Date</FormLabel>
                     <FormControl>
-                      <Input type="date" data-testid="input-shift-date" {...field} />
+                      <DateInput value={field.value} onChange={field.onChange} data-testid="input-shift-date" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

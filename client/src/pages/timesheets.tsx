@@ -22,6 +22,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { TimeInput, TimeRangeInput } from "@/components/time-input";
+import { DateInput } from "@/components/date-input";
 import type { Employee, TimeEntry, CustomRole } from "@shared/schema";
 
 interface EmployeeWorkday {
@@ -668,20 +669,18 @@ export default function Timesheets() {
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <span className="text-[10px] uppercase font-bold text-muted-foreground">From</span>
-                  <Input 
-                    type="date" 
-                    value={exportStartDate} 
-                    onChange={e => setExportStartDate(e.target.value)}
-                    className="h-9 text-sm"
+                  <DateInput
+                    value={exportStartDate}
+                    onChange={setExportStartDate}
+                    data-testid="input-export-start-date"
                   />
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] uppercase font-bold text-muted-foreground">To</span>
-                  <Input 
-                    type="date" 
-                    value={exportEndDate} 
-                    onChange={e => setExportEndDate(e.target.value)}
-                    className="h-9 text-sm"
+                  <DateInput
+                    value={exportEndDate}
+                    onChange={setExportEndDate}
+                    data-testid="input-export-end-date"
                   />
                 </div>
               </div>
