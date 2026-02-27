@@ -89,12 +89,12 @@ export default function Schedule() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-4 p-4 border-b flex-wrap">
+      <div className="flex items-center justify-between gap-4 p-4 border-b flex-wrap relative">
         <div className="flex items-center gap-3">
           <CalendarDays className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-semibold" data-testid="text-schedule-title">Schedule</h2>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap absolute left-1/2 -translate-x-1/2">
           <Button size="icon" variant="ghost" onClick={() => navigate(-1)} data-testid="button-prev-period">
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -105,6 +105,7 @@ export default function Schedule() {
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
+        <div className="w-[100px] invisible md:visible"></div>
       </div>
 
       <div className="flex-1 overflow-auto p-4">
