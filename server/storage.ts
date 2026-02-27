@@ -1,4 +1,4 @@
-import { eq, and, gt, desc, inArray, gte } from "drizzle-orm";
+import { eq, and, gt, desc, inArray, gte, asc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
@@ -72,9 +72,9 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   async getEmployees(ownerAccountId?: number): Promise<Employee[]> {
     if (ownerAccountId) {
-      return db.select().from(employees).where(eq(employees.ownerAccountId, ownerAccountId));
+      return db.select().from(employees).where(eq(employees.ownerAccountId, ownerAccountId)).orderBy(asc(employees.name));
     }
-    return db.select().from(employees);
+    return db.select().from(employees).orderBy(asc(employees.name));
   }
 
   async getEmployee(id: number): Promise<Employee | undefined> {

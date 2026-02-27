@@ -55,12 +55,14 @@ export default function Employees() {
     },
   });
 
-  const filtered = employees.filter(
-    (e) =>
-      e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (e.email && e.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filtered = employees
+    .filter(
+      (e) =>
+        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (e.email && e.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const handleEdit = (emp: Employee) => {
     setEditingEmployee(emp);
