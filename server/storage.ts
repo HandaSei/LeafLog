@@ -159,7 +159,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async hasAnyManagers(): Promise<boolean> {
-    const rows = await db.select().from(accounts).where(eq(accounts.role, "manager"));
+    const rows = await db.select().from(accounts);
     return rows.length > 0;
   }
 
