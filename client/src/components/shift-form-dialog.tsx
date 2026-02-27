@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee, Shift } from "@shared/schema";
@@ -64,6 +65,7 @@ export function ShiftFormDialog({
   defaultDate,
   defaultEmployeeId,
 }: ShiftFormDialogProps) {
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const isEditing = !!shift;
 
@@ -158,7 +160,7 @@ export function ShiftFormDialog({
                     className="h-8 border-amber-200 hover:bg-amber-100"
                     onClick={() => {
                       onOpenChange(false);
-                      window.location.href = "/employees";
+                      setLocation("/employees");
                     }}
                   >
                     Go to Employees
