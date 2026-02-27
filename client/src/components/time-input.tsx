@@ -328,22 +328,24 @@ interface TimeInputProps {
   "data-testid"?: string;
 }
 
-export function TimeInput({ value, onChange, placeholder = "HH:MM", "data-testid": testId }: TimeInputProps) {
-  const [pickerOpen, setPickerOpen] = useState(false);
+export function TimeInput({ value, onChange, placeholder = "HH:MM", "data-testid": testId, open: forceOpen, onOpenChange }: TimeInputProps & { open?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = forceOpen !== undefined ? forceOpen : internalOpen;
+  const setIsOpen = onOpenChange || setInternalOpen;
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setPickerOpen(true)}
+        onClick={() => setIsOpen(true)}
         className="w-full h-10 px-2.5 py-1.5 text-sm font-mono text-center rounded-md border border-input bg-background hover:bg-accent/50 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 cursor-pointer"
         data-testid={testId}
       >
         {value && /^\d{2}:\d{2}$/.test(value) ? value : <span className="text-muted-foreground">{placeholder}</span>}
       </button>
       <ClockPickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
+        open={isOpen}
+        onOpenChange={setIsOpen}
         value={value || "00:00"}
         onChange={onChange}
       />
