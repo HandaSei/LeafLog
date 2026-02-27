@@ -561,16 +561,24 @@ export default function Timesheets() {
               ))}
             </SelectContent>
           </Select>
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search employee..."
-              value={employeeSearch}
-              onChange={e => setEmployeeSearch(e.target.value)}
-              className="pl-8 h-9 text-sm"
-              data-testid="input-employee-search"
-            />
-          </div>
+          <Select
+            value={employeeSearch === "" ? "all" : employeeSearch}
+            onValueChange={(val) => setEmployeeSearch(val === "all" ? "" : val)}
+          >
+            <SelectTrigger className="w-[180px]" data-testid="select-employee-filter">
+              <SelectValue placeholder="All Employees" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Employees</SelectItem>
+              {employees
+                .filter(e => e.status === "active")
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map(emp => (
+                  <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <div className="flex-1" />
           <Button
             variant="outline"
             size="sm"
