@@ -248,9 +248,22 @@ export default function Timesheets() {
   const [newTimesheetBreakEnd, setNewTimesheetBreakEnd] = useState<string>("");
   const [addingClockOut, setAddingClockOut] = useState<EmployeeWorkday | null>(null);
   const [clockOutTime, setClockOutTime] = useState<string>("");
-  const [addingBreak, setAddingBreak] = useState<EmployeeWorkday | null>(null);
-  const [breakStartTime, setBreakStartTime] = useState<string>("");
-  const [breakEndTime, setBreakEndTime] = useState<string>("");
+  const [editingBreak, setEditingBreak] = useState<{ start: TimeEntry | null, end: TimeEntry | null } | null>(null);
+  const [editBreakStart, setEditBreakStart] = useState<string>("");
+  const [editBreakEnd, setEditBreakEnd] = useState<string>("");
+
+  const handleSaveBreakEdit = () => {
+    if (!editingBreak) return;
+    if (editingBreak.start && /^\d{2}:\d{2}$/.test(editBreakStart)) {
+      const dateStr = editingBreak.start.date;
+      updateEntryMutation.mutate({ id: editingBreak.start.id, timestamp: new Date(`${dateStr}T${editBreakStart}:00`).toISOString() });
+    }
+    if (editingBreak.end && /^\d{2}:\d{2}$/.test(editBreakEnd)) {
+      const dateStr = editingBreak.end.date;
+      updateEntryMutation.mutate({ id: editingBreak.end.id, timestamp: new Date(`${dateStr}T${editBreakEnd}:00`).toISOString() });
+    }
+    setEditingBreak(null);
+  };
   const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
 
@@ -349,19 +362,23 @@ export default function Timesheets() {
     setEditingShift(null);
   };
 
-  const handleAddBreak = () => {
-    if (!addingBreak || !breakStartTime || !breakEndTime) return;
-    if (!/^\d{2}:\d{2}$/.test(breakStartTime) || !/^\d{2}:\d{2}$/.test(breakEndTime)) return;
+  const [addingNewBreak, setAddingNewBreak] = useState<EmployeeWorkday | null>(null);
+  const [newBreakStartTime, setNewBreakStartTime] = useState<string>("");
+  const [newBreakEndTime, setNewBreakEndTime] = useState<string>("");
+
+  const handleAddNewBreak = () => {
+    if (!addingNewBreak || !newBreakStartTime || !newBreakEndTime) return;
+    if (!/^\d{2}:\d{2}$/.test(newBreakStartTime) || !/^\d{2}:\d{2}$/.test(newBreakEndTime)) return;
     const dateStr = format(activeDay, "yyyy-MM-dd");
     addEntryMutation.mutate(
-      { employeeId: addingBreak.employee.id, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${breakStartTime}:00`).toISOString() },
+      { employeeId: addingNewBreak.employee.id, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newBreakStartTime}:00`).toISOString() },
       {
         onSuccess: () => {
           addEntryMutation.mutate(
-            { employeeId: addingBreak!.employee.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${breakEndTime}:00`).toISOString() },
+            { employeeId: addingNewBreak!.employee.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newBreakEndTime}:00`).toISOString() },
             {
               onSuccess: () => {
-                setAddingBreak(null); setBreakStartTime(""); setBreakEndTime(""); setViewingEmployeeId(null);
+                setAddingNewBreak(null); setNewBreakStartTime(""); setNewBreakEndTime(""); setViewingEmployeeId(null);
                 toast({ title: "Success", description: "Break added" });
               }
             }
@@ -705,8 +722,9 @@ export default function Timesheets() {
                           {(breakStart || breakEnd) && (
                             <Button variant="ghost" size="icon" className="h-6 w-6"
                               onClick={() => {
-                                if (breakStart) handleEditEntry(breakStart);
-                                else if (breakEnd) handleEditEntry(breakEnd);
+                                setEditingBreak({ start: breakStart || null, end: breakEnd || null });
+                                setEditBreakStart(breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "");
+                                setEditBreakEnd(breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm") : "");
                               }}
                               data-testid="button-edit-break-time"
                             >
@@ -731,7 +749,7 @@ export default function Timesheets() {
                 })()}
 
                 <Button variant="outline" size="sm" className="w-full"
-                  onClick={() => { setAddingBreak(viewingWorkday); setBreakStartTime(""); setBreakEndTime(""); }}
+                  onClick={() => { setAddingNewBreak(viewingWorkday); setNewBreakStartTime(""); setNewBreakEndTime(""); }}
                   data-testid="button-add-break"
                 >
                   <Coffee className="w-4 h-4 mr-2" /> Add Break
@@ -789,6 +807,34 @@ export default function Timesheets() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit Break */}
+      <Dialog open={!!editingBreak} onOpenChange={() => setEditingBreak(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Break Time</DialogTitle></DialogHeader>
+          {editingBreak && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Break Time</Label>
+                <TimeRangeInput 
+                  startValue={editBreakStart} 
+                  endValue={editBreakEnd} 
+                  onStartChange={setEditBreakStart} 
+                  onEndChange={setEditBreakEnd} 
+                  startTestId="input-edit-break-start" 
+                  endTestId="input-edit-break-end" 
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingBreak(null)}>Cancel</Button>
+            <Button onClick={handleSaveBreakEdit} disabled={updateEntryMutation.isPending} data-testid="button-save-break-edit">
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Add Clock Out */}
       <Dialog open={!!addingClockOut} onOpenChange={() => setAddingClockOut(null)}>
         <DialogContent>
@@ -810,19 +856,19 @@ export default function Timesheets() {
       </Dialog>
 
       {/* Add Break */}
-      <Dialog open={!!addingBreak} onOpenChange={() => setAddingBreak(null)}>
+      <Dialog open={!!addingNewBreak} onOpenChange={() => setAddingNewBreak(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Add Break</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="text-sm text-muted-foreground">{addingBreak?.employee.name} — {format(activeDay, "EEE, MMM d, yyyy")}</div>
+            <div className="text-sm text-muted-foreground">{addingNewBreak?.employee.name} — {format(activeDay, "EEE, MMM d, yyyy")}</div>
             <div className="space-y-2">
               <Label>Break Time</Label>
-              <TimeRangeInput startValue={breakStartTime} endValue={breakEndTime} onStartChange={setBreakStartTime} onEndChange={setBreakEndTime} startTestId="input-break-start" endTestId="input-break-end" />
+              <TimeRangeInput startValue={newBreakStartTime} endValue={newBreakEndTime} onStartChange={setNewBreakStartTime} onEndChange={setNewBreakEndTime} startTestId="input-break-start" endTestId="input-break-end" />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddingBreak(null)}>Cancel</Button>
-            <Button onClick={handleAddBreak} disabled={addEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(breakStartTime) || !/^\d{2}:\d{2}$/.test(breakEndTime)} data-testid="button-save-break">
+            <Button variant="outline" onClick={() => setAddingNewBreak(null)}>Cancel</Button>
+            <Button onClick={handleAddNewBreak} disabled={addEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(newBreakStartTime) || !/^\d{2}:\d{2}$/.test(newBreakEndTime)} data-testid="button-save-break">
               Add Break
             </Button>
           </DialogFooter>
