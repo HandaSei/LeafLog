@@ -37,55 +37,119 @@ interface EmployeeWorkday {
   status: "working" | "on-break" | "completed";
 }
 
-function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidBreakMinutes?: number | null): EmployeeWorkday {
+function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidBreakMinutes?: number | null): EmployeeWorkday[] {
   const sorted = [...dayEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-  let clockIn: Date | null = null;
-  let clockOut: Date | null = null;
-  let totalWorkedMinutes = 0;
-  let totalBreakMinutes = 0;
-  let status: "working" | "on-break" | "completed" = "working";
-  let lastClockIn: Date | null = null;
-  let lastBreakStart: Date | null = null;
-  let onBreak = false;
+  const workdays: EmployeeWorkday[] = [];
+  let currentWorkday: Partial<EmployeeWorkday> & { lastClockIn: Date | null; lastBreakStart: Date | null; onBreak: boolean } | null = null;
 
   for (const entry of sorted) {
     const ts = new Date(entry.timestamp);
+    
+    if (entry.type === "clock-in") {
+      // If we already have a workday in progress, we don't start a new one here unless the previous one is closed.
+      // But according to the user's logic, a new clock-in should start a new session.
+      // If there's an existing session that wasn't clocked out, we effectively close it at the new clock-in time (or just before).
+      if (currentWorkday && !currentWorkday.clockOut) {
+        // Finalize previous
+        if (currentWorkday.lastClockIn) {
+          currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastClockIn);
+        }
+        const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
+        workdays.push(finalized);
+      }
+      
+      currentWorkday = {
+        employee: emp,
+        entries: [],
+        clockIn: ts,
+        clockOut: null,
+        totalWorkedMinutes: 0,
+        totalBreakMinutes: 0,
+        status: "working",
+        lastClockIn: ts,
+        lastBreakStart: null,
+        onBreak: false
+      };
+    }
+
+    if (!currentWorkday) continue;
+    currentWorkday.entries!.push(entry);
+
     switch (entry.type) {
-      case "clock-in":
-        if (!clockIn) clockIn = ts;
-        lastClockIn = ts;
-        onBreak = false;
-        break;
       case "clock-out":
-        clockOut = ts;
-        if (lastClockIn) { totalWorkedMinutes += differenceInMinutes(ts, lastClockIn); lastClockIn = null; }
+        currentWorkday.clockOut = ts;
+        if (currentWorkday.lastClockIn) {
+          currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastClockIn);
+          currentWorkday.lastClockIn = null;
+        }
+        currentWorkday.status = "completed";
+        const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
+        workdays.push(finalized);
+        currentWorkday = null;
         break;
       case "break-start":
-        lastBreakStart = ts;
-        onBreak = true;
-        if (lastClockIn) { totalWorkedMinutes += differenceInMinutes(ts, lastClockIn); lastClockIn = null; }
+        currentWorkday.lastBreakStart = ts;
+        currentWorkday.onBreak = true;
+        currentWorkday.status = "on-break";
+        if (currentWorkday.lastClockIn) {
+          currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastClockIn);
+          currentWorkday.lastClockIn = null;
+        }
         break;
       case "break-end":
-        onBreak = false;
-        if (lastBreakStart) { totalBreakMinutes += differenceInMinutes(ts, lastBreakStart); lastBreakStart = null; }
-        lastClockIn = ts;
+        currentWorkday.onBreak = false;
+        currentWorkday.status = "working";
+        if (currentWorkday.lastBreakStart) {
+          currentWorkday.totalBreakMinutes! += differenceInMinutes(ts, currentWorkday.lastBreakStart);
+          currentWorkday.lastBreakStart = null;
+        }
+        currentWorkday.lastClockIn = ts;
         break;
     }
   }
 
-  if (lastClockIn && !clockOut) totalWorkedMinutes += differenceInMinutes(new Date(), lastClockIn);
-  if (lastBreakStart && onBreak) totalBreakMinutes += differenceInMinutes(new Date(), lastBreakStart);
+  // Handle open session
+  if (currentWorkday) {
+    if (currentWorkday.lastClockIn) {
+      currentWorkday.totalWorkedMinutes! += differenceInMinutes(new Date(), currentWorkday.lastClockIn);
+    }
+    if (currentWorkday.lastBreakStart && currentWorkday.onBreak) {
+      currentWorkday.totalBreakMinutes! += differenceInMinutes(new Date(), currentWorkday.lastBreakStart);
+    }
+    workdays.push(finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes));
+  }
 
-  if (clockOut) status = "completed";
-  else if (onBreak) status = "on-break";
+  return workdays.length > 0 ? workdays : [{
+    employee: emp,
+    entries: [],
+    clockIn: null,
+    clockOut: null,
+    totalWorkedMinutes: 0,
+    totalBreakMinutes: 0,
+    unpaidBreakMinutes: 0,
+    netWorkedMinutes: 0,
+    status: "completed"
+  }];
+}
 
+function finalizeWorkday(emp: Employee, wd: any, paidBreakMinutes?: number | null): EmployeeWorkday {
   const unpaidBreakMinutes = (paidBreakMinutes != null && paidBreakMinutes >= 0)
-    ? Math.max(0, totalBreakMinutes - paidBreakMinutes)
+    ? Math.max(0, wd.totalBreakMinutes - paidBreakMinutes)
     : 0;
-  const netWorkedMinutes = Math.max(0, totalWorkedMinutes - unpaidBreakMinutes);
-
-  return { employee: emp, entries: sorted, clockIn, clockOut, totalWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, netWorkedMinutes, status };
+  const netWorkedMinutes = Math.max(0, wd.totalWorkedMinutes - unpaidBreakMinutes);
+  
+  return {
+    employee: emp,
+    entries: wd.entries,
+    clockIn: wd.clockIn,
+    clockOut: wd.clockOut,
+    totalWorkedMinutes: wd.totalWorkedMinutes,
+    totalBreakMinutes: wd.totalBreakMinutes,
+    unpaidBreakMinutes,
+    netWorkedMinutes,
+    status: wd.status
+  };
 }
 
 function buildWorkdaysForDate(
@@ -115,7 +179,8 @@ function buildWorkdaysForDate(
     if (!emp) return;
     if (selectedRole !== "all" && emp.role !== selectedRole) return;
     if (employeeSearch && !emp.name.toLowerCase().includes(employeeSearch.toLowerCase())) return;
-    workdays.push(processEntriesForEmployee(emp, dayEntries, paidBreakMinutes));
+    const processed = processEntriesForEmployee(emp, dayEntries, paidBreakMinutes);
+    workdays.push(...processed);
   });
 
   workdays.sort((a, b) => {
@@ -324,13 +389,14 @@ export default function Timesheets() {
   });
 
   const deleteTimesheetMutation = useMutation({
-    mutationFn: async (data: { employeeId: number; date: string }) => {
-      await apiRequest("DELETE", `/api/kiosk/entries?employeeId=${data.employeeId}&date=${data.date}`);
+    mutationFn: async (data: { employeeId: number; date: string; entries: TimeEntry[] }) => {
+      // Delete each entry in this session
+      await Promise.all(data.entries.map(e => apiRequest("DELETE", `/api/kiosk/entries/${e.id}`)));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] });
       toast({ title: "Success", description: "Timesheet deleted successfully" });
-      setViewingEmployeeId(null);
+      setSelectedWorkday(null);
       setViewingDate(null);
       setConfirmDelete(false);
     },
@@ -373,12 +439,23 @@ export default function Timesheets() {
     [entries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, paidBreakMinutes]
   );
 
+  const [selectedWorkday, setSelectedWorkday] = useState<EmployeeWorkday | null>(null);
+
+  const setViewingWorkdayManual = (wd: EmployeeWorkday, date: Date) => {
+    setSelectedWorkday(wd);
+    setViewingDate(date);
+  };
+
   const viewingWorkday = useMemo(() => {
-    if (viewingEmployeeId === null) return null;
+    if (!selectedWorkday) return null;
     const dateToUse = viewingDate || selectedDay;
     const dayWorkdays = buildWorkdaysForDate(entries, employees, dateToUse, selectedRole, employeeSearch, paidBreakMinutes);
-    return dayWorkdays.find(w => w.employee.id === viewingEmployeeId) || null;
-  }, [viewingEmployeeId, viewingDate, entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]);
+    // Find matching session by clockIn time
+    return dayWorkdays.find(w => 
+      w.employee.id === selectedWorkday.employee.id && 
+      w.clockIn?.getTime() === selectedWorkday.clockIn?.getTime()
+    ) || null;
+  }, [selectedWorkday, viewingDate, entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]);
 
   const activeDay = viewingDate || selectedDay;
 
@@ -415,7 +492,7 @@ export default function Timesheets() {
       }, {
         onSuccess: () => {
           setEditingEntry(null);
-          setViewingEmployeeId(null); // Refresh the view
+          setSelectedWorkday(null); // Refresh the view
         }
       });
     }
@@ -447,7 +524,7 @@ export default function Timesheets() {
             { employeeId: addingNewBreak!.employee.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newBreakEndTime}:00`).toISOString() },
             {
               onSuccess: () => {
-                setAddingNewBreak(null); setNewBreakStartTime(""); setNewBreakEndTime(""); setViewingEmployeeId(null);
+                setAddingNewBreak(null); setNewBreakStartTime(""); setNewBreakEndTime(""); setSelectedWorkday(null);
                 toast({ title: "Success", description: "Break added" });
               }
             }
@@ -464,7 +541,7 @@ export default function Timesheets() {
       { employeeId: addingClockOut.employee.id, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${clockOutTime}:00`).toISOString() },
       {
         onSuccess: () => {
-          setAddingClockOut(null); setClockOutTime(""); setViewingEmployeeId(null);
+          setAddingClockOut(null); setClockOutTime(""); setSelectedWorkday(null);
           toast({ title: "Success", description: "Clock out added" });
         }
       }
@@ -513,12 +590,13 @@ export default function Timesheets() {
   };
 
   const WorkdayCard = ({ wd, date }: { wd: EmployeeWorkday; date: Date }) => {
-    const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status } = wd;
+    const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status, entries } = wd;
     const sc = statusConfig[status];
+    const sessionKey = `${emp.id}-${clockIn?.getTime()}`;
     return (
       <button
-        key={emp.id}
-        onClick={() => { setViewingEmployeeId(wd.employee.id); setViewingDate(date); }}
+        key={sessionKey}
+        onClick={() => { setViewingWorkdayManual(wd, date); }}
         className="w-full flex items-start gap-3 p-4 rounded-md border bg-card hover-elevate text-left cursor-pointer"
         data-testid={`timesheet-card-${emp.id}`}
       >
@@ -815,7 +893,7 @@ export default function Timesheets() {
       {/* Detail Dialog */}
       <Dialog open={!!viewingWorkday} onOpenChange={(open) => { 
         if (!open) {
-          setViewingEmployeeId(null); 
+          setSelectedWorkday(null); 
           setViewingDate(null); 
           setConfirmDelete(false);
         }
@@ -997,7 +1075,8 @@ export default function Timesheets() {
                           disabled={deleteTimesheetMutation.isPending}
                           onClick={() => deleteTimesheetMutation.mutate({ 
                             employeeId: emp.id, 
-                            date: format(activeDay, "yyyy-MM-dd") 
+                            date: format(activeDay, "yyyy-MM-dd"),
+                            entries: dayEntries
                           })}
                           data-testid="button-delete-timesheet-confirm"
                         >

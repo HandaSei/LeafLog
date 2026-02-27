@@ -50,6 +50,7 @@ export interface IStorage {
   getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
   updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
+  deleteTimeEntry(id: number): Promise<void>;
   deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void>;
   getEmployeeIdsByOwner(ownerAccountId: number): Promise<number[]>;
 
@@ -285,6 +286,10 @@ export class DatabaseStorage implements IStorage {
   async updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined> {
     const [entry] = await db.update(timeEntries).set(data).where(eq(timeEntries.id, id)).returning();
     return entry;
+  }
+
+  async deleteTimeEntry(id: number): Promise<void> {
+    await db.delete(timeEntries).where(eq(timeEntries.id, id));
   }
 
   async deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void> {

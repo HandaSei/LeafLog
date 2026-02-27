@@ -188,6 +188,16 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  router.delete("/api/kiosk/entries/:id", requireRole("admin", "manager"), async (req, res) => {
+    // Note: The existing storage doesn't have a single entry delete yet, 
+    // but the user wants to delete timesheets (sessions).
+    // For now, the existing delete handles the whole day.
+    // To support deleting just one session, we'd need a storage.deleteTimeEntry(id).
+    // Let's add it.
+    await storage.deleteTimeEntry(Number(req.params.id));
+    res.status(204).send();
+  });
+
   // === CUSTOM ROLES ===
   router.get("/api/roles", requireRole("admin", "manager"), async (req, res) => {
     const roles = await storage.getCustomRoles(req.session.userId!);
