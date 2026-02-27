@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { Router } from "express";
+import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { insertEmployeeSchema, insertShiftSchema, breakPolicySchema } from "@shared/schema";
 import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./auth";
@@ -242,6 +243,19 @@ export async function registerRoutes(
 
   router.delete("/api/roles/:id", requireRole("admin", "manager"), async (req, res) => {
     await storage.deleteCustomRole(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // === ACCOUNT DELETION ===
+  router.delete("/api/auth/account", requireAuth, async (req, res) => {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ message: "Password is required" });
+    const account = await storage.getAccount(req.session.userId!);
+    if (!account) return res.status(404).json({ message: "Account not found" });
+    const valid = await bcrypt.compare(password, account.password);
+    if (!valid) return res.status(401).json({ message: "Incorrect password" });
+    await storage.deleteAccount(account.id);
+    req.session.destroy(() => {});
     res.status(204).send();
   });
 

@@ -65,6 +65,8 @@ export interface IStorage {
   createFeedback(accountId: number, message: string): Promise<Feedback>;
   getFeedbackCount24h(accountId: number): Promise<number>;
   getAllFeedback(): Promise<(Feedback & { username: string; email: string | null })[]>;
+
+  deleteAccount(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -357,6 +359,16 @@ export class DatabaseStorage implements IStorage {
       [accountId, since]
     );
     return parseInt(res.rows[0].count, 10);
+  }
+
+  async deleteAccount(id: number): Promise<void> {
+    const empIds = await this.getEmployeeIdsByOwner(id);
+    if (empIds.length > 0) {
+      await db.delete(employees).where(inArray(employees.id, empIds));
+    }
+    await pool.query("DELETE FROM custom_roles WHERE owner_account_id = $1", [id]);
+    await pool.query("DELETE FROM feedback WHERE account_id = $1", [id]);
+    await db.delete(accounts).where(eq(accounts.id, id));
   }
 
   async getAllFeedback(): Promise<(Feedback & { username: string; email: string | null })[]> {

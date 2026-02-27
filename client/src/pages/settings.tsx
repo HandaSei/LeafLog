@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CustomRole } from "@shared/schema";
@@ -9,7 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Settings2, Plus, Pencil, Trash2, Check, X, Palette, Coffee, Save } from "lucide-react";
+import { Settings2, Plus, Pencil, Trash2, Check, X, Palette, Coffee, Save, TriangleAlert } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +38,7 @@ import { ROLE_COLORS } from "@/lib/constants";
 const MAX_ROLES = 6;
 
 export default function SettingsPage() {
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleColor, setNewRoleColor] = useState(ROLE_COLORS[0]);
@@ -37,6 +46,9 @@ export default function SettingsPage() {
   const [editingName, setEditingName] = useState("");
   const [editingColor, setEditingColor] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteAccountStep, setDeleteAccountStep] = useState<"closed" | "password" | "confirm">("closed");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deletePasswordError, setDeletePasswordError] = useState("");
   const [paidBreakInput, setPaidBreakInput] = useState<string>("");
   const [maxBreakInput, setMaxBreakInput] = useState<string>("");
 
@@ -117,6 +129,38 @@ export default function SettingsPage() {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: async (password: string) => {
+      await apiRequest("DELETE", "/api/auth/account", { password });
+    },
+    onSuccess: () => {
+      toast({ title: "Account deleted", description: "Your account has been permanently deleted." });
+      setLocation("/login");
+    },
+    onError: (err: Error) => {
+      setDeletePasswordError(err.message);
+    },
+  });
+
+  const handlePasswordCheck = () => {
+    if (!deletePassword.trim()) {
+      setDeletePasswordError("Password is required");
+      return;
+    }
+    setDeletePasswordError("");
+    setDeleteAccountStep("confirm");
+  };
+
+  const handleFinalDelete = () => {
+    deleteAccountMutation.mutate(deletePassword);
+  };
+
+  const closeDeleteFlow = () => {
+    setDeleteAccountStep("closed");
+    setDeletePassword("");
+    setDeletePasswordError("");
+  };
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -395,6 +439,100 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Card className="border-destructive/30">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <TriangleAlert className="w-4 h-4 text-destructive" />
+            <div>
+              <CardTitle className="text-base text-destructive">Danger Zone</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                Irreversible actions — please proceed with caution
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between p-3 rounded-lg border border-destructive/20 bg-destructive/5">
+            <div>
+              <p className="text-sm font-medium">Delete Account</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Permanently deletes your account, all employees, shifts, and data.
+              </p>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setDeleteAccountStep("password")}
+              data-testid="button-delete-account"
+            >
+              Delete Account
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={deleteAccountStep === "password"} onOpenChange={(open) => !open && closeDeleteFlow()}>
+        <DialogContent className="sm:max-w-[380px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Your Password</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Enter your current password to continue with account deletion.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="del-password">Password</Label>
+              <Input
+                id="del-password"
+                type="password"
+                placeholder="Your current password"
+                value={deletePassword}
+                onChange={(e) => { setDeletePassword(e.target.value); setDeletePasswordError(""); }}
+                onKeyDown={(e) => e.key === "Enter" && handlePasswordCheck()}
+                autoFocus
+                data-testid="input-delete-password"
+              />
+              {deletePasswordError && (
+                <p className="text-xs text-destructive">{deletePasswordError}</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeDeleteFlow}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={handlePasswordCheck}
+              disabled={!deletePassword.trim()}
+              data-testid="button-confirm-password"
+            >
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteAccountStep === "confirm"} onOpenChange={(open) => !open && closeDeleteFlow()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete your account and <strong>all associated data</strong> — employees, shifts, timesheets, and roles. This action <strong>cannot be undone</strong>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={closeDeleteFlow}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleFinalDelete}
+              disabled={deleteAccountMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-final-delete-account"
+            >
+              {deleteAccountMutation.isPending ? "Deleting..." : "Yes, delete everything"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!deletingId} onOpenChange={(open) => !open && setDeletingId(null)}>
         <AlertDialogContent>
