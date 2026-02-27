@@ -45,6 +45,7 @@ export const shifts = pgTable("shifts", {
   status: text("status").notNull().default("scheduled"),
   notes: text("notes"),
   color: text("color"),
+  shiftRole: text("shift_role"),
 });
 
 export const accessCodes = pgTable("access_codes", {
@@ -63,6 +64,7 @@ export const timeEntries = pgTable("time_entries", {
   type: text("type").notNull(),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
   date: date("entry_date").notNull(),
+  shiftRole: text("shift_role"),
 });
 
 export const customRoles = pgTable("custom_roles", {

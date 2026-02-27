@@ -43,6 +43,7 @@ export default function SettingsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
   const [editingColor, setEditingColor] = useState("");
+  const [editingOriginalColor, setEditingOriginalColor] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteAccountStep, setDeleteAccountStep] = useState<"closed" | "password" | "confirm">("closed");
   const [deletePassword, setDeletePassword] = useState("");
@@ -50,6 +51,7 @@ export default function SettingsPage() {
   const [paidBreakInput, setPaidBreakInput] = useState<string>("");
   const [maxBreakInput, setMaxBreakInput] = useState<string>("");
   const [showDangerZone, setShowDangerZone] = useState(false);
+  const [cascadeDialog, setCascadeDialog] = useState<{ open: boolean; roleName: string; color: string; roleId: number } | null>(null);
 
   const { data: roles = [], isLoading } = useQuery<CustomRole[]>({
     queryKey: ["/api/roles"],
@@ -99,18 +101,36 @@ export default function SettingsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, name, color }: { id: number; name: string; color: string }) => {
+    mutationFn: async ({ id, name, color, prevColor }: { id: number; name: string; color: string; prevColor: string }) => {
       const res = await apiRequest("PATCH", `/api/roles/${id}`, { name, color });
-      return res.json();
+      const data = await res.json();
+      return { ...data, prevColor, newColor: color };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      const colorChanged = data.prevColor !== data.newColor;
       setEditingId(null);
       setEditingName("");
       setEditingColor("");
       toast({ title: "Role updated" });
+      if (colorChanged && data.newColor) {
+        setCascadeDialog({ open: true, roleName: data.name, color: data.newColor, roleId: data.id });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const cascadeMutation = useMutation({
+    mutationFn: async ({ roleId, roleName, color }: { roleId: number; roleName: string; color: string }) => {
+      await apiRequest("POST", `/api/roles/${roleId}/cascade`, { roleName, color });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      setCascadeDialog(null);
+      toast({ title: "Updated", description: "Employee and shift colors have been updated." });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -170,20 +190,23 @@ export default function SettingsPage() {
   };
 
   const startEdit = (role: CustomRole) => {
+    const c = role.color || ROLE_COLORS[0];
     setEditingId(role.id);
     setEditingName(role.name);
-    setEditingColor(role.color || ROLE_COLORS[0]);
+    setEditingColor(c);
+    setEditingOriginalColor(c);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditingName("");
     setEditingColor("");
+    setEditingOriginalColor("");
   };
 
   const saveEdit = () => {
     if (!editingName.trim() || editingId === null) return;
-    updateMutation.mutate({ id: editingId, name: editingName.trim(), color: editingColor });
+    updateMutation.mutate({ id: editingId, name: editingName.trim(), color: editingColor, prevColor: editingOriginalColor });
   };
 
   const atLimit = roles.length >= MAX_ROLES;
@@ -594,6 +617,30 @@ export default function SettingsPage() {
               data-testid="button-confirm-delete-role"
             >
               Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!cascadeDialog?.open} onOpenChange={(open) => !open && setCascadeDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cascadeDialog?.color }} />
+              Update existing shifts?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              You changed the color of <strong>{cascadeDialog?.roleName}</strong>. Do you also want to update the color of all existing shifts and employee avatars assigned to this role?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cascade-skip">Keep old colors</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => cascadeDialog && cascadeMutation.mutate({ roleId: cascadeDialog.roleId, roleName: cascadeDialog.roleName, color: cascadeDialog.color })}
+              disabled={cascadeMutation.isPending}
+              data-testid="button-cascade-confirm"
+            >
+              {cascadeMutation.isPending ? "Updating..." : "Yes, update all"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

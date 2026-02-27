@@ -1,12 +1,12 @@
 import { useForm } from "react-hook-form";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee, Shift } from "@shared/schema";
+import type { Employee, Shift, CustomRole } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { TimeInput } from "@/components/time-input";
@@ -35,7 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SHIFT_COLORS } from "@/lib/constants";
 import { EmployeeAvatar } from "./employee-avatar";
 
 const shiftFormSchema = z.object({
@@ -46,6 +44,7 @@ const shiftFormSchema = z.object({
   status: z.string().default("scheduled"),
   notes: z.string().optional(),
   color: z.string().optional(),
+  shiftRole: z.string().optional(),
 });
 
 type ShiftFormValues = z.infer<typeof shiftFormSchema>;
@@ -73,6 +72,21 @@ export function ShiftFormDialog({
     queryKey: ["/api/employees"],
   });
 
+  const { data: roles = [] } = useQuery<CustomRole[]>({
+    queryKey: ["/api/roles"],
+  });
+
+  const getRoleColor = (roleName: string | null | undefined): string | undefined => {
+    if (!roleName) return undefined;
+    return roles.find(r => r.name === roleName)?.color;
+  };
+
+  const getDefaultShiftRole = (empId: number | null | undefined): string => {
+    if (!empId) return "";
+    const emp = employees.find(e => e.id === empId);
+    return emp?.role || "";
+  };
+
   const form = useForm<ShiftFormValues>({
     resolver: zodResolver(shiftFormSchema),
     defaultValues: {
@@ -82,30 +96,62 @@ export function ShiftFormDialog({
       endTime: shift?.endTime?.slice(0, 5) ?? "17:00",
       status: shift?.status ?? "scheduled",
       notes: shift?.notes ?? "",
-      color: shift?.color ?? SHIFT_COLORS[0].value,
+      color: shift?.color ?? undefined,
+      shiftRole: shift?.shiftRole ?? "",
     },
   });
 
   useEffect(() => {
     if (open) {
+      const empId = shift?.employeeId ?? defaultEmployeeId ?? 0;
+      const defaultRole = shift?.shiftRole ?? getDefaultShiftRole(empId);
       form.reset({
-        employeeId: shift?.employeeId ?? defaultEmployeeId ?? 0,
+        employeeId: empId,
         date: shift?.date ?? defaultDate ?? new Date().toISOString().split("T")[0],
         startTime: shift?.startTime?.slice(0, 5) ?? "09:00",
         endTime: shift?.endTime?.slice(0, 5) ?? "17:00",
         status: shift?.status ?? "scheduled",
         notes: shift?.notes ?? "",
-        color: shift?.color ?? SHIFT_COLORS[0].value,
+        color: shift?.color ?? undefined,
+        shiftRole: defaultRole,
       });
     }
-  }, [open, shift, defaultDate, defaultEmployeeId]);
+  }, [open, shift, defaultDate, defaultEmployeeId, employees, roles]);
+
+  const watchedEmployeeId = form.watch("employeeId");
+  const watchedRole = form.watch("shiftRole");
+
+  useEffect(() => {
+    if (!open) return;
+    if (!isEditing && watchedEmployeeId) {
+      const emp = employees.find(e => e.id === Number(watchedEmployeeId));
+      if (emp?.role) {
+        form.setValue("shiftRole", emp.role);
+      } else {
+        form.setValue("shiftRole", "");
+      }
+    }
+  }, [watchedEmployeeId, employees, isEditing, open]);
+
+  const previewColor = (() => {
+    if (watchedRole) {
+      const roleColor = getRoleColor(watchedRole);
+      if (roleColor) return roleColor;
+    }
+    const emp = employees.find(e => e.id === Number(watchedEmployeeId));
+    return emp?.color ?? "#9CA3AF";
+  })();
 
   const mutation = useMutation({
     mutationFn: async (values: ShiftFormValues) => {
+      const roleColor = getRoleColor(values.shiftRole);
+      const emp = employees.find(e => e.id === Number(values.employeeId));
+      const color = roleColor ?? emp?.color ?? "#9CA3AF";
+      const payload = { ...values, color, shiftRole: values.shiftRole || null };
       if (isEditing) {
-        return apiRequest("PATCH", `/api/shifts/${shift.id}`, values);
+        return apiRequest("PATCH", `/api/shifts/${shift.id}`, payload);
       }
-      return apiRequest("POST", "/api/shifts", values);
+      return apiRequest("POST", "/api/shifts", payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
@@ -128,11 +174,7 @@ export function ShiftFormDialog({
   });
 
   const onSubmit = (values: ShiftFormValues) => {
-    const employee = employees.find(e => e.id === Number(values.employeeId));
-    mutation.mutate({
-      ...values,
-      color: (employee?.role ? (employee.color || values.color) : "#9CA3AF")
-    });
+    mutation.mutate(values);
   };
 
   return (
@@ -151,7 +193,7 @@ export function ShiftFormDialog({
               <p className="text-sm text-muted-foreground mb-6 max-w-[300px]">
                 You need to add at least one employee before you can create a shift.
               </p>
-              <Button 
+              <Button
                 type="button"
                 onClick={() => {
                   onOpenChange(false);
@@ -204,6 +246,45 @@ export function ShiftFormDialog({
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="shiftRole"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Role for this shift</FormLabel>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded-full flex-shrink-0 border border-white/20 shadow-sm"
+                        style={{ backgroundColor: previewColor }}
+                      />
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value ?? ""}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-shift-role">
+                            <SelectValue placeholder="No role override" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">No role override</SelectItem>
+                          {roles.map((role) => (
+                            <SelectItem key={role.id} value={role.name} data-testid={`option-shift-role-${role.id}`}>
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: role.color }} />
+                                {role.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <div className="flex items-end gap-3">
                 <FormField
                   control={form.control}
