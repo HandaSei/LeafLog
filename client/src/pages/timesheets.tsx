@@ -21,7 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
-import { TimeInput, TimeRangeInput, ClockPickerDialog } from "@/components/time-input";
+import { TimeInput, TimeRangeInput } from "@/components/time-input";
 import { DateInput } from "@/components/date-input";
 import type { Employee, TimeEntry, CustomRole } from "@shared/schema";
 
@@ -347,10 +347,10 @@ export default function Timesheets() {
     setEditTime(format(new Date(entry.timestamp), "HH:mm"));
   };
 
-  const handleSaveEdit = (val: string) => {
-    if (!editingEntry || !val || !/^\d{2}:\d{2}$/.test(val)) return;
+  const handleSaveEdit = () => {
+    if (!editingEntry || !editTime || !/^\d{2}:\d{2}$/.test(editTime)) return;
     const entryDate = editingEntry.date;
-    const newTimestamp = new Date(`${entryDate}T${val}:00`);
+    const newTimestamp = new Date(`${entryDate}T${editTime}:00`);
     
     if (editingEntry.id) {
       updateEntryMutation.mutate({ id: editingEntry.id, timestamp: newTimestamp.toISOString() });
@@ -829,44 +829,51 @@ export default function Timesheets() {
                   </div>
                 </div>
 
-                <div className="rounded-md border p-3 text-sm">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Break Time</span>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-6 w-6"
-                        onClick={() => {
-                          setEditingEntry(breakStart || null);
-                          setEditTime(breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "");
-                        }}
-                        data-testid="button-edit-break-start"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </Button>
-                      {!breakEnd && breakStart && (
-                        <Button variant="outline" size="sm" className="h-6 text-xs px-2"
-                          onClick={() => {
-                            setEditingEntry({ ...breakStart, id: 0, type: "break-end" } as any);
-                            setEditTime(format(new Date(), "HH:mm"));
-                          }}
-                          data-testid="button-add-break-end"
-                        >
-                          <Plus className="w-3 h-3 mr-1" /> Add End Break
-                        </Button>
-                      )}
+                {totalBreakMinutes > 0 && (() => {
+                  const breakStart = dayEntries.find(e => e.type === "break-start");
+                  const breakEnd = dayEntries.find(e => e.type === "break-end");
+                  return (
+                    <div className="rounded-md border p-3 text-sm">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Break Time</span>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="icon" className="h-6 w-6"
+                            onClick={() => {
+                              setEditingEntry(breakStart || null);
+                              setEditTime(breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "");
+                            }}
+                            data-testid="button-edit-break-start"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-0.5">Start</div>
+                          <div className="font-medium font-mono">{breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "—"}</div>
+                        </div>
+                        <div className="text-muted-foreground mt-3">→</div>
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-0.5">End</div>
+                          {breakEnd ? (
+                            <div className="font-medium font-mono">{format(new Date(breakEnd.timestamp), "HH:mm")}</div>
+                          ) : (
+                            <Button variant="outline" size="sm" className="h-6 text-xs px-2"
+                              onClick={() => {
+                                setEditingEntry({ ...breakStart, type: "break-end" } as any);
+                                setEditTime(format(new Date(), "HH:mm"));
+                              }}
+                              data-testid="button-add-break-end"
+                            >
+                              <Plus className="w-3 h-3 mr-1" /> Add End Break
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <div className="text-xs text-muted-foreground mb-0.5">Start</div>
-                      <div className="font-medium font-mono">{breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "—"}</div>
-                    </div>
-                    <div className="text-muted-foreground mt-3">→</div>
-                    <div>
-                      <div className="text-xs text-muted-foreground mb-0.5">End</div>
-                      <div className="font-medium font-mono">{breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm") : "—"}</div>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 <Button variant="outline" size="sm" className="w-full"
                   onClick={() => { setAddingNewBreak(viewingWorkday); setNewBreakStartTime(""); setNewBreakEndTime(""); }}
@@ -881,12 +888,41 @@ export default function Timesheets() {
       </Dialog>
 
       {/* Edit/Add Time Entry */}
-      <ClockPickerDialog
-        open={!!editingEntry}
-        onOpenChange={(open) => !open && setEditingEntry(null)}
-        value={editTime || "00:00"}
-        onChange={handleSaveEdit}
-      />
+      <Dialog open={!!editingEntry} onOpenChange={() => setEditingEntry(null)}>
+        <DialogContent className="max-w-[320px] p-0 overflow-hidden rounded-2xl border-0 gap-0">
+          {editingEntry && (
+            <div className="bg-[#f5f0e8]">
+              <div className="bg-[#4a6741] px-6 py-4">
+                <div className="text-white/70 text-xs font-medium uppercase tracking-wider mb-1">
+                  {editingEntry.id ? "Edit" : "Add"}{" "}
+                  {({ "clock-in": "Clock In", "clock-out": "Clock Out", "break-start": "Break Start", "break-end": "Break End" } as Record<string, string>)[editingEntry.type] || editingEntry.type}
+                </div>
+                <div className="text-white text-lg font-bold">
+                  {format(new Date(editingEntry.timestamp || activeDay), "EEE, MMM d, yyyy")}
+                </div>
+              </div>
+              <div className="p-4 flex flex-col items-center">
+                <TimeInput 
+                  value={editTime} 
+                  onChange={setEditTime} 
+                  data-testid="input-edit-time"
+                  placeholder="Select time"
+                />
+                <div className="w-full flex justify-end gap-2 mt-4">
+                  <Button variant="ghost" onClick={() => setEditingEntry(null)}>Cancel</Button>
+                  <Button 
+                    className="bg-[#4a6741] hover:bg-[#4a6741]/90"
+                    onClick={handleSaveEdit} 
+                    disabled={updateEntryMutation.isPending || addEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(editTime)}
+                  >
+                    OK
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Shift */}
       <Dialog open={!!editingShift} onOpenChange={() => setEditingShift(null)}>
