@@ -24,6 +24,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { TimeInput } from "@/components/time-input";
 import {
   Select,
   SelectContent,
@@ -198,7 +199,7 @@ export function ShiftFormDialog({
                   <FormItem>
                     <FormLabel>Start</FormLabel>
                     <FormControl>
-                      <Input type="time" data-testid="input-shift-start" {...field} />
+                      <TimeInput value={field.value} onChange={field.onChange} data-testid="input-shift-start" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -211,7 +212,7 @@ export function ShiftFormDialog({
                   <FormItem>
                     <FormLabel>End</FormLabel>
                     <FormControl>
-                      <Input type="time" data-testid="input-shift-end" {...field} />
+                      <TimeInput value={field.value} onChange={field.onChange} data-testid="input-shift-end" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

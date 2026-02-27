@@ -13,7 +13,7 @@ A web-based employee shift management application for scheduling, tracking, and 
 
 ## Project Structure
 - `client/src/pages/` - Dashboard, Schedule, Employees, Login, SteepIn, Timesheets, Settings pages
-- `client/src/components/` - AppSidebar, ShiftFormDialog, EmployeeFormDialog, EmployeeAvatar, AccessCodeDialog, ThemeProvider/Toggle, TimeInput/TimeRangeInput
+- `client/src/components/` - AppSidebar, ShiftFormDialog, EmployeeFormDialog, EmployeeAvatar, AccessCodeDialog, ThemeProvider/Toggle, TimeInput/TimeRangeInput (custom analog clock picker)
 - `client/src/lib/auth.tsx` - AuthProvider context with login/logout/register hooks
 - `client/src/lib/constants.ts` - Colors, departments, roles, utility functions
 - `server/auth.ts` - Session setup, auth routes, SteepIn routes, access code generation
