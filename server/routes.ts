@@ -57,11 +57,22 @@ export async function registerRoutes(
     if (emp.ownerAccountId !== req.session.userId) {
       return res.status(403).json({ message: "Access denied" });
     }
-    const partial = insertEmployeeSchema.partial().safeParse(req.body);
+    const partial = insertEmployeeSchema.partial().extend({ updateExistingShifts: z.boolean().optional() }).safeParse(req.body);
     if (!partial.success) {
       return res.status(400).json({ message: partial.error.issues[0].message });
     }
     const updated = await storage.updateEmployee(Number(req.params.id), partial.data);
+    
+    if (partial.data.updateExistingShifts && partial.data.role) {
+      const role = (await storage.getCustomRoles(req.session.userId!)).find(r => r.name === partial.data.role);
+      const color = role?.color;
+      
+      await pool.query(
+        "UPDATE shifts SET role = $1, color = $2 WHERE employee_id = $3",
+        [partial.data.role, color, req.params.id]
+      );
+    }
+    
     res.json(updated);
   });
 
@@ -261,17 +272,6 @@ export async function registerRoutes(
     if (color && currentRole) {
       await storage.updateEmployeeColorsByRole(name.trim(), color, req.session.userId!);
       
-      // Update ALL existing shifts for these employees to the new color
-      await pool.query(
-        `UPDATE shifts 
-         SET color = $1 
-         WHERE employee_id IN (
-           SELECT id FROM employees 
-           WHERE role = $2 AND owner_account_id = $3
-         )`,
-        [color, name.trim(), req.session.userId!]
-      );
-
       if (currentRole.name !== name.trim()) {
         await pool.query(
           "UPDATE employees SET role = $1 WHERE role = $2 AND owner_account_id = $3",
@@ -337,6 +337,20 @@ export async function registerRoutes(
     await storage.updateBreakPolicy(req.session.userId!, parsed.data.paidBreakMinutes ?? null, parsed.data.maxBreakMinutes ?? null);
     const policy = await storage.getBreakPolicy(req.session.userId!);
     res.json(policy);
+  });
+
+  router.delete("/api/kiosk/entries", requireRole("admin", "manager"), async (req, res) => {
+    const employeeId = Number(req.query.employeeId);
+    const date = req.query.date as string;
+    if (!employeeId || !date) {
+      return res.status(400).json({ message: "Employee ID and date are required" });
+    }
+    const emp = await storage.getEmployee(employeeId);
+    if (!emp || emp.ownerAccountId !== req.session.userId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    await storage.deleteTimeEntriesByEmployeeAndDate(employeeId, date);
+    res.status(204).send();
   });
 
   app.use(router);

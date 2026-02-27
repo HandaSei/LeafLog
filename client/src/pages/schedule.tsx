@@ -339,7 +339,7 @@ function shiftDuration(startTime: string, endTime: string): string {
 }
 
 function ShiftCard({ shift, employee, onEdit, onDelete }: ShiftCardProps) {
-  const bgColor = (employee?.role ? (shift.color || employee.color) : "#9CA3AF") || "#9CA3AF";
+  const bgColor = shift.color || (employee?.role ? employee.color : "#9CA3AF") || "#9CA3AF";
   const duration = shiftDuration(shift.startTime, shift.endTime);
 
   return (
@@ -359,7 +359,9 @@ function ShiftCard({ shift, employee, onEdit, onDelete }: ShiftCardProps) {
               <div className="w-3 h-3 rounded-full bg-white/30 flex items-center justify-center text-[7px] font-bold">
                 {employee.name[0]}
               </div>
-              <span className="text-[10px] opacity-90 truncate">{employee.name.split(" ")[0]}</span>
+              <span className="text-[10px] opacity-90 truncate">
+                {employee.name.split(" ")[0]} ({shift.role || employee.role || "Loose Leaf"})
+              </span>
             </div>
           )}
         </div>

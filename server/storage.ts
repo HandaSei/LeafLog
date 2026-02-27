@@ -401,6 +401,13 @@ export class DatabaseStorage implements IStorage {
       email: r.email ?? null,
     }));
   }
+
+  async deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void> {
+    await pool.query(
+      "DELETE FROM time_entries WHERE employee_id = $1 AND entry_date = $2",
+      [employeeId, date]
+    );
+  }
 }
 
 export const storage = new DatabaseStorage();

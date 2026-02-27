@@ -345,13 +345,40 @@ export default function Timesheets() {
   const [newTimesheetClockOut, setNewTimesheetClockOut] = useState<string>("");
   const [newTimesheetBreakStart, setNewTimesheetBreakStart] = useState<string>("");
   const [newTimesheetBreakEnd, setNewTimesheetBreakEnd] = useState<string>("");
+  const [newTimesheetRole, setNewTimesheetRole] = useState<string>("");
   const [addingClockOut, setAddingClockOut] = useState<EmployeeWorkday | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [clockOutTime, setClockOutTime] = useState<string>("");
   const [editingBreak, setEditingBreak] = useState<{ start: TimeEntry | null, end: TimeEntry | null } | null>(null);
   const [editBreakStart, setEditBreakStart] = useState<string>("");
   const [editBreakEnd, setEditBreakEnd] = useState<string>("");
-  const [isExporting, setIsExporting] = useState(false);
+  const [editingShiftRole, setEditingShiftRole] = useState<{ workday: EmployeeWorkday, date: Date } | null>(null);
+  const [editShiftRoleValue, setEditShiftRoleValue] = useState<string>("");
+
+  const handleSaveShiftRoleEdit = async () => {
+    if (!editingShiftRole || !viewingWorkday) return;
+    
+    // Find the shift associated with this workday
+    // In our system, one workday session corresponds to one shift entry for simplicity in this view
+    const dateStr = format(editingShiftRole.date, "yyyy-MM-dd");
+    const { data: allShifts } = await queryClient.fetchQuery<Shift[]>({ queryKey: ["/api/shifts"] });
+    const shift = allShifts?.find(s => 
+      s.employeeId === editingShiftRole.workday.employee.id && 
+      s.date === dateStr &&
+      s.startTime.slice(0, 5) === (editingShiftRole.workday.clockIn ? format(editingShiftRole.workday.clockIn, "HH:mm") : "")
+    );
+
+    if (shift) {
+      const roleObj = customRoles.find(r => r.name === editShiftRoleValue);
+      await apiRequest("PATCH", `/api/shifts/${shift.id}`, {
+        role: editShiftRoleValue,
+        color: roleObj?.color || editingShiftRole.workday.employee.color
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Success", description: "Shift role updated" });
+    }
+    setEditingShiftRole(null);
+  };
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportSelectedEmployeeIds, setExportSelectedEmployeeIds] = useState<number[]>([]);
   const [exportStartDate, setExportStartDate] = useState(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
@@ -626,6 +653,31 @@ export default function Timesheets() {
     if (!newTimesheetEmployeeId || !newTimesheetClockIn || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)) return;
     const dateStr = format(selectedDay, "yyyy-MM-dd");
     const empId = Number(newTimesheetEmployeeId);
+
+    // Create a shift for this timesheet with the selected role
+    const emp = employees.find(e => e.id === empId);
+    const roleObj = customRoles.find(r => r.name === newTimesheetRole);
+    
+    await apiRequest("POST", "/api/shifts", {
+      employeeId: empId,
+      date: dateStr,
+      startTime: newTimesheetClockIn,
+      endTime: newTimesheetClockOut || newTimesheetClockIn,
+      role: newTimesheetRole,
+      color: roleObj?.color || emp?.color || "#3B82F6",
+      status: "completed"
+    });
+
+    await apiRequest("POST", "/api/shifts", {
+      employeeId: empId,
+      date: dateStr,
+      startTime: newTimesheetClockIn,
+      endTime: newTimesheetClockOut || newTimesheetClockIn,
+      role: newTimesheetRole,
+      color: roleObj?.color || emp?.color || "#3B82F6",
+      status: "completed"
+    });
+
     await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockIn}:00`).toISOString() });
     if (newTimesheetBreakStart && newTimesheetBreakEnd && /^\d{2}:\d{2}$/.test(newTimesheetBreakStart) && /^\d{2}:\d{2}$/.test(newTimesheetBreakEnd)) {
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakStart}:00`).toISOString() });
@@ -634,8 +686,20 @@ export default function Timesheets() {
     if (newTimesheetClockOut && /^\d{2}:\d{2}$/.test(newTimesheetClockOut)) {
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockOut}:00`).toISOString() });
     }
-    toast({ title: "Success", description: "Timesheet added" });
-    setAddingTimesheet(false); setNewTimesheetEmployeeId(""); setNewTimesheetClockIn(""); setNewTimesheetClockOut(""); setNewTimesheetBreakStart(""); setNewTimesheetBreakEnd("");
+    setAddingTimesheet(false);
+    setNewTimesheetEmployeeId("");
+    setNewTimesheetClockIn("");
+    setNewTimesheetClockOut("");
+    setNewTimesheetBreakStart("");
+    setNewTimesheetBreakEnd("");
+    setNewTimesheetRole("");
+  };
+
+  const handleEditShiftRole = (wd: EmployeeWorkday, date: Date) => {
+    // This will be used in the Detail Dialog to allow changing the role for a specific session
+    setSelectedWorkday(wd);
+    setViewingDate(date);
+    // Open a role selection dialog or similar
   };
 
   const handleExportPDF = async () => {
@@ -983,7 +1047,20 @@ export default function Timesheets() {
                   <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                   <div>
                     <div className="font-semibold">{emp.name}</div>
-                    <div className="text-xs text-muted-foreground">{emp.role || "Loose Leaf"}</div>
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      <span>{viewingWorkday.entries[0]?.id ? (employees.find(e => e.id === emp.id)?.role || "Loose Leaf") : "Loose Leaf"}</span>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-4 w-4 ml-1"
+                        onClick={() => {
+                          setEditingShiftRole({ workday: viewingWorkday, date: activeDay });
+                          setEditShiftRoleValue(emp.role || "");
+                        }}
+                      >
+                        <Edit2 className="w-2.5 h-2.5" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
@@ -1160,9 +1237,79 @@ export default function Timesheets() {
                     </div>
                   )}
                 </div>
+                <div className="pt-2 border-t">
+                  {!confirmDelete ? (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => setConfirmDelete(true)}
+                    >
+                      Delete Timesheet
+                    </Button>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[11px] text-center text-muted-foreground font-medium">Are you sure? This will delete all entries for this day.</p>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1 h-8"
+                          onClick={() => setConfirmDelete(false)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          className="flex-1 h-8"
+                          disabled={deleteTimesheetMutation.isPending}
+                          onClick={() => deleteTimesheetMutation.mutate({ 
+                            employeeId: emp.id, 
+                            date: format(activeDay, "yyyy-MM-dd"),
+                            entries: dayEntries
+                          })}
+                        >
+                          {deleteTimesheetMutation.isPending ? "Deleting..." : "Confirm Delete"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Shift Role Dialog */}
+      <Dialog open={!!editingShiftRole} onOpenChange={() => setEditingShiftRole(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Edit Role for this Shift</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Select Role</Label>
+              <Select value={editShiftRoleValue} onValueChange={setEditShiftRoleValue}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {customRoles.map((r) => (
+                    <SelectItem key={r.id} value={r.name}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                        {r.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingShiftRole(null)}>Cancel</Button>
+            <Button onClick={handleSaveShiftRoleEdit}>Save Role</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1250,6 +1397,42 @@ export default function Timesheets() {
                     <SelectContent>
                       {employees.filter(e => e.status === "active").sort((a, b) => a.name.localeCompare(b.name)).map(emp => (
                         <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Shift Role</Label>
+                  <Select value={newTimesheetRole} onValueChange={setNewTimesheetRole}>
+                    <SelectTrigger data-testid="select-timesheet-role">
+                      <SelectValue placeholder="Select role for this shift" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customRoles.map((r) => (
+                        <SelectItem key={r.id} value={r.name}>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                            {r.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Shift Role</Label>
+                  <Select value={newTimesheetRole} onValueChange={setNewTimesheetRole}>
+                    <SelectTrigger data-testid="select-timesheet-role">
+                      <SelectValue placeholder="Select role for this shift" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customRoles.map((r) => (
+                        <SelectItem key={r.id} value={r.name}>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                            {r.name}
+                          </div>
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

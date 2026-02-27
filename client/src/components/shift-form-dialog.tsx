@@ -46,6 +46,7 @@ const shiftFormSchema = z.object({
   status: z.string().default("scheduled"),
   notes: z.string().optional(),
   color: z.string().optional(),
+  role: z.string().optional(),
 });
 
 type ShiftFormValues = z.infer<typeof shiftFormSchema>;
@@ -83,8 +84,19 @@ export function ShiftFormDialog({
       status: shift?.status ?? "scheduled",
       notes: shift?.notes ?? "",
       color: shift?.color ?? SHIFT_COLORS[0].value,
+      role: shift?.role ?? "",
     },
   });
+
+  const selectedEmployeeId = form.watch("employeeId");
+  const selectedEmployee = employees.find(e => e.id === Number(selectedEmployeeId));
+
+  useEffect(() => {
+    if (open && !isEditing && selectedEmployee) {
+      form.setValue("role", selectedEmployee.role ?? "");
+      form.setValue("color", selectedEmployee.color);
+    }
+  }, [selectedEmployeeId, open, isEditing]);
 
   useEffect(() => {
     if (open) {
@@ -96,6 +108,7 @@ export function ShiftFormDialog({
         status: shift?.status ?? "scheduled",
         notes: shift?.notes ?? "",
         color: shift?.color ?? SHIFT_COLORS[0].value,
+        role: shift?.role ?? "",
       });
     }
   }, [open, shift, defaultDate, defaultEmployeeId]);
@@ -128,11 +141,7 @@ export function ShiftFormDialog({
   });
 
   const onSubmit = (values: ShiftFormValues) => {
-    const employee = employees.find(e => e.id === Number(values.employeeId));
-    mutation.mutate({
-      ...values,
-      color: (employee?.role ? (employee.color || values.color) : "#9CA3AF")
-    });
+    mutation.mutate(values);
   };
 
   return (
@@ -195,6 +204,42 @@ export function ShiftFormDialog({
                               <span className="text-muted-foreground text-xs">
                                 {emp.role || "Loose Leaf (assign role)"}
                               </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Shift Role</FormLabel>
+                    <Select
+                      onValueChange={(val) => {
+                        field.onChange(val);
+                        const role = customRoles.find(r => r.name === val);
+                        if (role) {
+                          form.setValue("color", role.color);
+                        }
+                      }}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-shift-role">
+                          <SelectValue placeholder="Select role for this shift" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {customRoles.map((r) => (
+                          <SelectItem key={r.id} value={r.name}>
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                              {r.name}
                             </div>
                           </SelectItem>
                         ))}
