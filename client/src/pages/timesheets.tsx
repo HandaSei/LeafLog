@@ -346,6 +346,16 @@ export default function Timesheets() {
   const [newTimesheetBreakStart, setNewTimesheetBreakStart] = useState<string>("");
   const [newTimesheetBreakEnd, setNewTimesheetBreakEnd] = useState<string>("");
   const [newTimesheetRole, setNewTimesheetRole] = useState<string>("");
+
+  const resetAddTimesheetForm = () => {
+    setNewTimesheetEmployeeId("");
+    setNewTimesheetClockIn("");
+    setNewTimesheetClockOut("");
+    setNewTimesheetBreakStart("");
+    setNewTimesheetBreakEnd("");
+    setNewTimesheetRole("");
+  };
+
   const [addingClockOut, setAddingClockOut] = useState<EmployeeWorkday | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [clockOutTime, setClockOutTime] = useState<string>("");
@@ -639,7 +649,8 @@ export default function Timesheets() {
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockOut}:00`).toISOString() });
     }
     toast({ title: "Success", description: "Timesheet added" });
-    setAddingTimesheet(false); setNewTimesheetEmployeeId(""); setNewTimesheetClockIn(""); setNewTimesheetClockOut(""); setNewTimesheetBreakStart(""); setNewTimesheetBreakEnd(""); setNewTimesheetRole("");
+    setAddingTimesheet(false);
+    resetAddTimesheetForm();
   };
 
   const handleExportPDF = async () => {
@@ -1248,7 +1259,13 @@ export default function Timesheets() {
       />
 
       {/* Add Timesheet */}
-      <Dialog open={addingTimesheet} onOpenChange={setAddingTimesheet}>
+      <Dialog 
+        open={addingTimesheet} 
+        onOpenChange={(open) => {
+          setAddingTimesheet(open);
+          if (!open) resetAddTimesheetForm();
+        }}
+      >
         <DialogContent>
           <DialogHeader><DialogTitle>Add Missing Timesheet</DialogTitle></DialogHeader>
           {employees.filter(e => e.status === "active").length === 0 ? (
