@@ -30,11 +30,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { ROLE_COLORS } from "@/lib/constants";
 
 const MAX_ROLES = 6;
@@ -110,6 +105,7 @@ export default function SettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       setEditingId(null);
       setEditingName("");
       setEditingColor("");
@@ -333,25 +329,20 @@ export default function SettingsPage() {
                             }}
                             data-testid="input-edit-role"
                           />
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <Palette className="w-4 h-4" />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-48 p-2">
-                              <div className="grid grid-cols-4 gap-1">
-                                {ROLE_COLORS.map((c) => (
-                                  <button
-                                    key={c}
-                                    className={`w-8 h-8 rounded-md border ${editingColor === c ? "ring-2 ring-primary" : ""}`}
-                                    style={{ backgroundColor: c }}
-                                    onClick={() => setEditingColor(c)}
-                                  />
-                                ))}
-                              </div>
-                            </PopoverContent>
-                          </Popover>
+                          <label className="relative cursor-pointer" title="Pick color">
+                            <div
+                              className="h-8 w-8 rounded-md border-2 border-muted-foreground/30 flex items-center justify-center"
+                              style={{ backgroundColor: editingColor }}
+                            >
+                              <Palette className="w-4 h-4 text-white drop-shadow" />
+                            </div>
+                            <input
+                              type="color"
+                              value={editingColor}
+                              onChange={(e) => setEditingColor(e.target.value)}
+                              className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                            />
+                          </label>
                           <Button
                             size="icon"
                             variant="ghost"
@@ -404,26 +395,20 @@ export default function SettingsPage() {
 
               {!atLimit && (
                 <form onSubmit={handleAdd} className="flex gap-2 pt-1">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" style={{ backgroundColor: newRoleColor }}>
-                        <Palette className="w-4 h-4 text-white" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-48 p-2">
-                      <div className="grid grid-cols-4 gap-1">
-                        {ROLE_COLORS.map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            className={`w-8 h-8 rounded-md border ${newRoleColor === c ? "ring-2 ring-primary" : ""}`}
-                            style={{ backgroundColor: c }}
-                            onClick={() => setNewRoleColor(c)}
-                          />
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                  <label className="relative cursor-pointer flex-shrink-0" title="Pick color">
+                    <div
+                      className="h-9 w-9 rounded-md border-2 border-muted-foreground/30 flex items-center justify-center"
+                      style={{ backgroundColor: newRoleColor }}
+                    >
+                      <Palette className="w-4 h-4 text-white drop-shadow" />
+                    </div>
+                    <input
+                      type="color"
+                      value={newRoleColor}
+                      onChange={(e) => setNewRoleColor(e.target.value)}
+                      className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    />
+                  </label>
                   <Input
                     placeholder="New role name..."
                     value={newRoleName}

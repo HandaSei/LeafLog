@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { storage } from "./storage";
+import { storage, pool } from "./storage";
 import { insertEmployeeSchema, insertShiftSchema, breakPolicySchema } from "@shared/schema";
 import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./auth";
 import { format } from "date-fns";
@@ -96,6 +96,25 @@ export async function registerRoutes(
     const emp = await storage.getEmployee(parsed.data.employeeId);
     if (!emp || emp.ownerAccountId !== req.session.userId) {
       return res.status(403).json({ message: "Access denied" });
+    }
+    const existingShifts = await storage.getShiftsByEmployeeAndDate(parsed.data.employeeId, parsed.data.date);
+    const toMinutes = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    const newStart = toMinutes(parsed.data.startTime);
+    const newEnd = toMinutes(parsed.data.endTime);
+    const newEndAdj = newEnd <= newStart ? newEnd + 1440 : newEnd;
+    const excludeId = req.body.excludeId ? Number(req.body.excludeId) : undefined;
+    const conflict = existingShifts.find((s) => {
+      if (excludeId && s.id === excludeId) return false;
+      const sStart = toMinutes(s.startTime);
+      const sEnd = toMinutes(s.endTime);
+      const sEndAdj = sEnd <= sStart ? sEnd + 1440 : sEnd;
+      return newStart < sEndAdj && newEndAdj > sStart;
+    });
+    if (conflict) {
+      return res.status(409).json({ message: `This shift overlaps with an existing shift (${conflict.startTime.slice(0,5)}–${conflict.endTime.slice(0,5)}) for this employee.` });
     }
     const shift = await storage.createShift(parsed.data);
     res.status(201).json(shift);
@@ -232,12 +251,22 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Role name is required" });
     }
     const existing = await storage.getCustomRoles(req.session.userId!);
+    const currentRole = existing.find((r) => r.id === Number(req.params.id));
     const duplicate = existing.find((r) => r.name.toLowerCase() === name.trim().toLowerCase() && r.id !== Number(req.params.id));
     if (duplicate) {
       return res.status(400).json({ message: "A role with this name already exists" });
     }
     const role = await storage.updateCustomRole(Number(req.params.id), name.trim(), color);
     if (!role) return res.status(404).json({ message: "Role not found" });
+    if (color && currentRole) {
+      await storage.updateEmployeeColorsByRole(name.trim(), color, req.session.userId!);
+      if (currentRole.name !== name.trim()) {
+        await pool.query(
+          "UPDATE employees SET role = $1 WHERE role = $2 AND owner_account_id = $3",
+          [name.trim(), currentRole.name, req.session.userId!]
+        );
+      }
+    }
     res.json(role);
   });
 

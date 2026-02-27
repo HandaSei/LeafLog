@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, parseISO, isToday } from "date-fns";
+import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, parseISO, isToday, differenceInMinutes } from "date-fns";
 import type { Shift, Employee } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -251,6 +251,16 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
         ) : (
           Array.from(shiftsByEmployee.entries()).map(([empId, empShifts]) => {
             const emp = employeeMap.get(empId);
+            const empTotalMins = empShifts.reduce((acc, s) => {
+              const start = parseISO(`${s.date}T${s.startTime}`);
+              const end = parseISO(`${s.date}T${s.endTime}`);
+              let diff = differenceInMinutes(end, start);
+              if (diff < 0) diff += 1440;
+              return acc + diff;
+            }, 0);
+            const empH = Math.floor(empTotalMins / 60);
+            const empM = empTotalMins % 60;
+            const empDurationLabel = empM === 0 ? `${empH}h total` : `${empH}h ${empM}m total`;
             return (
               <div
                 key={empId}
@@ -264,6 +274,9 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
                     <div className="text-[10px] text-muted-foreground">
                       {empShifts.length} shift{empShifts.length !== 1 ? "s" : ""}
                     </div>
+                    {showHours && empShifts.length > 0 && (
+                      <div className="text-[10px] font-semibold text-primary">{empDurationLabel}</div>
+                    )}
                   </div>
                 </div>
                 <div 
@@ -315,8 +328,19 @@ interface ShiftCardProps {
   onDelete: (id: number) => void;
 }
 
+function shiftDuration(startTime: string, endTime: string): string {
+  const start = parseISO(`2000-01-01T${startTime}`);
+  const end = parseISO(`2000-01-01T${endTime}`);
+  let mins = differenceInMinutes(end, start);
+  if (mins < 0) mins += 1440;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 function ShiftCard({ shift, employee, onEdit, onDelete }: ShiftCardProps) {
   const bgColor = (employee?.role ? (shift.color || employee.color) : "#9CA3AF") || "#9CA3AF";
+  const duration = shiftDuration(shift.startTime, shift.endTime);
 
   return (
     <div
@@ -329,6 +353,7 @@ function ShiftCard({ shift, employee, onEdit, onDelete }: ShiftCardProps) {
           <div className="text-[10px] opacity-90">
             {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
           </div>
+          <div className="text-[10px] font-bold opacity-80">{duration}</div>
           {employee && (
             <div className="flex items-center gap-1 mt-0.5">
               <div className="w-3 h-3 rounded-full bg-white/30 flex items-center justify-center text-[7px] font-bold">

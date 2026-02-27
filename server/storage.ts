@@ -27,6 +27,7 @@ export interface IStorage {
   getShifts(ownerAccountId?: number): Promise<Shift[]>;
   getShift(id: number): Promise<Shift | undefined>;
   getShiftsByEmployee(employeeId: number): Promise<Shift[]>;
+  getShiftsByEmployeeAndDate(employeeId: number, date: string): Promise<Shift[]>;
   createShift(data: any): Promise<Shift>;
   updateShift(id: number, data: any): Promise<Shift | undefined>;
   deleteShift(id: number): Promise<void>;
@@ -56,7 +57,8 @@ export interface IStorage {
 
   getCustomRoles(ownerAccountId: number): Promise<CustomRole[]>;
   createCustomRole(ownerAccountId: number, name: string): Promise<CustomRole>;
-  updateCustomRole(id: number, name: string): Promise<CustomRole | undefined>;
+  updateCustomRole(id: number, name: string, color?: string): Promise<CustomRole | undefined>;
+  updateEmployeeColorsByRole(roleName: string, color: string, ownerAccountId: number): Promise<void>;
   deleteCustomRole(id: number): Promise<void>;
 
   getBreakPolicy(accountId: number): Promise<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>;
@@ -118,6 +120,19 @@ export class DatabaseStorage implements IStorage {
 
   async getShiftsByEmployee(employeeId: number): Promise<Shift[]> {
     return db.select().from(shifts).where(eq(shifts.employeeId, employeeId));
+  }
+
+  async getShiftsByEmployeeAndDate(employeeId: number, date: string): Promise<Shift[]> {
+    return db.select().from(shifts).where(
+      and(eq(shifts.employeeId, employeeId), eq(shifts.date, date))
+    );
+  }
+
+  async updateEmployeeColorsByRole(roleName: string, color: string, ownerAccountId: number): Promise<void> {
+    await pool.query(
+      "UPDATE employees SET color = $1 WHERE role = $2 AND owner_account_id = $3",
+      [color, roleName, ownerAccountId]
+    );
   }
 
   async createShift(data: any): Promise<Shift> {

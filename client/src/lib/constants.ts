@@ -48,10 +48,7 @@ export function getInitials(name: string): string {
 
 export function formatTime(time: string): string {
   const [hours, minutes] = time.split(":");
-  const h = parseInt(hours);
-  const ampm = h >= 12 ? "PM" : "AM";
-  const displayH = h % 12 || 12;
-  return `${displayH}:${minutes} ${ampm}`;
+  return `${hours.padStart(2, "0")}:${minutes}`;
 }
 
 export function getDaysBetween(start: Date, end: Date): Date[] {
