@@ -1,12 +1,12 @@
-import { eq, and, gt, desc, inArray } from "drizzle-orm";
+import { eq, and, gt, desc, inArray, gte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
-  employees, shifts, accounts, accessCodes, timeEntries, customRoles,
+  employees, shifts, accounts, accessCodes, timeEntries, customRoles, feedback,
   type Employee, type InsertEmployee,
   type Shift, type InsertShift,
   type Account, type InsertAccount,
-  type AccessCode, type TimeEntry, type CustomRole,
+  type AccessCode, type TimeEntry, type CustomRole, type Feedback,
 } from "@shared/schema";
 
 const connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
@@ -61,6 +61,10 @@ export interface IStorage {
 
   getBreakPolicy(accountId: number): Promise<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>;
   updateBreakPolicy(accountId: number, paidBreakMinutes: number | null, maxBreakMinutes: number | null): Promise<void>;
+
+  createFeedback(accountId: number, message: string): Promise<Feedback>;
+  getFeedbackCount24h(accountId: number): Promise<number>;
+  getAllFeedback(): Promise<(Feedback & { username: string; email: string | null })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -339,6 +343,37 @@ export class DatabaseStorage implements IStorage {
       "UPDATE accounts SET paid_break_minutes = $1, max_break_minutes = $2 WHERE id = $3",
       [paidBreakMinutes, maxBreakMinutes, accountId]
     );
+  }
+
+  async createFeedback(accountId: number, message: string): Promise<Feedback> {
+    const [entry] = await db.insert(feedback).values({ accountId, message }).returning();
+    return entry;
+  }
+
+  async getFeedbackCount24h(accountId: number): Promise<number> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const res = await pool.query(
+      "SELECT COUNT(*) FROM feedback WHERE account_id = $1 AND created_at >= $2",
+      [accountId, since]
+    );
+    return parseInt(res.rows[0].count, 10);
+  }
+
+  async getAllFeedback(): Promise<(Feedback & { username: string; email: string | null })[]> {
+    const res = await pool.query(
+      `SELECT f.id, f.account_id, f.message, f.created_at, a.username, a.email
+       FROM feedback f
+       JOIN accounts a ON a.id = f.account_id
+       ORDER BY f.created_at DESC`
+    );
+    return res.rows.map((r: any) => ({
+      id: r.id,
+      accountId: r.account_id,
+      message: r.message,
+      createdAt: r.created_at,
+      username: r.username,
+      email: r.email,
+    }));
   }
 }
 

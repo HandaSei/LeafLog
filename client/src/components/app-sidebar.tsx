@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Calendar, Users, LayoutDashboard, Clock, KeyRound, LogOut, FileText, Settings2 } from "lucide-react";
+import { Calendar, Users, LayoutDashboard, KeyRound, LogOut, FileText, Settings2, MessageSquare, Inbox } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { AccessCodeDialog } from "./access-code-dialog";
+import { FeedbackDialog } from "./feedback-dialog";
+import { FeedbackPanelDialog } from "./feedback-panel-dialog";
 import logoImage from "@assets/m3MJU_1771476103365.png";
 
 export function AppSidebar() {
@@ -24,6 +26,8 @@ export function AppSidebar() {
   const { user, isAdmin, isManager, logout } = useAuth();
   const { toast } = useToast();
   const [accessCodeOpen, setAccessCodeOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackPanelOpen, setFeedbackPanelOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -109,6 +113,30 @@ export function AppSidebar() {
         </SidebarContent>
         <SidebarFooter className="p-3">
           <div className="space-y-2">
+            {isAdmin && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-xs text-muted-foreground"
+                onClick={() => setFeedbackPanelOpen(true)}
+                data-testid="button-feedback-inbox"
+              >
+                <Inbox className="w-3.5 h-3.5 mr-2" />
+                Feedback Inbox
+              </Button>
+            )}
+            {!isAdmin && (isManager) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-xs text-muted-foreground"
+                onClick={() => setFeedbackOpen(true)}
+                data-testid="button-send-feedback"
+              >
+                <MessageSquare className="w-3.5 h-3.5 mr-2" />
+                Send Feedback
+              </Button>
+            )}
             <div className="flex items-center gap-2 px-1">
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium"
@@ -135,6 +163,8 @@ export function AppSidebar() {
         </SidebarFooter>
       </Sidebar>
       <AccessCodeDialog open={accessCodeOpen} onOpenChange={setAccessCodeOpen} />
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      <FeedbackPanelDialog open={feedbackPanelOpen} onOpenChange={setFeedbackPanelOpen} />
     </>
   );
 }

@@ -118,7 +118,16 @@ export const registerAccountSchema = z.object({
   path: ["confirmPassword"],
 });
 
+export const feedback = pgTable("feedback", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  accountId: integer("account_id").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertCustomRoleSchema = createInsertSchema(customRoles).omit({ id: true });
+export const insertFeedbackSchema = createInsertSchema(feedback).omit({ id: true, createdAt: true });
+export type Feedback = typeof feedback.$inferSelect;
 
 export type Account = typeof accounts.$inferSelect;
 export type InsertAccount = z.infer<typeof insertAccountSchema>;

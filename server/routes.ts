@@ -245,6 +245,31 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // === FEEDBACK ===
+  router.post("/api/feedback", requireRole("admin", "manager"), async (req, res) => {
+    const { message } = req.body;
+    if (!message || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ message: "Feedback message is required" });
+    }
+    const accountId = req.session.userId!;
+    const count = await storage.getFeedbackCount24h(accountId);
+    if (count >= 3) {
+      return res.status(429).json({ message: "Feedback limit reached. You can send up to 3 messages every 24 hours." });
+    }
+    const entry = await storage.createFeedback(accountId, message.trim());
+    res.status(201).json(entry);
+  });
+
+  router.get("/api/feedback", requireRole("admin"), async (_req, res) => {
+    const entries = await storage.getAllFeedback();
+    res.json(entries);
+  });
+
+  router.get("/api/feedback/remaining", requireRole("admin", "manager"), async (req, res) => {
+    const count = await storage.getFeedbackCount24h(req.session.userId!);
+    res.json({ remaining: Math.max(0, 3 - count) });
+  });
+
   // === BREAK POLICY ===
   router.get("/api/settings/break-policy", requireAuth, async (req, res) => {
     const policy = await storage.getBreakPolicy(req.session.userId!);
