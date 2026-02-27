@@ -260,6 +260,18 @@ export async function registerRoutes(
     if (!role) return res.status(404).json({ message: "Role not found" });
     if (color && currentRole) {
       await storage.updateEmployeeColorsByRole(name.trim(), color, req.session.userId!);
+      
+      // Update ALL existing shifts for these employees to the new color
+      await pool.query(
+        `UPDATE shifts 
+         SET color = $1 
+         WHERE employee_id IN (
+           SELECT id FROM employees 
+           WHERE role = $2 AND owner_account_id = $3
+         )`,
+        [color, name.trim(), req.session.userId!]
+      );
+
       if (currentRole.name !== name.trim()) {
         await pool.query(
           "UPDATE employees SET role = $1 WHERE role = $2 AND owner_account_id = $3",

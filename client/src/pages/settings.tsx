@@ -106,6 +106,7 @@ export default function SettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       setEditingId(null);
       setEditingName("");
       setEditingColor("");
