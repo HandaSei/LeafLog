@@ -144,25 +144,25 @@ export function ShiftFormDialog({
           </DialogTitle>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            {employees.length === 0 ? (
-              <div className="py-6 flex flex-col items-center text-center">
-                <AlertCircle className="w-12 h-12 text-amber-500 mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No employees found</h3>
-                <p className="text-sm text-muted-foreground mb-6 max-w-[300px]">
-                  You need to add at least one employee before you can create a shift.
-                </p>
-                <Button 
-                  type="button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    setLocation("/employees");
-                  }}
-                >
-                  Go to Employees
-                </Button>
-              </div>
-            ) : (
+          {employees.length === 0 ? (
+            <div className="py-10 flex flex-col items-center text-center">
+              <AlertCircle className="w-12 h-12 text-amber-500 mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No employees found</h3>
+              <p className="text-sm text-muted-foreground mb-6 max-w-[300px]">
+                You need to add at least one employee before you can create a shift.
+              </p>
+              <Button 
+                type="button"
+                onClick={() => {
+                  onOpenChange(false);
+                  setLocation("/employees");
+                }}
+              >
+                Go to Employees
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
                 control={form.control}
                 name="employeeId"
@@ -204,88 +204,88 @@ export function ShiftFormDialog({
                   </FormItem>
                 )}
               />
-            )}
-            <div className="flex items-end gap-3">
+              <div className="flex items-end gap-3">
+                <FormField
+                  control={form.control}
+                  name="date"
+                  render={({ field }) => (
+                    <FormItem className="flex-1">
+                      <FormLabel>Date</FormLabel>
+                      <FormControl>
+                        <DateInput value={field.value} onChange={field.onChange} data-testid="input-shift-date" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="startTime"
+                  render={({ field }) => (
+                    <FormItem className="w-[80px]">
+                      <FormLabel>Start</FormLabel>
+                      <FormControl>
+                        <TimeInput value={field.value} onChange={field.onChange} data-testid="input-shift-start" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="endTime"
+                  render={({ field }) => (
+                    <FormItem className="w-[80px]">
+                      <FormLabel>End</FormLabel>
+                      <FormControl>
+                        <TimeInput value={field.value} onChange={field.onChange} data-testid="input-shift-end" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               <FormField
                 control={form.control}
-                name="date"
+                name="notes"
                 render={({ field }) => (
-                  <FormItem className="flex-1">
-                    <FormLabel>Date</FormLabel>
+                  <FormItem>
+                    <FormLabel>Notes (optional)</FormLabel>
                     <FormControl>
-                      <DateInput value={field.value} onChange={field.onChange} data-testid="input-shift-date" />
+                      <Textarea
+                        placeholder="Any additional notes..."
+                        className="resize-none"
+                        data-testid="input-shift-notes"
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="startTime"
-                render={({ field }) => (
-                  <FormItem className="w-[80px]">
-                    <FormLabel>Start</FormLabel>
-                    <FormControl>
-                      <TimeInput value={field.value} onChange={field.onChange} data-testid="input-shift-start" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="endTime"
-                render={({ field }) => (
-                  <FormItem className="w-[80px]">
-                    <FormLabel>End</FormLabel>
-                    <FormControl>
-                      <TimeInput value={field.value} onChange={field.onChange} data-testid="input-shift-end" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-            <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Notes (optional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Any additional notes..."
-                      className="resize-none"
-                      data-testid="input-shift-notes"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                data-testid="button-cancel-shift"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={mutation.isPending}
-                data-testid="button-save-shift"
-              >
-                {mutation.isPending
-                  ? "Saving..."
-                  : isEditing
-                    ? "Update Shift"
-                    : "Create Shift"}
-              </Button>
-            </DialogFooter>
-          </form>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                  data-testid="button-cancel-shift"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={mutation.isPending}
+                  data-testid="button-save-shift"
+                >
+                  {mutation.isPending
+                    ? "Saving..."
+                    : isEditing
+                      ? "Update Shift"
+                      : "Create Shift"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </Form>
       </DialogContent>
     </Dialog>
