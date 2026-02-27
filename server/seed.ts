@@ -1,6 +1,21 @@
-import { storage } from "./storage";
+import { storage, pool } from "./storage";
 import { format, addDays } from "date-fns";
 import bcrypt from "bcryptjs";
+
+async function runMigrations() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS feedback (
+      id integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+      account_id integer NOT NULL,
+      message text NOT NULL,
+      created_at timestamp DEFAULT now()
+    )
+  `);
+  await pool.query(`
+    UPDATE accounts SET role = 'admin'
+    WHERE agency_name = 'LeafLog' AND role = 'manager'
+  `);
+}
 
 const EMPLOYEE_DATA = [
   { name: "Sarah Chen", email: "sarah.chen@company.com", phone: "(555) 234-5678", role: "Manager", color: "#3B82F6" },
@@ -23,6 +38,8 @@ const SHIFT_TEMPLATES = [
 ];
 
 export async function seedDatabase() {
+  await runMigrations();
+
   const existingAdmin = await storage.getAccountByUsername("admin");
   if (!existingAdmin) {
     const adminPassword = await bcrypt.hash("admin123", 10);
