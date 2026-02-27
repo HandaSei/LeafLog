@@ -68,7 +68,7 @@ export default function KioskPage() {
         "break-start": "Break Started",
         "break-end": "Break Ended",
       };
-      toast({ title: labels[variables.type], description: `${selectedEmployee?.name} - ${format(new Date(), "h:mm a")}` });
+      toast({ title: labels[variables.type], description: `${selectedEmployee?.name} - ${format(new Date(), "HH:mm")}` });
       setPasscode("");
       setPasscodeDialogOpen(false);
       setPendingAction(null);
@@ -144,7 +144,14 @@ export default function KioskPage() {
             <ArrowLeft className="w-4 h-4 mr-1" /> Back
           </Button>
           <div className="text-sm text-muted-foreground font-mono" data-testid="text-kiosk-time">
-            {format(new Date(), "EEEE, MMM d, yyyy - h:mm a")}
+            {(() => {
+              const now = new Date();
+              const seconds = now.getSeconds();
+              const displayTime = seconds > 30 
+                ? format(new Date(now.getTime() + 60000), "HH:mm")
+                : format(now, "HH:mm");
+              return `${displayTime} [ ${format(now, "HH:mm:ss")} ]`;
+            })()}
           </div>
           <Button
             variant="ghost"
@@ -233,7 +240,7 @@ export default function KioskPage() {
                           <span>{info.label}</span>
                         </div>
                         <span className="text-muted-foreground font-mono">
-                          {format(new Date(entry.timestamp), "h:mm:ss a")}
+                          {format(new Date(entry.timestamp), "HH:mm:ss")}
                         </span>
                       </div>
                     );
