@@ -367,7 +367,6 @@ export class DatabaseStorage implements IStorage {
       await db.delete(employees).where(inArray(employees.id, empIds));
     }
     await pool.query("DELETE FROM custom_roles WHERE owner_account_id = $1", [id]);
-    await pool.query("DELETE FROM feedback WHERE account_id = $1", [id]);
     await db.delete(accounts).where(eq(accounts.id, id));
   }
 
@@ -375,7 +374,7 @@ export class DatabaseStorage implements IStorage {
     const res = await pool.query(
       `SELECT f.id, f.account_id, f.message, f.created_at, a.username, a.email
        FROM feedback f
-       JOIN accounts a ON a.id = f.account_id
+       LEFT JOIN accounts a ON a.id = f.account_id
        ORDER BY f.created_at DESC`
     );
     return res.rows.map((r: any) => ({
@@ -383,8 +382,8 @@ export class DatabaseStorage implements IStorage {
       accountId: r.account_id,
       message: r.message,
       createdAt: r.created_at,
-      username: r.username,
-      email: r.email,
+      username: r.username ?? "Deleted Account",
+      email: r.email ?? null,
     }));
   }
 }

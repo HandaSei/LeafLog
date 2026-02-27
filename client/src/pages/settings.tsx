@@ -135,7 +135,7 @@ export default function SettingsPage() {
       await apiRequest("DELETE", "/api/auth/account", { password });
     },
     onSuccess: () => {
-      toast({ title: "Account deleted", description: "Your account has been permanently deleted." });
+      queryClient.clear();
       setLocation("/login");
     },
     onError: (err: Error) => {
