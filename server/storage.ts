@@ -50,6 +50,7 @@ export interface IStorage {
   getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
   updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
+  deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void>;
   getEmployeeIdsByOwner(ownerAccountId: number): Promise<number[]>;
 
   getCustomRoles(ownerAccountId: number): Promise<CustomRole[]>;
@@ -284,6 +285,13 @@ export class DatabaseStorage implements IStorage {
   async updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined> {
     const [entry] = await db.update(timeEntries).set(data).where(eq(timeEntries.id, id)).returning();
     return entry;
+  }
+
+  async deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void> {
+    await pool.query(
+      "DELETE FROM time_entries WHERE employee_id = $1 AND entry_date = $2",
+      [employeeId, date]
+    );
   }
 
   async getCustomRoles(ownerAccountId: number): Promise<CustomRole[]> {

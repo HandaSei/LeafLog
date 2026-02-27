@@ -279,6 +279,7 @@ export default function Timesheets() {
   const [newTimesheetBreakStart, setNewTimesheetBreakStart] = useState<string>("");
   const [newTimesheetBreakEnd, setNewTimesheetBreakEnd] = useState<string>("");
   const [addingClockOut, setAddingClockOut] = useState<EmployeeWorkday | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [clockOutTime, setClockOutTime] = useState<string>("");
   const [editingBreak, setEditingBreak] = useState<{ start: TimeEntry | null, end: TimeEntry | null } | null>(null);
   const [editBreakStart, setEditBreakStart] = useState<string>("");
@@ -319,6 +320,20 @@ export default function Timesheets() {
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] }),
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteTimesheetMutation = useMutation({
+    mutationFn: async (data: { employeeId: number; date: string }) => {
+      await apiRequest("DELETE", `/api/kiosk/entries?employeeId=${data.employeeId}&date=${data.date}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] });
+      toast({ title: "Success", description: "Timesheet deleted successfully" });
+      setViewingEmployeeId(null);
+      setViewingDate(null);
+      setConfirmDelete(false);
+    },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
@@ -798,7 +813,13 @@ export default function Timesheets() {
       </Dialog>
 
       {/* Detail Dialog */}
-      <Dialog open={!!viewingWorkday} onOpenChange={() => { setViewingEmployeeId(null); setViewingDate(null); }}>
+      <Dialog open={!!viewingWorkday} onOpenChange={(open) => { 
+        if (!open) {
+          setViewingEmployeeId(null); 
+          setViewingDate(null); 
+          setConfirmDelete(false);
+        }
+      }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Timesheet Details</DialogTitle></DialogHeader>
           {viewingWorkday && (() => {
@@ -945,6 +966,47 @@ export default function Timesheets() {
                 >
                   <Coffee className="w-4 h-4 mr-2" /> Add Break
                 </Button>
+
+                <div className="pt-2 border-t">
+                  {!confirmDelete ? (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => setConfirmDelete(true)}
+                      data-testid="button-delete-timesheet-init"
+                    >
+                      Delete Timesheet
+                    </Button>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[11px] text-center text-muted-foreground font-medium">Are you sure? This will delete all entries for this day.</p>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1 h-8"
+                          onClick={() => setConfirmDelete(false)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          className="flex-1 h-8"
+                          disabled={deleteTimesheetMutation.isPending}
+                          onClick={() => deleteTimesheetMutation.mutate({ 
+                            employeeId: emp.id, 
+                            date: format(activeDay, "yyyy-MM-dd") 
+                          })}
+                          data-testid="button-delete-timesheet-confirm"
+                        >
+                          {deleteTimesheetMutation.isPending ? "Deleting..." : "Confirm Delete"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })()}

@@ -178,6 +178,16 @@ export async function registerRoutes(
     res.status(201).json(entry);
   });
 
+  router.delete("/api/kiosk/entries", requireRole("admin", "manager"), async (req, res) => {
+    const employeeId = Number(req.query.employeeId);
+    const date = req.query.date as string;
+    if (!employeeId || !date) {
+      return res.status(400).json({ message: "Employee ID and date are required" });
+    }
+    await storage.deleteTimeEntriesByEmployeeAndDate(employeeId, date);
+    res.status(204).send();
+  });
+
   // === CUSTOM ROLES ===
   router.get("/api/roles", requireRole("admin", "manager"), async (req, res) => {
     const roles = await storage.getCustomRoles(req.session.userId!);
