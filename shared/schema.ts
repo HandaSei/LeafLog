@@ -45,7 +45,6 @@ export const shifts = pgTable("shifts", {
   status: text("status").notNull().default("scheduled"),
   notes: text("notes"),
   color: text("color"),
-  role: text("role"),
 });
 
 export const accessCodes = pgTable("access_codes", {
@@ -86,7 +85,6 @@ export const insertShiftSchema = createInsertSchema(shifts, {
   startTime: z.string().min(1),
   endTime: z.string().min(1),
   employeeId: z.coerce.number().min(1),
-  role: z.string().optional(),
 }).omit({ id: true });
 
 export const insertAccountSchema = createInsertSchema(accounts, {

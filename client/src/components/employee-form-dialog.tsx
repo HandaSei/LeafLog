@@ -32,16 +32,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { EMPLOYEE_COLORS } from "@/lib/constants";
 
 const employeeFormSchema = z.object({
@@ -53,7 +43,6 @@ const employeeFormSchema = z.object({
   color: z.string().default("#3B82F6"),
   status: z.string().default("active"),
   accessCode: z.string().min(4, "Passcode must be 4–6 digits").max(6, "Passcode must be 4–6 digits").regex(/^[0-9]+$/, "Passcode must be numeric"),
-  updateExistingShifts: z.boolean().default(false),
 });
 
 type EmployeeFormValues = z.infer<typeof employeeFormSchema>;
@@ -106,7 +95,6 @@ export function EmployeeFormDialog({
         color: employee?.color ?? EMPLOYEE_COLORS[0],
         status: employee?.status ?? "active",
         accessCode: employee?.accessCode ?? randomPasscode(),
-        updateExistingShifts: false,
       });
     }
   }, [open, employee]);
@@ -143,29 +131,11 @@ export function EmployeeFormDialog({
   });
 
   const onSubmit = (values: EmployeeFormValues) => {
-    if (isEditing && employee.role !== values.role) {
-      setPendingValues(values);
-      setShowRoleChangeDialog(true);
-      return;
-    }
-    
     const roleColor = customRoles.find(r => r.name === values.role)?.color;
     mutation.mutate({
       ...values,
       color: roleColor || values.color
     });
-  };
-
-  const handleConfirmRoleChange = (updateShifts: boolean) => {
-    if (!pendingValues) return;
-    const roleColor = customRoles.find(r => r.name === pendingValues.role)?.color;
-    mutation.mutate({
-      ...pendingValues,
-      color: roleColor || pendingValues.color,
-      updateExistingShifts: updateShifts
-    });
-    setShowRoleChangeDialog(false);
-    setPendingValues(null);
   };
 
   return (
@@ -338,33 +308,6 @@ export function EmployeeFormDialog({
             </DialogFooter>
           </form>
         </Form>
-        <AlertDialog open={showRoleChangeDialog} onOpenChange={setShowRoleChangeDialog}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Change Role for Existing Shifts?</AlertDialogTitle>
-              <AlertDialogDescription>
-                You are changing this employee's primary role. Would you like to update all of their existing scheduled shifts to this new role as well?
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-              <AlertDialogCancel onClick={() => {
-                setShowRoleChangeDialog(false);
-                setPendingValues(null);
-              }}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => handleConfirmRoleChange(false)}
-                className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
-              >
-                No, Keep Old
-              </AlertDialogAction>
-              <AlertDialogAction
-                onClick={() => handleConfirmRoleChange(true)}
-              >
-                Yes, Update All
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </DialogContent>
     </Dialog>
   );
