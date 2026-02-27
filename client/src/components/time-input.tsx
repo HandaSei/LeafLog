@@ -97,11 +97,17 @@ function ClockPickerDialog({ open, onOpenChange, value, onChange }: ClockPickerD
     selectFromAngle(result.angle, result.dist);
   };
 
+  const [animating, setAnimating] = useState(false);
+
   const handlePointerUp = () => {
     if (dragging) {
       setDragging(false);
       if (phase === "hours") {
-        setTimeout(() => setPhase("minutes"), 200);
+        setAnimating(true);
+        setTimeout(() => {
+          setPhase("minutes");
+          setAnimating(false);
+        }, 200);
       }
     }
   };
@@ -111,7 +117,11 @@ function ClockPickerDialog({ open, onOpenChange, value, onChange }: ClockPickerD
     const up = () => {
       setDragging(false);
       if (phase === "hours") {
-        setTimeout(() => setPhase("minutes"), 200);
+        setAnimating(true);
+        setTimeout(() => {
+          setPhase("minutes");
+          setAnimating(false);
+        }, 200);
       }
     };
     window.addEventListener("mouseup", up);
@@ -191,105 +201,107 @@ function ClockPickerDialog({ open, onOpenChange, value, onChange }: ClockPickerD
             <circle cx={CX} cy={CY} r={4} fill="#c4a96a" />
             <circle cx={handEnd.x} cy={handEnd.y} r={18} fill="#c4a96a" opacity={0.85} />
 
-            {phase === "hours" ? (
-              <>
-                {OUTER_HOURS.map((h, i) => {
-                  const angle = (i / 12) * 360;
-                  const pos = posOnCircle(angle, OUTER_R, CX, CY);
-                  const isSelected = hours === h;
-                  return (
-                    <text
-                      key={`outer-${h}`}
-                      x={pos.x}
-                      y={pos.y}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      className="pointer-events-none"
-                      fill={isSelected ? "white" : "#2d2d2d"}
-                      fontSize={18}
-                      fontWeight={isSelected ? "700" : "500"}
-                    >
-                      {h}
-                    </text>
-                  );
-                })}
-                {INNER_HOURS.map((h, i) => {
-                  const angle = (i / 12) * 360;
-                  const pos = posOnCircle(angle, INNER_R, CX, CY);
-                  const displayH = h === 24 ? 0 : h;
-                  const isSelected = hours === displayH || (h === 24 && hours === 0);
-                  return (
-                    <text
-                      key={`inner-${h}`}
-                      x={pos.x}
-                      y={pos.y}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      className="pointer-events-none"
-                      fill={isSelected ? "white" : "#666"}
-                      fontSize={13}
-                      fontWeight={isSelected ? "700" : "400"}
-                    >
-                      {h === 24 ? "00" : h}
-                    </text>
-                  );
-                })}
-              </>
-            ) : (
-              <>
-                {Array.from({ length: 60 }, (_, i) => i).map((m) => {
-                  const angle = (m / 60) * 360;
-                  const isLabel = m % 5 === 0;
-                  const isSelected = minutes === m;
-                  if (isLabel) {
-                    const pos = posOnCircle(angle, MINUTE_R, CX, CY);
+            <g className={`transition-opacity duration-300 ${animating ? "opacity-0" : "opacity-100"}`}>
+              {phase === "hours" ? (
+                <>
+                  {OUTER_HOURS.map((h, i) => {
+                    const angle = (i / 12) * 360;
+                    const pos = posOnCircle(angle, OUTER_R, CX, CY);
+                    const isSelected = hours === h;
                     return (
                       <text
-                        key={`min-${m}`}
+                        key={`outer-${h}`}
                         x={pos.x}
                         y={pos.y}
                         textAnchor="middle"
                         dominantBaseline="central"
                         className="pointer-events-none"
                         fill={isSelected ? "white" : "#2d2d2d"}
-                        fontSize={16}
+                        fontSize={18}
                         fontWeight={isSelected ? "700" : "500"}
                       >
-                        {m.toString().padStart(2, "0")}
+                        {h}
                       </text>
                     );
-                  }
-                  const tickOuter = posOnCircle(angle, MINUTE_R + 18, CX, CY);
-                  const tickInner = posOnCircle(angle, MINUTE_R + 14, CX, CY);
-                  return (
-                    <line
-                      key={`tick-${m}`}
-                      x1={tickInner.x}
-                      y1={tickInner.y}
-                      x2={tickOuter.x}
-                      y2={tickOuter.y}
-                      stroke={isSelected ? "#c4a96a" : "#ccc"}
-                      strokeWidth={isSelected ? 2 : 1}
+                  })}
+                  {INNER_HOURS.map((h, i) => {
+                    const angle = (i / 12) * 360;
+                    const pos = posOnCircle(angle, INNER_R, CX, CY);
+                    const displayH = h === 24 ? 0 : h;
+                    const isSelected = hours === displayH || (h === 24 && hours === 0);
+                    return (
+                      <text
+                        key={`inner-${h}`}
+                        x={pos.x}
+                        y={pos.y}
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        className="pointer-events-none"
+                        fill={isSelected ? "white" : "#666"}
+                        fontSize={13}
+                        fontWeight={isSelected ? "700" : "400"}
+                      >
+                        {h === 24 ? "00" : h}
+                      </text>
+                    );
+                  })}
+                </>
+              ) : (
+                <>
+                  {Array.from({ length: 60 }, (_, i) => i).map((m) => {
+                    const angle = (m / 60) * 360;
+                    const isLabel = m % 5 === 0;
+                    const isSelected = minutes === m;
+                    if (isLabel) {
+                      const pos = posOnCircle(angle, MINUTE_R, CX, CY);
+                      return (
+                        <text
+                          key={`min-${m}`}
+                          x={pos.x}
+                          y={pos.y}
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          className="pointer-events-none"
+                          fill={isSelected ? "white" : "#2d2d2d"}
+                          fontSize={16}
+                          fontWeight={isSelected ? "700" : "500"}
+                        >
+                          {m.toString().padStart(2, "0")}
+                        </text>
+                      );
+                    }
+                    const tickOuter = posOnCircle(angle, MINUTE_R + 18, CX, CY);
+                    const tickInner = posOnCircle(angle, MINUTE_R + 14, CX, CY);
+                    return (
+                      <line
+                        key={`tick-${m}`}
+                        x1={tickInner.x}
+                        y1={tickInner.y}
+                        x2={tickOuter.x}
+                        y2={tickOuter.y}
+                        stroke={isSelected ? "#c4a96a" : "#ccc"}
+                        strokeWidth={isSelected ? 2 : 1}
+                        className="pointer-events-none"
+                      />
+                    );
+                  })}
+                  {minutes % 5 !== 0 && (
+                    <text
+                      x={CX}
+                      y={CY + 42}
+                      textAnchor="middle"
+                      dominantBaseline="central"
                       className="pointer-events-none"
-                    />
-                  );
-                })}
-                {minutes % 5 !== 0 && (
-                  <text
-                    x={CX}
-                    y={CY + 42}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    className="pointer-events-none"
-                    fill="#4a6741"
-                    fontSize={13}
-                    fontWeight="600"
-                  >
-                    :{minutes.toString().padStart(2, "0")}
-                  </text>
-                )}
-              </>
-            )}
+                      fill="#4a6741"
+                      fontSize={13}
+                      fontWeight="600"
+                    >
+                      :{minutes.toString().padStart(2, "0")}
+                    </text>
+                  )}
+                </>
+              )}
+            </g>
           </svg>
 
           <div className="w-full flex justify-end mt-3">
