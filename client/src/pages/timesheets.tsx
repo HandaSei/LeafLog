@@ -1273,28 +1273,43 @@ export default function Timesheets() {
                 <div className="text-sm text-muted-foreground">{format(selectedDay, "EEEE, MMM d, yyyy")}</div>
                 <div className="space-y-2">
                   <Label>Employee</Label>
-                  <Select value={newTimesheetEmployeeId} onValueChange={setNewTimesheetEmployeeId}>
+                  <Select
+                    value={newTimesheetEmployeeId}
+                    onValueChange={(val) => {
+                      setNewTimesheetEmployeeId(val);
+                      const emp = employees.find(e => String(e.id) === val);
+                      if (emp?.role) setNewTimesheetRole(emp.role);
+                    }}
+                  >
                     <SelectTrigger data-testid="select-timesheet-employee">
                       <SelectValue placeholder="Select employee" />
                     </SelectTrigger>
                     <SelectContent>
                       {employees.filter(e => e.status === "active").sort((a, b) => a.name.localeCompare(b.name)).map(emp => (
-                        <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
+                        <SelectItem key={emp.id} value={String(emp.id)}>
+                          <span className="flex items-center gap-2">
+                            {emp.role && customRoles.find(r => r.name === emp.role) && (
+                              <span className="w-2.5 h-2.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: customRoles.find(r => r.name === emp.role)!.color }} />
+                            )}
+                            {emp.name}
+                            {emp.role && <span className="text-muted-foreground text-xs">{emp.role}</span>}
+                          </span>
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Role</Label>
+                  <Label>Role for this timesheet</Label>
                   <Select value={newTimesheetRole} onValueChange={setNewTimesheetRole}>
                     <SelectTrigger data-testid="select-timesheet-role">
-                      <SelectValue placeholder="Use employee's default role" />
+                      <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
                       {customRoles.map(r => (
                         <SelectItem key={r.id} value={r.name}>
                           <span className="flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: r.color }} />
+                            <span className="w-3 h-3 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: r.color }} />
                             {r.name}
                           </span>
                         </SelectItem>
