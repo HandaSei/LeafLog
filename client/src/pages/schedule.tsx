@@ -316,7 +316,7 @@ interface ShiftCardProps {
 }
 
 function ShiftCard({ shift, employee, onEdit, onDelete }: ShiftCardProps) {
-  const bgColor = shift.color || employee?.color || "#3B82F6";
+  const bgColor = shift.color || (employee?.role ? employee.color : "#9CA3AF") || "#9CA3AF";
 
   return (
     <div

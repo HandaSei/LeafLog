@@ -172,7 +172,7 @@ export function ShiftFormDialog({
                             />
                             <span>{emp.name}</span>
                             <span className="text-muted-foreground text-xs">
-                              {emp.role || "Loose Leaf"}
+                              {emp.role || "Loose Leaf (assign role)"}
                             </span>
                           </div>
                         </SelectItem>

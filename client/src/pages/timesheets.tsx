@@ -517,7 +517,7 @@ export default function Timesheets() {
             {clockIn ? format(clockIn, "HH:mm") : "--:--"} - {clockOut ? format(clockOut, "HH:mm") : ""}
           </div>
           <div className="flex items-center justify-between gap-2 mt-0.5">
-            <span className="text-xs text-muted-foreground">{emp.role || "Loose Leaf"}</span>
+            <span className="text-xs text-muted-foreground">{emp.role || "Loose Leaf (assign role)"}</span>
             <span className="text-sm font-semibold text-muted-foreground">{formatHoursDecimal(netWorkedMinutes)} h</span>
           </div>
           {totalBreakMinutes > 0 && (

@@ -180,7 +180,7 @@ export default function KioskPage() {
               <EmployeeAvatar name={selectedEmployee.name} color={selectedEmployee.color} size="lg" />
               <div>
                 <h2 className="text-xl font-bold" data-testid="text-kiosk-employee-name">{selectedEmployee.name}</h2>
-                <p className="text-sm text-muted-foreground">{selectedEmployee.role || "Loose Leaf"}</p>
+                <p className="text-sm text-muted-foreground">{selectedEmployee.role || "Loose Leaf (assign role)"}</p>
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-primary">SteepIn</h1>
             </div>
@@ -384,7 +384,7 @@ export default function KioskPage() {
                 <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                 <div className="text-center">
                   <div className="text-sm font-medium">{emp.name}</div>
-                  <div className="text-[10px] text-muted-foreground">{emp.role || "Loose Leaf"}</div>
+                  <div className="text-[10px] text-muted-foreground">{emp.role || "Loose Leaf (assign role)"}</div>
                 </div>
               </button>
             ))}
