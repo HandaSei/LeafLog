@@ -435,6 +435,16 @@ export default function Dashboard() {
     });
   }, [flowRows]);
 
+  const flowRowsToDisplay = useMemo(() => 
+    sortedRows.filter(r => r.status.kind !== "waiting"),
+    [sortedRows]
+  );
+
+  const waitingRows = useMemo(() => 
+    sortedRows.filter(r => r.status.kind === "waiting"),
+    [sortedRows]
+  );
+
   const inFlowIds = useMemo(() => {
     const ids = new Set<number>();
     todayShifts.forEach((s) => ids.add(s.employeeId));
@@ -475,14 +485,14 @@ export default function Dashboard() {
                 <Skeleton key={i} className="h-14 rounded-md" />
               ))}
             </div>
-          ) : sortedRows.length === 0 ? (
+          ) : flowRowsToDisplay.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <CalendarDays className="w-8 h-8 text-muted-foreground/30 mb-2" />
-              <p className="text-sm text-muted-foreground">No one working or scheduled today</p>
+              <p className="text-sm text-muted-foreground">No one working or scheduled soon</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {sortedRows.map(({ employee: emp, shift, status }) => (
+              {flowRowsToDisplay.map(({ employee: emp, shift, status }) => (
                 <div
                   key={emp.id}
                   className="flex items-center gap-3 p-2.5 rounded-md bg-muted/50"
@@ -509,6 +519,34 @@ export default function Dashboard() {
             </div>
           )}
         </Card>
+
+        {!isLoading && waitingRows.length > 0 && (
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold" data-testid="text-upcoming">Upcoming Shifts</h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {waitingRows.map(({ employee: emp, shift }) => (
+                <div
+                  key={emp.id}
+                  className="flex items-center gap-3 p-2.5 rounded-md bg-muted/30 border border-border/50"
+                  data-testid={`waiting-row-${emp.id}`}
+                >
+                  <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate">{emp.name}</div>
+                    {shift && (
+                      <div className="text-[10px] text-muted-foreground">
+                        {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         {!isLoading && unscheduledEmployees.length > 0 && (
           <Card className="p-4">
