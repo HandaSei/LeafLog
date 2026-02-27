@@ -693,37 +693,43 @@ export default function Timesheets() {
                     </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs text-muted-foreground mb-2">Activity Log</div>
-                  <div className="space-y-1.5">
-                    {dayEntries.map(entry => {
-                      const typeLabels: Record<string, { label: string; color: string }> = {
-                        "clock-in": { label: "Clock In", color: "#10B981" },
-                        "clock-out": { label: "Clock Out", color: "#EF4444" },
-                        "break-start": { label: "Break Start", color: "#F59E0B" },
-                        "break-end": { label: "Break End", color: "#3B82F6" },
-                      };
-                      const info = typeLabels[entry.type] || { label: entry.type, color: "#6B7280" };
-                      const isBreakEntry = entry.type === "break-start" || entry.type === "break-end";
-                      return (
-                        <div key={entry.id} className="flex items-center justify-between text-xs p-2 rounded-md border">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} />
-                            <span>{info.label}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-muted-foreground font-mono">{format(new Date(entry.timestamp), "HH:mm:ss")}</span>
-                            {isBreakEntry && (
-                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleEditEntry(entry)} data-testid={`button-edit-entry-${entry.id}`}>
-                                <Edit2 className="w-3 h-3" />
-                              </Button>
-                            )}
-                          </div>
+
+                {totalBreakMinutes > 0 && (() => {
+                  const breakStart = dayEntries.find(e => e.type === "break-start");
+                  const breakEnd = dayEntries.find(e => e.type === "break-end");
+                  return (
+                    <div className="rounded-md border p-3 text-sm">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Break Time</span>
+                        <div className="flex items-center gap-1">
+                          {(breakStart || breakEnd) && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6"
+                              onClick={() => {
+                                if (breakStart) handleEditEntry(breakStart);
+                                else if (breakEnd) handleEditEntry(breakEnd);
+                              }}
+                              data-testid="button-edit-break-time"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </Button>
+                          )}
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-0.5">Start</div>
+                          <div className="font-medium font-mono">{breakStart ? format(new Date(breakStart.timestamp), "HH:mm:ss") : "—"}</div>
+                        </div>
+                        <div className="text-muted-foreground mt-3">→</div>
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-0.5">End</div>
+                          <div className="font-medium font-mono">{breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm:ss") : "—"}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <Button variant="outline" size="sm" className="w-full"
                   onClick={() => { setAddingBreak(viewingWorkday); setBreakStartTime(""); setBreakEndTime(""); }}
                   data-testid="button-add-break"
