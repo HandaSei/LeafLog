@@ -122,7 +122,11 @@ export function EmployeeFormDialog({
   });
 
   const onSubmit = (values: EmployeeFormValues) => {
-    mutation.mutate(values);
+    const roleColor = customRoles.find(r => r.name === values.role)?.color;
+    mutation.mutate({
+      ...values,
+      color: roleColor || values.color
+    });
   };
 
   return (
@@ -203,7 +207,10 @@ export function EmployeeFormDialog({
                       <SelectContent>
                         {customRoles.map((r) => (
                           <SelectItem key={r.id} value={r.name}>
-                            {r.name}
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                              {r.name}
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -227,32 +234,6 @@ export function EmployeeFormDialog({
                       {...field}
                     />
                   </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="color"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Color</FormLabel>
-                  <div className="flex gap-2 flex-wrap">
-                    {EMPLOYEE_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => field.onChange(c)}
-                        className={`w-7 h-7 rounded-md transition-all ${
-                          field.value === c
-                            ? "ring-2 ring-offset-2 ring-foreground/30"
-                            : ""
-                        }`}
-                        style={{ backgroundColor: c }}
-                        data-testid={`color-option-${c.slice(1)}`}
-                      />
-                    ))}
-                  </div>
                   <FormMessage />
                 </FormItem>
               )}

@@ -284,17 +284,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCustomRoles(ownerAccountId: number): Promise<CustomRole[]> {
-    return db.select().from(customRoles).where(eq(customRoles.ownerAccountId, ownerAccountId));
+    const res = await pool.query(
+      "SELECT * FROM custom_roles WHERE owner_account_id = $1 ORDER BY id ASC",
+      [ownerAccountId]
+    );
+    return res.rows;
   }
 
-  async createCustomRole(ownerAccountId: number, name: string): Promise<CustomRole> {
-    const [role] = await db.insert(customRoles).values({ ownerAccountId, name }).returning();
-    return role;
+  async createCustomRole(ownerAccountId: number, name: string, color?: string): Promise<CustomRole> {
+    const res = await pool.query(
+      "INSERT INTO custom_roles (name, color, owner_account_id) VALUES ($1, $2, $3) RETURNING *",
+      [name, color || "#8B9E8B", ownerAccountId]
+    );
+    return res.rows[0];
   }
 
-  async updateCustomRole(id: number, name: string): Promise<CustomRole | undefined> {
-    const [role] = await db.update(customRoles).set({ name }).where(eq(customRoles.id, id)).returning();
-    return role;
+  async updateCustomRole(id: number, name: string, color?: string): Promise<CustomRole | undefined> {
+    const res = await pool.query(
+      "UPDATE custom_roles SET name = $1, color = $2 WHERE id = $3 RETURNING *",
+      [name, color || "#8B9E8B", id]
+    );
+    return res.rows[0];
   }
 
   async deleteCustomRole(id: number): Promise<void> {

@@ -1,3 +1,14 @@
+export const ROLE_COLORS = [
+  "#8B9E8B", // Sage Green (Primary)
+  "#3B82F6", // Blue
+  "#10B981", // Emerald
+  "#F59E0B", // Amber
+  "#EF4444", // Red
+  "#8B5CF6", // Violet
+  "#EC4899", // Pink
+  "#06B6D4", // Cyan
+];
+
 export const SHIFT_COLORS = [
   { name: "Blue", value: "#3B82F6" },
   { name: "Green", value: "#10B981" },

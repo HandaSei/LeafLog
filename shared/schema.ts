@@ -61,6 +61,7 @@ export const timeEntries = pgTable("time_entries", {
 export const customRoles = pgTable("custom_roles", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
+  color: text("color").notNull().default("#8B9E8B"),
   ownerAccountId: integer("owner_account_id").notNull(),
 });
 

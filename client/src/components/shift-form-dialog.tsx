@@ -125,7 +125,11 @@ export function ShiftFormDialog({
   });
 
   const onSubmit = (values: ShiftFormValues) => {
-    mutation.mutate(values);
+    const employee = employees.find(e => e.id === Number(values.employeeId));
+    mutation.mutate({
+      ...values,
+      color: employee?.color || values.color
+    });
   };
 
   return (
@@ -220,32 +224,6 @@ export function ShiftFormDialog({
                 )}
               />
             </div>
-            <FormField
-              control={form.control}
-              name="color"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Color</FormLabel>
-                  <div className="flex gap-2 flex-wrap">
-                    {SHIFT_COLORS.map((c) => (
-                      <button
-                        key={c.value}
-                        type="button"
-                        onClick={() => field.onChange(c.value)}
-                        className={`w-7 h-7 rounded-md transition-all ${
-                          field.value === c.value
-                            ? "ring-2 ring-offset-2 ring-foreground/30"
-                            : ""
-                        }`}
-                        style={{ backgroundColor: c.value }}
-                        data-testid={`color-${c.name.toLowerCase()}`}
-                      />
-                    ))}
-                  </div>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
             <FormField
               control={form.control}
               name="notes"

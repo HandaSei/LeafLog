@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Settings2, Plus, Pencil, Trash2, Check, X } from "lucide-react";
+import { Settings2, Plus, Pencil, Trash2, Check, X, Palette } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,14 +19,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ROLE_COLORS } from "@/lib/constants";
 
 const MAX_ROLES = 6;
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const [newRoleName, setNewRoleName] = useState("");
+  const [newRoleColor, setNewRoleColor] = useState(ROLE_COLORS[0]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [editingColor, setEditingColor] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const { data: roles = [], isLoading } = useQuery<CustomRole[]>({
@@ -34,13 +42,14 @@ export default function SettingsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const res = await apiRequest("POST", "/api/roles", { name });
+    mutationFn: async (data: { name: string; color: string }) => {
+      const res = await apiRequest("POST", "/api/roles", data);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
       setNewRoleName("");
+      setNewRoleColor(ROLE_COLORS[0]);
       toast({ title: "Role added", description: "New role has been created." });
     },
     onError: (err: Error) => {
@@ -49,14 +58,15 @@ export default function SettingsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, name }: { id: number; name: string }) => {
-      const res = await apiRequest("PATCH", `/api/roles/${id}`, { name });
+    mutationFn: async ({ id, name, color }: { id: number; name: string; color: string }) => {
+      const res = await apiRequest("PATCH", `/api/roles/${id}`, { name, color });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
       setEditingId(null);
       setEditingName("");
+      setEditingColor("");
       toast({ title: "Role updated" });
     },
     onError: (err: Error) => {
@@ -81,22 +91,24 @@ export default function SettingsPage() {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoleName.trim()) return;
-    createMutation.mutate(newRoleName.trim());
+    createMutation.mutate({ name: newRoleName.trim(), color: newRoleColor });
   };
 
   const startEdit = (role: CustomRole) => {
     setEditingId(role.id);
     setEditingName(role.name);
+    setEditingColor(role.color || ROLE_COLORS[0]);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditingName("");
+    setEditingColor("");
   };
 
   const saveEdit = () => {
     if (!editingName.trim() || editingId === null) return;
-    updateMutation.mutate({ id: editingId, name: editingName.trim() });
+    updateMutation.mutate({ id: editingId, name: editingName.trim(), color: editingColor });
   };
 
   const atLimit = roles.length >= MAX_ROLES;
@@ -146,6 +158,10 @@ export default function SettingsPage() {
                   className="flex items-center gap-2 p-2 rounded-lg border bg-muted/30"
                   data-testid={`role-item-${role.id}`}
                 >
+                  <div 
+                    className="w-3 h-3 rounded-full flex-shrink-0" 
+                    style={{ backgroundColor: role.color || "#8B9E8B" }} 
+                  />
                   {editingId === role.id ? (
                     <>
                       <Input
@@ -160,6 +176,25 @@ export default function SettingsPage() {
                         }}
                         data-testid="input-edit-role"
                       />
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <Palette className="w-4 h-4" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-48 p-2">
+                          <div className="grid grid-cols-4 gap-1">
+                            {ROLE_COLORS.map((c) => (
+                              <button
+                                key={c}
+                                className={`w-8 h-8 rounded-md border ${editingColor === c ? "ring-2 ring-primary" : ""}`}
+                                style={{ backgroundColor: c }}
+                                onClick={() => setEditingColor(c)}
+                              />
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                       <Button
                         size="icon"
                         variant="ghost"
@@ -212,6 +247,26 @@ export default function SettingsPage() {
 
           {!atLimit && (
             <form onSubmit={handleAdd} className="flex gap-2 pt-1">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" style={{ backgroundColor: newRoleColor }}>
+                    <Palette className="w-4 h-4 text-white" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48 p-2">
+                  <div className="grid grid-cols-4 gap-1">
+                    {ROLE_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className={`w-8 h-8 rounded-md border ${newRoleColor === c ? "ring-2 ring-primary" : ""}`}
+                        style={{ backgroundColor: c }}
+                        onClick={() => setNewRoleColor(c)}
+                      />
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
               <Input
                 placeholder="New role name..."
                 value={newRoleName}

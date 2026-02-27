@@ -185,7 +185,7 @@ export async function registerRoutes(
   });
 
   router.post("/api/roles", requireRole("admin", "manager"), async (req, res) => {
-    const { name } = req.body;
+    const { name, color } = req.body;
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ message: "Role name is required" });
     }
@@ -197,12 +197,12 @@ export async function registerRoutes(
     if (duplicate) {
       return res.status(400).json({ message: "A role with this name already exists" });
     }
-    const role = await storage.createCustomRole(req.session.userId!, name.trim());
+    const role = await storage.createCustomRole(req.session.userId!, name.trim(), color);
     res.status(201).json(role);
   });
 
   router.patch("/api/roles/:id", requireRole("admin", "manager"), async (req, res) => {
-    const { name } = req.body;
+    const { name, color } = req.body;
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ message: "Role name is required" });
     }
@@ -211,7 +211,7 @@ export async function registerRoutes(
     if (duplicate) {
       return res.status(400).json({ message: "A role with this name already exists" });
     }
-    const role = await storage.updateCustomRole(Number(req.params.id), name.trim());
+    const role = await storage.updateCustomRole(Number(req.params.id), name.trim(), color);
     if (!role) return res.status(404).json({ message: "Role not found" });
     res.json(role);
   });
