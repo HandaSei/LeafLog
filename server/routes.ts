@@ -75,6 +75,19 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // === EMPLOYEE SHIFT ROLES ===
+  router.post("/api/employees/:id/update-shift-roles", requireRole("admin", "manager"), async (req, res) => {
+    const emp = await storage.getEmployee(Number(req.params.id));
+    if (!emp) return res.status(404).json({ message: "Employee not found" });
+    if (emp.ownerAccountId !== req.session.userId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    const { role, color } = req.body;
+    if (!role || !color) return res.status(400).json({ message: "Role and color are required" });
+    await storage.updateShiftRolesForEmployee(Number(req.params.id), role, color);
+    res.json({ updated: true });
+  });
+
   // === SHIFTS ===
   router.get("/api/shifts", requireAuth, async (req, res) => {
     const ownerAccountId = req.session.userId!;
@@ -184,17 +197,20 @@ export async function registerRoutes(
     if (req.body.type) {
       updateData.type = req.body.type;
     }
+    if (req.body.role !== undefined) {
+      updateData.role = req.body.role;
+    }
     const entry = await storage.updateTimeEntry(id, updateData);
     if (!entry) return res.status(404).json({ message: "Entry not found" });
     res.json(entry);
   });
 
   router.post("/api/kiosk/entries", requireRole("admin", "manager"), async (req, res) => {
-    const { employeeId, type, date, timestamp } = req.body;
+    const { employeeId, type, date, timestamp, role } = req.body;
     if (!employeeId || !type || !date) {
       return res.status(400).json({ message: "Employee ID, type, and date are required" });
     }
-    const entry = await storage.createTimeEntryManual(Number(employeeId), type, date, timestamp ? new Date(timestamp) : new Date());
+    const entry = await storage.createTimeEntryManual(Number(employeeId), type, date, timestamp ? new Date(timestamp) : new Date(), role || null);
     res.status(201).json(entry);
   });
 

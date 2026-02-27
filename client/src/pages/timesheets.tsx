@@ -345,6 +345,7 @@ export default function Timesheets() {
   const [newTimesheetClockOut, setNewTimesheetClockOut] = useState<string>("");
   const [newTimesheetBreakStart, setNewTimesheetBreakStart] = useState<string>("");
   const [newTimesheetBreakEnd, setNewTimesheetBreakEnd] = useState<string>("");
+  const [newTimesheetRole, setNewTimesheetRole] = useState<string>("");
   const [addingClockOut, setAddingClockOut] = useState<EmployeeWorkday | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [clockOutTime, setClockOutTime] = useState<string>("");
@@ -369,8 +370,10 @@ export default function Timesheets() {
   const paidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
 
   const updateEntryMutation = useMutation({
-    mutationFn: async (data: { id: number; timestamp: string }) => {
-      const res = await apiRequest("PATCH", `/api/kiosk/entries/${data.id}`, { timestamp: data.timestamp });
+    mutationFn: async (data: { id: number; timestamp: string; role?: string }) => {
+      const body: any = { timestamp: data.timestamp };
+      if (data.role !== undefined) body.role = data.role;
+      const res = await apiRequest("PATCH", `/api/kiosk/entries/${data.id}`, body);
       return res.json();
     },
     onSuccess: () => {
@@ -382,7 +385,7 @@ export default function Timesheets() {
   });
 
   const addEntryMutation = useMutation({
-    mutationFn: async (data: { employeeId: number; type: string; date: string; timestamp: string }) => {
+    mutationFn: async (data: { employeeId: number; type: string; date: string; timestamp: string; role?: string }) => {
       const res = await apiRequest("POST", "/api/kiosk/entries", data);
       return res.json();
     },
@@ -626,7 +629,8 @@ export default function Timesheets() {
     if (!newTimesheetEmployeeId || !newTimesheetClockIn || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)) return;
     const dateStr = format(selectedDay, "yyyy-MM-dd");
     const empId = Number(newTimesheetEmployeeId);
-    await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockIn}:00`).toISOString() });
+    const roleToSave = newTimesheetRole || undefined;
+    await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockIn}:00`).toISOString(), role: roleToSave });
     if (newTimesheetBreakStart && newTimesheetBreakEnd && /^\d{2}:\d{2}$/.test(newTimesheetBreakStart) && /^\d{2}:\d{2}$/.test(newTimesheetBreakEnd)) {
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakStart}:00`).toISOString() });
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakEnd}:00`).toISOString() });
@@ -635,7 +639,7 @@ export default function Timesheets() {
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockOut}:00`).toISOString() });
     }
     toast({ title: "Success", description: "Timesheet added" });
-    setAddingTimesheet(false); setNewTimesheetEmployeeId(""); setNewTimesheetClockIn(""); setNewTimesheetClockOut(""); setNewTimesheetBreakStart(""); setNewTimesheetBreakEnd("");
+    setAddingTimesheet(false); setNewTimesheetEmployeeId(""); setNewTimesheetClockIn(""); setNewTimesheetClockOut(""); setNewTimesheetBreakStart(""); setNewTimesheetBreakEnd(""); setNewTimesheetRole("");
   };
 
   const handleExportPDF = async () => {
@@ -684,7 +688,7 @@ export default function Timesheets() {
             {clockIn ? format(clockIn, "HH:mm") : "--:--"} - {clockOut ? format(clockOut, "HH:mm") : ""}
           </div>
           <div className="flex items-center justify-between gap-2 mt-0.5">
-            <span className="text-xs text-muted-foreground">{emp.role || "Loose Leaf (assign role)"}</span>
+            <span className="text-xs text-muted-foreground">{entries.find(e => e.type === "clock-in")?.role || emp.role || "Loose Leaf (assign role)"}</span>
             <span className="text-sm font-semibold text-muted-foreground">{formatHoursDecimal(netWorkedMinutes)} h</span>
           </div>
           {totalBreakMinutes > 0 && (
@@ -981,10 +985,36 @@ export default function Timesheets() {
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
                   <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="font-semibold">{emp.name}</div>
-                    <div className="text-xs text-muted-foreground">{emp.role || "Loose Leaf"}</div>
+                    <div className="text-xs text-muted-foreground">{(() => {
+                      const clockInEntry = dayEntries.find(e => e.type === "clock-in");
+                      return clockInEntry?.role || emp.role || "Loose Leaf";
+                    })()}</div>
                   </div>
+                  <Select
+                    value={dayEntries.find(e => e.type === "clock-in")?.role || emp.role || ""}
+                    onValueChange={(val) => {
+                      const clockInEntry = dayEntries.find(e => e.type === "clock-in");
+                      if (clockInEntry) {
+                        updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(clockInEntry.timestamp).toISOString(), role: val });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-[140px] h-7 text-xs" data-testid="select-detail-role">
+                      <SelectValue placeholder="Set role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customRoles.map(r => (
+                        <SelectItem key={r.id} value={r.name}>
+                          <span className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: r.color }} />
+                            {r.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
@@ -1250,6 +1280,24 @@ export default function Timesheets() {
                     <SelectContent>
                       {employees.filter(e => e.status === "active").sort((a, b) => a.name.localeCompare(b.name)).map(emp => (
                         <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Role</Label>
+                  <Select value={newTimesheetRole} onValueChange={setNewTimesheetRole}>
+                    <SelectTrigger data-testid="select-timesheet-role">
+                      <SelectValue placeholder="Use employee's default role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customRoles.map(r => (
+                        <SelectItem key={r.id} value={r.name}>
+                          <span className="flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: r.color }} />
+                            {r.name}
+                          </span>
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

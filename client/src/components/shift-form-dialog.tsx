@@ -6,7 +6,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee, Shift } from "@shared/schema";
+import type { Employee, Shift, CustomRole } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -35,7 +35,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SHIFT_COLORS } from "@/lib/constants";
+
+
 import { EmployeeAvatar } from "./employee-avatar";
 
 const shiftFormSchema = z.object({
@@ -46,6 +47,7 @@ const shiftFormSchema = z.object({
   status: z.string().default("scheduled"),
   notes: z.string().optional(),
   color: z.string().optional(),
+  role: z.string().optional(),
 });
 
 type ShiftFormValues = z.infer<typeof shiftFormSchema>;
@@ -73,6 +75,20 @@ export function ShiftFormDialog({
     queryKey: ["/api/employees"],
   });
 
+  const { data: customRoles = [] } = useQuery<CustomRole[]>({
+    queryKey: ["/api/roles"],
+  });
+
+  const getDefaultRole = () => {
+    if (shift?.role) return shift.role;
+    const empId = shift?.employeeId ?? defaultEmployeeId;
+    if (empId) {
+      const emp = employees.find(e => e.id === empId);
+      return emp?.role || "";
+    }
+    return "";
+  };
+
   const form = useForm<ShiftFormValues>({
     resolver: zodResolver(shiftFormSchema),
     defaultValues: {
@@ -82,12 +98,15 @@ export function ShiftFormDialog({
       endTime: shift?.endTime?.slice(0, 5) ?? "17:00",
       status: shift?.status ?? "scheduled",
       notes: shift?.notes ?? "",
-      color: shift?.color ?? SHIFT_COLORS[0].value,
+      color: shift?.color ?? "",
+      role: getDefaultRole(),
     },
   });
 
   useEffect(() => {
     if (open) {
+      const defaultRole = getDefaultRole();
+      const roleColor = customRoles.find(r => r.name === defaultRole)?.color;
       form.reset({
         employeeId: shift?.employeeId ?? defaultEmployeeId ?? 0,
         date: shift?.date ?? defaultDate ?? new Date().toISOString().split("T")[0],
@@ -95,10 +114,26 @@ export function ShiftFormDialog({
         endTime: shift?.endTime?.slice(0, 5) ?? "17:00",
         status: shift?.status ?? "scheduled",
         notes: shift?.notes ?? "",
-        color: shift?.color ?? SHIFT_COLORS[0].value,
+        color: shift?.color ?? roleColor ?? "",
+        role: defaultRole,
       });
     }
   }, [open, shift, defaultDate, defaultEmployeeId]);
+
+  const watchedEmployeeId = form.watch("employeeId");
+
+  useEffect(() => {
+    if (!open || isEditing) return;
+    const emp = employees.find(e => e.id === Number(watchedEmployeeId));
+    if (emp?.role) {
+      const roleColor = customRoles.find(r => r.name === emp.role)?.color;
+      form.setValue("role", emp.role);
+      if (roleColor) form.setValue("color", roleColor);
+    } else {
+      form.setValue("role", "");
+      form.setValue("color", "#9CA3AF");
+    }
+  }, [watchedEmployeeId, open]);
 
   const mutation = useMutation({
     mutationFn: async (values: ShiftFormValues) => {
@@ -128,10 +163,10 @@ export function ShiftFormDialog({
   });
 
   const onSubmit = (values: ShiftFormValues) => {
-    const employee = employees.find(e => e.id === Number(values.employeeId));
+    const roleColor = customRoles.find(r => r.name === values.role)?.color;
     mutation.mutate({
       ...values,
-      color: (employee?.role ? (employee.color || values.color) : "#9CA3AF")
+      color: values.role ? (roleColor || values.color || "#9CA3AF") : "#9CA3AF",
     });
   };
 
@@ -195,6 +230,40 @@ export function ShiftFormDialog({
                               <span className="text-muted-foreground text-xs">
                                 {emp.role || "Loose Leaf (assign role)"}
                               </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Role for this shift</FormLabel>
+                    <Select
+                      onValueChange={(val) => {
+                        field.onChange(val);
+                        const roleColor = customRoles.find(r => r.name === val)?.color;
+                        if (roleColor) form.setValue("color", roleColor);
+                      }}
+                      value={field.value ?? ""}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-shift-role">
+                          <SelectValue placeholder="Select role" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {customRoles.map((r) => (
+                          <SelectItem key={r.id} value={r.name}>
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                              {r.name}
                             </div>
                           </SelectItem>
                         ))}

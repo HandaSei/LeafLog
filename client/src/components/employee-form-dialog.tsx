@@ -1,5 +1,5 @@
 import { useForm } from "react-hook-form";
-import { useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -65,6 +65,8 @@ export function EmployeeFormDialog({
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const isEditing = !!employee;
+  const [showRoleChangeConfirm, setShowRoleChangeConfirm] = useState(false);
+  const [pendingValues, setPendingValues] = useState<EmployeeFormValues | null>(null);
 
   const { data: customRoles = [] } = useQuery<CustomRole[]>({
     queryKey: ["/api/roles"],
@@ -86,6 +88,8 @@ export function EmployeeFormDialog({
 
   useEffect(() => {
     if (open) {
+      setShowRoleChangeConfirm(false);
+      setPendingValues(null);
       form.reset({
         name: employee?.name ?? "",
         email: employee?.email ?? "",
@@ -103,6 +107,17 @@ export function EmployeeFormDialog({
     form.setValue("accessCode", randomPasscode(), { shouldValidate: true });
   }, [form]);
 
+  const updateShiftRolesMutation = useMutation({
+    mutationFn: async ({ employeeId, role, color }: { employeeId: number; role: string; color: string }) => {
+      return apiRequest("POST", `/api/employees/${employeeId}/update-shift-roles`, { role, color });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Shifts updated", description: "All existing shifts have been updated with the new role." });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const mutation = useMutation({
     mutationFn: async (values: EmployeeFormValues) => {
       if (isEditing) {
@@ -110,7 +125,7 @@ export function EmployeeFormDialog({
       }
       return apiRequest("POST", "/api/employees", values);
     },
-    onSuccess: () => {
+    onSuccess: (_data, values) => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       toast({
         title: isEditing ? "Employee updated" : "Employee added",
@@ -118,8 +133,13 @@ export function EmployeeFormDialog({
           ? "Employee details have been updated."
           : "A new employee has been added.",
       });
-      onOpenChange(false);
-      form.reset();
+      if (isEditing && employee.role !== values.role && values.role) {
+        setPendingValues(values);
+        setShowRoleChangeConfirm(true);
+      } else {
+        onOpenChange(false);
+        form.reset();
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -130,6 +150,29 @@ export function EmployeeFormDialog({
     },
   });
 
+  const handleConfirmUpdateShifts = () => {
+    if (!pendingValues || !employee) return;
+    const roleColor = customRoles.find(r => r.name === pendingValues.role)?.color || pendingValues.color;
+    updateShiftRolesMutation.mutate(
+      { employeeId: employee.id, role: pendingValues.role!, color: roleColor },
+      {
+        onSettled: () => {
+          setShowRoleChangeConfirm(false);
+          setPendingValues(null);
+          onOpenChange(false);
+          form.reset();
+        },
+      }
+    );
+  };
+
+  const handleSkipUpdateShifts = () => {
+    setShowRoleChangeConfirm(false);
+    setPendingValues(null);
+    onOpenChange(false);
+    form.reset();
+  };
+
   const onSubmit = (values: EmployeeFormValues) => {
     const roleColor = customRoles.find(r => r.name === values.role)?.color;
     mutation.mutate({
@@ -139,7 +182,8 @@ export function EmployeeFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open && !showRoleChangeConfirm} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle data-testid="text-employee-form-title">
@@ -310,5 +354,33 @@ export function EmployeeFormDialog({
         </Form>
       </DialogContent>
     </Dialog>
+
+    <Dialog open={showRoleChangeConfirm} onOpenChange={(v) => { if (!v) handleSkipUpdateShifts(); }}>
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>Update existing shifts?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          You changed this employee's role to <strong>{pendingValues?.role}</strong>. Do you want to update all their existing shifts to use the new role and color too?
+        </p>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            variant="outline"
+            onClick={handleSkipUpdateShifts}
+            data-testid="button-skip-shift-update"
+          >
+            No, keep existing shifts
+          </Button>
+          <Button
+            onClick={handleConfirmUpdateShifts}
+            disabled={updateShiftRolesMutation.isPending}
+            data-testid="button-confirm-shift-update"
+          >
+            {updateShiftRolesMutation.isPending ? "Updating..." : "Yes, update all shifts"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

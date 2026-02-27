@@ -31,6 +31,7 @@ export interface IStorage {
   createShift(data: any): Promise<Shift>;
   updateShift(id: number, data: any): Promise<Shift | undefined>;
   deleteShift(id: number): Promise<void>;
+  updateShiftRolesForEmployee(employeeId: number, role: string, color: string): Promise<void>;
 
   getAccounts(): Promise<Account[]>;
   getAccount(id: number): Promise<Account | undefined>;
@@ -46,7 +47,7 @@ export interface IStorage {
   expireAccessCodesForEmployee(employeeId: number): Promise<void>;
 
   createTimeEntry(employeeId: number, type: string, date: string): Promise<TimeEntry>;
-  createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date): Promise<TimeEntry>;
+  createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null): Promise<TimeEntry>;
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
   getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
@@ -132,6 +133,13 @@ export class DatabaseStorage implements IStorage {
     await pool.query(
       "UPDATE employees SET color = $1 WHERE role = $2 AND owner_account_id = $3",
       [color, roleName, ownerAccountId]
+    );
+  }
+
+  async updateShiftRolesForEmployee(employeeId: number, role: string, color: string): Promise<void> {
+    await pool.query(
+      "UPDATE shifts SET role = $1, color = $2 WHERE employee_id = $3",
+      [role, color, employeeId]
     );
   }
 
@@ -223,19 +231,20 @@ export class DatabaseStorage implements IStorage {
     return entry;
   }
 
-  async createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date): Promise<TimeEntry> {
+  async createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null): Promise<TimeEntry> {
     const [entry] = await db.insert(timeEntries).values({
       employeeId,
       type,
       date,
       timestamp,
+      ...(role ? { role } : {}),
     }).returning();
     return entry;
   }
 
   async getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]> {
     const result = await pool.query(
-      "SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
+      "SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
       [employeeId, date]
     );
     return result.rows.map((row: any) => ({
@@ -244,6 +253,7 @@ export class DatabaseStorage implements IStorage {
       type: row.type,
       timestamp: row.timestamp,
       date: row.entry_date,
+      role: row.role ?? null,
     }));
   }
 
@@ -253,7 +263,7 @@ export class DatabaseStorage implements IStorage {
       if (empIds.length === 0) return [];
       const placeholders = empIds.map((_, i) => `$${i + 2}`).join(',');
       const result = await pool.query(
-        `SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE entry_date = $1 AND employee_id IN (${placeholders}) ORDER BY timestamp`,
+        `SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries WHERE entry_date = $1 AND employee_id IN (${placeholders}) ORDER BY timestamp`,
         [date, ...empIds]
       );
       return result.rows.map((row: any) => ({
@@ -262,10 +272,11 @@ export class DatabaseStorage implements IStorage {
         type: row.type,
         timestamp: row.timestamp,
         date: row.entry_date,
+        role: row.role ?? null,
       }));
     }
     const result = await pool.query(
-      "SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
+      "SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
       [date]
     );
     return result.rows.map((row: any) => ({
@@ -274,6 +285,7 @@ export class DatabaseStorage implements IStorage {
       type: row.type,
       timestamp: row.timestamp,
       date: row.entry_date,
+      role: row.role ?? null,
     }));
   }
 
@@ -283,7 +295,7 @@ export class DatabaseStorage implements IStorage {
       if (empIds.length === 0) return [];
       const placeholders = empIds.map((_, i) => `$${i + 1}`).join(',');
       const result = await pool.query(
-        `SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE employee_id IN (${placeholders}) ORDER BY timestamp`,
+        `SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries WHERE employee_id IN (${placeholders}) ORDER BY timestamp`,
         [...empIds]
       );
       return result.rows.map((row: any) => ({
@@ -292,15 +304,17 @@ export class DatabaseStorage implements IStorage {
         type: row.type,
         timestamp: row.timestamp,
         date: row.entry_date,
+        role: row.role ?? null,
       }));
     }
-    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries ORDER BY timestamp");
+    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries ORDER BY timestamp");
     return result.rows.map((row: any) => ({
       id: row.id,
       employeeId: row.employee_id,
       type: row.type,
       timestamp: row.timestamp,
       date: row.entry_date,
+      role: row.role ?? null,
     }));
   }
 

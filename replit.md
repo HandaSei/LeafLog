@@ -79,6 +79,11 @@ A web-based employee shift management application for scheduling, tracking, and 
 - Responsive sidebar navigation
 - TimeInput/TimeRangeInput components for compact time entry
 
+## Per-Shift & Per-Timesheet Roles
+- **shifts.role**: Each shift stores its own role (TEXT column). Pre-filled from employee's current role on creation. Shift color derived from this role.
+- **time_entries.role**: Each time entry can store a role override (TEXT column). Set on clock-in entry when adding missing timesheets. Editable in timesheet detail dialog.
+- **Employee role change confirmation**: When editing an employee's role, a confirmation dialog asks whether to update all existing shifts to the new role via `POST /api/employees/:id/update-shift-roles`.
+
 ## Storage Layer Notes
 - Time entry queries use raw SQL with `pool.query()` and `entry_date::text` cast (Drizzle had issues with date column)
 - `pool` is exported from `storage.ts` for direct SQL access
