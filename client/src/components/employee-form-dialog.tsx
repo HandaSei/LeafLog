@@ -193,57 +193,50 @@ export function EmployeeFormDialog({
               )}
             />
             <div className="grid grid-cols-1 gap-3">
-              {customRoles.length === 0 ? (
-                <div className="p-3 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-900/30 flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-amber-800 dark:text-amber-400">No roles found</p>
-                    <p className="text-xs text-amber-700 dark:text-amber-500 mb-2">
-                      You need to create roles in settings before assigning them to employees.
-                    </p>
-                    <Button 
-                      type="button" 
-                      size="sm" 
-                      variant="outline" 
-                      className="h-7 text-xs border-amber-200 hover:bg-amber-100"
-                      onClick={() => {
-                        onOpenChange(false);
-                        setLocation("/settings");
-                      }}
-                    >
-                      Go to Settings
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <FormField
-                  control={form.control}
-                  name="role"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Role (optional)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-role">
-                            <SelectValue placeholder="Select a role" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {customRoles.map((r) => (
-                            <SelectItem key={r.id} value={r.name}>
-                              <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
-                                {r.name}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
+              <FormField
+                control={form.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Role (optional)</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-role">
+                          <SelectValue placeholder="Select a role" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {customRoles.map((r) => (
+                          <SelectItem key={r.id} value={r.name}>
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                              {r.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {customRoles.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                        <AlertCircle className="w-3 h-3 text-amber-500" />
+                        No roles created yet. You can add them in 
+                        <button 
+                          type="button"
+                          className="text-primary hover:underline font-medium"
+                          onClick={() => {
+                            onOpenChange(false);
+                            setLocation("/settings");
+                          }}
+                        >
+                          Settings
+                        </button>
+                        (optional).
+                      </p>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
             <FormField
               control={form.control}
