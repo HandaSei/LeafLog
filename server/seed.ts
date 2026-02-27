@@ -40,17 +40,17 @@ const SHIFT_TEMPLATES = [
 export async function seedDatabase() {
   await runMigrations();
 
-  const existingAdmin = await storage.getAccountByUsername("admin");
-  if (!existingAdmin) {
-    const adminPassword = await bcrypt.hash("admin123", 10);
-    await storage.createAccount({
-      username: "admin",
-      password: adminPassword,
-      role: "manager",
-      agencyName: "ShiftFlow HQ",
-    });
-    console.log("Admin account created (username: admin, password: admin123)");
-  }
+  const anyAccounts = await storage.hasAnyManagers();
+  if (anyAccounts) return;
+
+  const adminPassword = await bcrypt.hash("admin123", 10);
+  await storage.createAccount({
+    username: "admin",
+    password: adminPassword,
+    role: "manager",
+    agencyName: "ShiftFlow HQ",
+  });
+  console.log("Admin account created (username: admin, password: admin123)");
 
   const existing = await storage.getEmployees();
   if (existing.length > 0) return;
