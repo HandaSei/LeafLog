@@ -128,7 +128,7 @@ export function ShiftFormDialog({
     const employee = employees.find(e => e.id === Number(values.employeeId));
     mutation.mutate({
       ...values,
-      color: employee?.color || values.color
+      color: (employee?.role ? (employee.color || values.color) : "#9CA3AF")
     });
   };
 
