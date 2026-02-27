@@ -701,12 +701,12 @@ export default function Timesheets() {
                   <div className="flex items-center gap-3">
                     <div>
                       <div className="text-xs text-muted-foreground mb-0.5">Clock In</div>
-                      <div className="font-medium font-mono">{clockIn ? format(clockIn, "HH:mm:ss") : "—"}</div>
+                      <div className="font-medium font-mono">{clockIn ? format(clockIn, "HH:mm") : "—"}</div>
                     </div>
                     <div className="text-muted-foreground mt-3">→</div>
                     <div>
                       <div className="text-xs text-muted-foreground mb-0.5">Clock Out</div>
-                      <div className="font-medium font-mono">{clockOut ? format(clockOut, "HH:mm:ss") : "—"}</div>
+                      <div className="font-medium font-mono">{clockOut ? format(clockOut, "HH:mm") : "—"}</div>
                     </div>
                   </div>
                 </div>
@@ -736,12 +736,12 @@ export default function Timesheets() {
                       <div className="flex items-center gap-3">
                         <div>
                           <div className="text-xs text-muted-foreground mb-0.5">Start</div>
-                          <div className="font-medium font-mono">{breakStart ? format(new Date(breakStart.timestamp), "HH:mm:ss") : "—"}</div>
+                          <div className="font-medium font-mono">{breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "—"}</div>
                         </div>
                         <div className="text-muted-foreground mt-3">→</div>
                         <div>
                           <div className="text-xs text-muted-foreground mb-0.5">End</div>
-                          <div className="font-medium font-mono">{breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm:ss") : "—"}</div>
+                          <div className="font-medium font-mono">{breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm") : "—"}</div>
                         </div>
                       </div>
                     </div>
