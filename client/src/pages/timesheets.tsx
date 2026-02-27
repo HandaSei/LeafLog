@@ -6,7 +6,7 @@ import {
 import { useState, useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, Calendar, CalendarDays } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, Calendar, CalendarDays, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,6 +17,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
@@ -125,11 +126,18 @@ function buildWorkdaysForRange(
   startDate: Date,
   endDate: Date,
   selectedRole: string,
-  employeeSearch: string
+  employeeSearch: string,
+  targetEmployeeIds: number[] | null = null
 ): { date: Date; workdays: EmployeeWorkday[] }[] {
   const days = eachDayOfInterval({ start: startDate, end: endDate });
   return days
-    .map(day => ({ date: day, workdays: buildWorkdaysForDate(entries, employees, day, selectedRole, employeeSearch) }))
+    .map(day => {
+      let dayWorkdays = buildWorkdaysForDate(entries, employees, day, selectedRole, employeeSearch);
+      if (targetEmployeeIds && targetEmployeeIds.length > 0) {
+        dayWorkdays = dayWorkdays.filter(wd => targetEmployeeIds.includes(wd.employee.id));
+      }
+      return { date: day, workdays: dayWorkdays };
+    })
     .filter(d => d.workdays.length > 0);
 }
 
@@ -145,25 +153,18 @@ function formatHoursDecimal(minutes: number): string {
 }
 
 async function exportPDF(
-  viewMode: "week" | "month",
   rangeStart: Date,
   rangeEnd: Date,
   rangeLabel: string,
   entries: TimeEntry[],
   employees: Employee[],
-  selectedRole: string,
-  employeeSearch: string
+  targetEmployeeIds: number[]
 ) {
   const jspdf = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
   const jsPDF = jspdf.jsPDF;
 
   const doc = new jsPDF({ orientation: "landscape" });
-
-  const filterInfo = [
-    employeeSearch ? `Employee: ${employeeSearch}` : null,
-    selectedRole !== "all" ? `Role: ${selectedRole}` : null,
-  ].filter(Boolean).join(" | ");
 
   doc.setFontSize(16);
   doc.setFont("helvetica", "bold");
@@ -172,12 +173,8 @@ async function exportPDF(
   doc.setFontSize(11);
   doc.setFont("helvetica", "normal");
   doc.text(rangeLabel, 14, 24);
-  if (filterInfo) {
-    doc.setFontSize(9);
-    doc.text(filterInfo, 14, 30);
-  }
 
-  const grouped = buildWorkdaysForRange(entries, employees, rangeStart, rangeEnd, selectedRole, employeeSearch);
+  const grouped = buildWorkdaysForRange(entries, employees, rangeStart, rangeEnd, "all", "", targetEmployeeIds);
 
   const rows: (string | number)[][] = [];
   let grandTotal = 0;
@@ -203,7 +200,7 @@ async function exportPDF(
   }
 
   autoTable(doc, {
-    startY: filterInfo ? 36 : 30,
+    startY: 30,
     head: [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Hours"]],
     body: rows,
     foot: rows.length > 1 ? [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]] : undefined,
@@ -251,20 +248,11 @@ export default function Timesheets() {
   const [editingBreak, setEditingBreak] = useState<{ start: TimeEntry | null, end: TimeEntry | null } | null>(null);
   const [editBreakStart, setEditBreakStart] = useState<string>("");
   const [editBreakEnd, setEditBreakEnd] = useState<string>("");
-
-  const handleSaveBreakEdit = () => {
-    if (!editingBreak) return;
-    if (editingBreak.start && /^\d{2}:\d{2}$/.test(editBreakStart)) {
-      const dateStr = editingBreak.start.date;
-      updateEntryMutation.mutate({ id: editingBreak.start.id, timestamp: new Date(`${dateStr}T${editBreakStart}:00`).toISOString() });
-    }
-    if (editingBreak.end && /^\d{2}:\d{2}$/.test(editBreakEnd)) {
-      const dateStr = editingBreak.end.date;
-      updateEntryMutation.mutate({ id: editingBreak.end.id, timestamp: new Date(`${dateStr}T${editBreakEnd}:00`).toISOString() });
-    }
-    setEditingBreak(null);
-  };
   const [isExporting, setIsExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportSelectedEmployeeIds, setExportSelectedEmployeeIds] = useState<number[]>([]);
+  const [exportStartDate, setExportStartDate] = useState(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
+  const [exportEndDate, setExportEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const { toast } = useToast();
 
   const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
@@ -296,6 +284,19 @@ export default function Timesheets() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] }),
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
+
+  const handleSaveBreakEdit = () => {
+    if (!editingBreak) return;
+    if (editingBreak.start && /^\d{2}:\d{2}$/.test(editBreakStart)) {
+      const dateStr = editingBreak.start.date;
+      updateEntryMutation.mutate({ id: editingBreak.start.id, timestamp: new Date(`${dateStr}T${editBreakStart}:00`).toISOString() });
+    }
+    if (editingBreak.end && /^\d{2}:\d{2}$/.test(editBreakEnd)) {
+      const dateStr = editingBreak.end.date;
+      updateEntryMutation.mutate({ id: editingBreak.end.id, timestamp: new Date(`${dateStr}T${editBreakEnd}:00`).toISOString() });
+    }
+    setEditingBreak(null);
+  };
 
   const navigateWeek = (direction: number) => {
     const next = new Date(selectedWeek);
@@ -419,19 +420,28 @@ export default function Timesheets() {
   };
 
   const handleExportPDF = async () => {
+    if (exportSelectedEmployeeIds.length === 0) {
+      toast({ title: "Error", description: "Please select at least one employee", variant: "destructive" });
+      return;
+    }
     setIsExporting(true);
     try {
-      const rangeStart = viewMode === "week" ? selectedWeek : selectedMonth;
-      const rangeEnd = viewMode === "week" ? weekEnd : monthEnd;
-      const rangeLabel = viewMode === "week"
-        ? `Week: ${format(selectedWeek, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`
-        : `Month: ${format(selectedMonth, "MMMM yyyy")}`;
-      await exportPDF(viewMode, rangeStart, rangeEnd, rangeLabel, entries, employees, selectedRole, employeeSearch);
+      const start = new Date(exportStartDate);
+      const end = new Date(exportEndDate);
+      const rangeLabel = `Period: ${format(start, "MMM d, yyyy")} – ${format(end, "MMM d, yyyy")}`;
+      await exportPDF(start, end, rangeLabel, entries, employees, exportSelectedEmployeeIds);
+      setExportDialogOpen(false);
     } catch (e: any) {
       toast({ title: "Export failed", description: e.message, variant: "destructive" });
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const toggleExportEmployee = (id: number) => {
+    setExportSelectedEmployeeIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
   };
 
   const WorkdayCard = ({ wd, date }: { wd: EmployeeWorkday; date: Date }) => {
@@ -508,12 +518,14 @@ export default function Timesheets() {
               variant="outline"
               size="sm"
               className="h-8 px-3 text-xs gap-1.5"
-              onClick={handleExportPDF}
-              disabled={isExporting}
+              onClick={() => {
+                setExportSelectedEmployeeIds(employees.map(e => e.id));
+                setExportDialogOpen(true);
+              }}
               data-testid="button-export-pdf"
             >
               <FileDown className="w-3.5 h-3.5" />
-              {isExporting ? "Exporting..." : "Export PDF"}
+              Export PDF
             </Button>
           </div>
         </div>
@@ -643,6 +655,91 @@ export default function Timesheets() {
           <span className="text-lg font-bold" data-testid="text-total-hours">{formatHoursDecimal(totalHours)} h</span>
         </div>
       )}
+
+      {/* Export PDF Dialog */}
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Export Timesheet PDF</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Time Period</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground">From</span>
+                  <Input 
+                    type="date" 
+                    value={exportStartDate} 
+                    onChange={e => setExportStartDate(e.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground">To</span>
+                  <Input 
+                    type="date" 
+                    value={exportEndDate} 
+                    onChange={e => setExportEndDate(e.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Employees</Label>
+                <Button 
+                  variant="link" 
+                  size="sm" 
+                  className="h-auto p-0 text-[11px]" 
+                  onClick={() => setExportSelectedEmployeeIds(
+                    exportSelectedEmployeeIds.length === employees.length ? [] : employees.map(e => e.id)
+                  )}
+                >
+                  {exportSelectedEmployeeIds.length === employees.length ? "Deselect All" : "Select All"}
+                </Button>
+              </div>
+              <div className="max-h-48 overflow-auto border rounded-md p-2 space-y-1">
+                {employees
+                  .filter(e => e.status === "active")
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(emp => (
+                    <div 
+                      key={emp.id} 
+                      className="flex items-center gap-2 p-1.5 rounded-sm hover:bg-muted/50 transition-colors cursor-pointer"
+                      onClick={() => toggleExportEmployee(emp.id)}
+                    >
+                      <Checkbox 
+                        checked={exportSelectedEmployeeIds.includes(emp.id)} 
+                        onCheckedChange={() => toggleExportEmployee(emp.id)}
+                        id={`export-emp-${emp.id}`}
+                      />
+                      <Label 
+                        htmlFor={`export-emp-${emp.id}`} 
+                        className="text-xs font-normal cursor-pointer flex-1"
+                      >
+                        {emp.name}
+                      </Label>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancel</Button>
+            <Button 
+              onClick={handleExportPDF} 
+              disabled={isExporting || exportSelectedEmployeeIds.length === 0}
+              className="gap-2"
+            >
+              <FileDown className="w-4 h-4" />
+              {isExporting ? "Generating..." : "Download PDF"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Detail Dialog */}
       <Dialog open={!!viewingWorkday} onOpenChange={() => { setViewingEmployeeId(null); setViewingDate(null); }}>
