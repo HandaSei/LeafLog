@@ -13,6 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { AlertCircle } from "lucide-react";
 import {
   Form,
   FormControl,
@@ -142,47 +143,71 @@ export function ShiftFormDialog({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="employeeId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Assign Employee</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value?.toString()}
+            {employees.length === 0 ? (
+              <div className="p-4 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-900/30 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-400">No employees found</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-500 mb-3">
+                    You need to add at least one employee before you can create a shift.
+                  </p>
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline" 
+                    className="h-8 border-amber-200 hover:bg-amber-100"
+                    onClick={() => {
+                      onOpenChange(false);
+                      window.location.href = "/employees";
+                    }}
                   >
-                    <FormControl>
-                      <SelectTrigger data-testid="select-employee">
-                        <SelectValue placeholder="Select an employee" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {employees.map((emp) => (
-                        <SelectItem
-                          key={emp.id}
-                          value={emp.id.toString()}
-                          data-testid={`option-employee-${emp.id}`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <EmployeeAvatar
-                              name={emp.name}
-                              color={emp.color}
-                              size="sm"
-                            />
-                            <span>{emp.name}</span>
-                            <span className="text-muted-foreground text-xs">
-                              {emp.role || "Loose Leaf (assign role)"}
-                            </span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    Go to Employees
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <FormField
+                control={form.control}
+                name="employeeId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Assign Employee</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value?.toString()}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-employee">
+                          <SelectValue placeholder="Select an employee" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {employees.map((emp) => (
+                          <SelectItem
+                            key={emp.id}
+                            value={emp.id.toString()}
+                            data-testid={`option-employee-${emp.id}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <EmployeeAvatar
+                                name={emp.name}
+                                color={emp.color}
+                                size="sm"
+                              />
+                              <span>{emp.name}</span>
+                              <span className="text-muted-foreground text-xs">
+                                {emp.role || "Loose Leaf (assign role)"}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <div className="flex items-end gap-3">
               <FormField
                 control={form.control}

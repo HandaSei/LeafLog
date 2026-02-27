@@ -485,6 +485,19 @@ export default function Dashboard() {
                 <Skeleton key={i} className="h-14 rounded-md" />
               ))}
             </div>
+          ) : employees.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg bg-primary/5 border-primary/20">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                <Plus className="w-6 h-6 text-primary" />
+              </div>
+              <h3 className="text-base font-semibold mb-1">Add your first employee</h3>
+              <p className="text-sm text-muted-foreground max-w-[240px] mb-6">
+                Start by adding employees to manage their shifts and track their time.
+              </p>
+              <Button onClick={() => setLocation("/employees")} data-testid="button-add-first-employee">
+                Add Employee
+              </Button>
+            </div>
           ) : flowRowsToDisplay.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <CalendarDays className="w-8 h-8 text-muted-foreground/30 mb-2" />
