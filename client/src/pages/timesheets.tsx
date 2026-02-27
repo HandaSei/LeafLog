@@ -1,3 +1,4 @@
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   format, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isSameDay,
@@ -6,7 +7,7 @@ import {
 import { useState, useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, Calendar, CalendarDays, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, Calendar, CalendarDays, Check, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -317,6 +318,7 @@ async function exportPDF(
 }
 
 export default function Timesheets() {
+  const [, setLocation] = useLocation();
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
   const [selectedWeek, setSelectedWeek] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [selectedDay, setSelectedDay] = useState<Date>(() => new Date());
@@ -1219,37 +1221,57 @@ export default function Timesheets() {
       <Dialog open={addingTimesheet} onOpenChange={setAddingTimesheet}>
         <DialogContent>
           <DialogHeader><DialogTitle>Add Missing Timesheet</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="text-sm text-muted-foreground">{format(selectedDay, "EEEE, MMM d, yyyy")}</div>
-            <div className="space-y-2">
-              <Label>Employee</Label>
-              <Select value={newTimesheetEmployeeId} onValueChange={setNewTimesheetEmployeeId}>
-                <SelectTrigger data-testid="select-timesheet-employee">
-                  <SelectValue placeholder="Select employee" />
-                </SelectTrigger>
-                <SelectContent>
-                  {employees.filter(e => e.status === "active").sort((a, b) => a.name.localeCompare(b.name)).map(emp => (
-                    <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {employees.filter(e => e.status === "active").length === 0 ? (
+            <div className="py-6 flex flex-col items-center text-center">
+              <AlertCircle className="w-12 h-12 text-amber-500 mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No employees found</h3>
+              <p className="text-sm text-muted-foreground mb-6 max-w-[300px]">
+                You need to add at least one employee before you can create a timesheet.
+              </p>
+              <Button 
+                onClick={() => {
+                  setAddingTimesheet(false);
+                  setLocation("/employees");
+                }}
+              >
+                Go to Employees
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label>Shift Time</Label>
-              <TimeRangeInput startValue={newTimesheetClockIn} endValue={newTimesheetClockOut} onStartChange={setNewTimesheetClockIn} onEndChange={setNewTimesheetClockOut} startTestId="input-timesheet-clock-in" endTestId="input-timesheet-clock-out" />
-              <p className="text-xs text-muted-foreground">Clock out is optional</p>
-            </div>
-            <div className="space-y-2">
-              <Label>Break <span className="text-muted-foreground font-normal">(optional)</span></Label>
-              <TimeRangeInput startValue={newTimesheetBreakStart} endValue={newTimesheetBreakEnd} onStartChange={setNewTimesheetBreakStart} onEndChange={setNewTimesheetBreakEnd} startTestId="input-timesheet-break-start" endTestId="input-timesheet-break-end" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddingTimesheet(false)}>Cancel</Button>
-            <Button onClick={handleAddTimesheet} disabled={addEntryMutation.isPending || !newTimesheetEmployeeId || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)} data-testid="button-save-timesheet">
-              Add Timesheet
-            </Button>
-          </DialogFooter>
+          ) : (
+            <>
+              <div className="space-y-4 py-4">
+                <div className="text-sm text-muted-foreground">{format(selectedDay, "EEEE, MMM d, yyyy")}</div>
+                <div className="space-y-2">
+                  <Label>Employee</Label>
+                  <Select value={newTimesheetEmployeeId} onValueChange={setNewTimesheetEmployeeId}>
+                    <SelectTrigger data-testid="select-timesheet-employee">
+                      <SelectValue placeholder="Select employee" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {employees.filter(e => e.status === "active").sort((a, b) => a.name.localeCompare(b.name)).map(emp => (
+                        <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Shift Time</Label>
+                  <TimeRangeInput startValue={newTimesheetClockIn} endValue={newTimesheetClockOut} onStartChange={setNewTimesheetClockIn} onEndChange={setNewTimesheetClockOut} startTestId="input-timesheet-clock-in" endTestId="input-timesheet-clock-out" />
+                  <p className="text-xs text-muted-foreground">Clock out is optional</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Break <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                  <TimeRangeInput startValue={newTimesheetBreakStart} endValue={newTimesheetBreakEnd} onStartChange={setNewTimesheetBreakStart} onEndChange={setNewTimesheetBreakEnd} startTestId="input-timesheet-break-start" endTestId="input-timesheet-break-end" />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAddingTimesheet(false)}>Cancel</Button>
+                <Button onClick={handleAddTimesheet} disabled={addEntryMutation.isPending || !newTimesheetEmployeeId || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)} data-testid="button-save-timesheet">
+                  Add Timesheet
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
