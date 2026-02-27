@@ -392,8 +392,8 @@ export default function Timesheets() {
 
   const deleteTimesheetMutation = useMutation({
     mutationFn: async (data: { employeeId: number; date: string; entries: TimeEntry[] }) => {
-      // Delete each entry in this session
-      await Promise.all(data.entries.map(e => apiRequest("DELETE", `/api/kiosk/entries/${e.id}`)));
+      // Delete all entries for this day
+      await apiRequest("DELETE", `/api/kiosk/entries?employeeId=${data.employeeId}&date=${data.date}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] });

@@ -184,6 +184,10 @@ export async function registerRoutes(
     if (!employeeId || !date) {
       return res.status(400).json({ message: "Employee ID and date are required" });
     }
+    const emp = await storage.getEmployee(employeeId);
+    if (!emp || emp.ownerAccountId !== req.session.userId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
     await storage.deleteTimeEntriesByEmployeeAndDate(employeeId, date);
     res.status(204).send();
   });

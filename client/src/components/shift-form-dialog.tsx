@@ -146,26 +146,21 @@ export function ShiftFormDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             {employees.length === 0 ? (
-              <div className="p-4 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-900/30 flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-amber-800 dark:text-amber-400">No employees found</p>
-                  <p className="text-xs text-amber-700 dark:text-amber-500 mb-3">
-                    You need to add at least one employee before you can create a shift.
-                  </p>
-                  <Button 
-                    type="button" 
-                    size="sm" 
-                    variant="outline" 
-                    className="h-8 border-amber-200 hover:bg-amber-100"
-                    onClick={() => {
-                      onOpenChange(false);
-                      setLocation("/employees");
-                    }}
-                  >
-                    Go to Employees
-                  </Button>
-                </div>
+              <div className="py-6 flex flex-col items-center text-center">
+                <AlertCircle className="w-12 h-12 text-amber-500 mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No employees found</h3>
+                <p className="text-sm text-muted-foreground mb-6 max-w-[300px]">
+                  You need to add at least one employee before you can create a shift.
+                </p>
+                <Button 
+                  type="button"
+                  onClick={() => {
+                    onOpenChange(false);
+                    setLocation("/employees");
+                  }}
+                >
+                  Go to Employees
+                </Button>
               </div>
             ) : (
               <FormField
