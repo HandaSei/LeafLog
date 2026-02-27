@@ -32,11 +32,12 @@ interface EmployeeWorkday {
   clockOut: Date | null;
   totalWorkedMinutes: number;
   totalBreakMinutes: number;
+  unpaidBreakMinutes: number;
   netWorkedMinutes: number;
   status: "working" | "on-break" | "completed";
 }
 
-function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[]): EmployeeWorkday {
+function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidBreakMinutes?: number | null): EmployeeWorkday {
   const sorted = [...dayEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   let clockIn: Date | null = null;
@@ -79,7 +80,12 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[]): Empl
   if (clockOut) status = "completed";
   else if (onBreak) status = "on-break";
 
-  return { employee: emp, entries: sorted, clockIn, clockOut, totalWorkedMinutes, totalBreakMinutes, netWorkedMinutes: totalWorkedMinutes, status };
+  const unpaidBreakMinutes = (paidBreakMinutes != null && paidBreakMinutes >= 0)
+    ? Math.max(0, totalBreakMinutes - paidBreakMinutes)
+    : 0;
+  const netWorkedMinutes = Math.max(0, totalWorkedMinutes - unpaidBreakMinutes);
+
+  return { employee: emp, entries: sorted, clockIn, clockOut, totalWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, netWorkedMinutes, status };
 }
 
 function buildWorkdaysForDate(
@@ -87,7 +93,8 @@ function buildWorkdaysForDate(
   employees: Employee[],
   date: Date,
   selectedRole: string,
-  employeeSearch: string
+  employeeSearch: string,
+  paidBreakMinutes?: number | null
 ): EmployeeWorkday[] {
   const dateStr = format(date, "yyyy-MM-dd");
   const empMap = new Map<number, Employee>();
@@ -108,7 +115,7 @@ function buildWorkdaysForDate(
     if (!emp) return;
     if (selectedRole !== "all" && emp.role !== selectedRole) return;
     if (employeeSearch && !emp.name.toLowerCase().includes(employeeSearch.toLowerCase())) return;
-    workdays.push(processEntriesForEmployee(emp, dayEntries));
+    workdays.push(processEntriesForEmployee(emp, dayEntries, paidBreakMinutes));
   });
 
   workdays.sort((a, b) => {
@@ -128,12 +135,13 @@ function buildWorkdaysForRange(
   endDate: Date,
   selectedRole: string,
   employeeSearch: string,
-  targetEmployeeIds: number[] | null = null
+  targetEmployeeIds: number[] | null = null,
+  paidBreakMinutes?: number | null
 ): { date: Date; workdays: EmployeeWorkday[] }[] {
   const days = eachDayOfInterval({ start: startDate, end: endDate });
   return days
     .map(day => {
-      let dayWorkdays = buildWorkdaysForDate(entries, employees, day, selectedRole, employeeSearch);
+      let dayWorkdays = buildWorkdaysForDate(entries, employees, day, selectedRole, employeeSearch, paidBreakMinutes);
       if (targetEmployeeIds && targetEmployeeIds.length > 0) {
         dayWorkdays = dayWorkdays.filter(wd => targetEmployeeIds.includes(wd.employee.id));
       }
@@ -159,7 +167,8 @@ async function exportPDF(
   rangeLabel: string,
   entries: TimeEntry[],
   employees: Employee[],
-  targetEmployeeIds: number[]
+  targetEmployeeIds: number[],
+  paidBreakMinutes?: number | null
 ) {
   const jspdf = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
@@ -174,50 +183,68 @@ async function exportPDF(
   doc.setFontSize(11);
   doc.setFont("helvetica", "normal");
   doc.text(rangeLabel, 14, 24);
+  if (paidBreakMinutes != null && paidBreakMinutes > 0) {
+    doc.setFontSize(9);
+    doc.setTextColor(120, 100, 50);
+    doc.text(`Break policy: ${paidBreakMinutes} min paid break. Any excess deducted from worked hours.`, 14, 29);
+    doc.setTextColor(0, 0, 0);
+  }
 
-  const grouped = buildWorkdaysForRange(entries, employees, rangeStart, rangeEnd, "all", "", targetEmployeeIds);
+  const grouped = buildWorkdaysForRange(entries, employees, rangeStart, rangeEnd, "all", "", targetEmployeeIds, paidBreakMinutes);
+
+  const hasUnpaid = grouped.some(({ workdays }) => workdays.some(wd => wd.unpaidBreakMinutes > 0));
 
   const rows: (string | number)[][] = [];
   let grandTotal = 0;
 
   grouped.forEach(({ date, workdays }) => {
     workdays.forEach(wd => {
-      const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes } = wd;
+      const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes } = wd;
       grandTotal += netWorkedMinutes;
-      rows.push([
+      const row: (string | number)[] = [
         format(date, "EEE, MMM d, yyyy"),
         emp.name,
-        emp.role || "Unassigned",
+        emp.role || "Loose Leaf",
         clockIn ? format(clockIn, "HH:mm") : "—",
         clockOut ? format(clockOut, "HH:mm") : "—",
         totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "—",
         formatHoursDecimal(netWorkedMinutes) + " h",
-      ]);
+      ];
+      if (hasUnpaid) row.splice(6, 0, unpaidBreakMinutes > 0 ? `-${formatMinutes(unpaidBreakMinutes)}` : "—");
+      rows.push(row);
     });
   });
 
   if (rows.length === 0) {
-    rows.push(["No timesheet data for this period.", "", "", "", "", "", ""]);
+    const emptyRow = ["No timesheet data for this period.", "", "", "", "", "", ""];
+    if (hasUnpaid) emptyRow.push("");
+    rows.push(emptyRow);
   }
 
+  const head = hasUnpaid
+    ? [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Unpaid", "Hours"]]
+    : [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Hours"]];
+
+  const foot = rows.length > 1
+    ? hasUnpaid
+      ? [["", "", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      : [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+    : undefined;
+
+  const colStyles: Record<number, object> = hasUnpaid
+    ? { 0: { cellWidth: 38 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 20 }, 4: { cellWidth: 20 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 20, halign: "right" } }
+    : { 0: { cellWidth: 42 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 22 }, 4: { cellWidth: 22 }, 5: { cellWidth: 22 }, 6: { cellWidth: 22, halign: "right" } };
+
   autoTable(doc, {
-    startY: 30,
-    head: [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Hours"]],
+    startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
+    head,
     body: rows,
-    foot: rows.length > 1 ? [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]] : undefined,
+    foot,
     headStyles: { fillColor: [139, 158, 139], textColor: 255, fontStyle: "bold" },
     footStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40], fontStyle: "bold" },
     alternateRowStyles: { fillColor: [252, 252, 252] },
     styles: { fontSize: 9, cellPadding: 3 },
-    columnStyles: {
-      0: { cellWidth: 42 },
-      1: { cellWidth: 36 },
-      2: { cellWidth: 30 },
-      3: { cellWidth: 22 },
-      4: { cellWidth: 22 },
-      5: { cellWidth: 22 },
-      6: { cellWidth: 22, halign: "right" },
-    },
+    columnStyles: colStyles,
   });
 
   const safeLabel = rangeLabel.replace(/[^a-zA-Z0-9-]/g, "_");
@@ -270,6 +297,8 @@ export default function Timesheets() {
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
   const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({ queryKey: ["/api/kiosk/entries"] });
+  const { data: breakPolicy } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({ queryKey: ["/api/settings/break-policy"] });
+  const paidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
 
   const updateEntryMutation = useMutation({
     mutationFn: async (data: { id: number; timestamp: string }) => {
@@ -320,21 +349,21 @@ export default function Timesheets() {
   };
 
   const workdays = useMemo(
-    () => buildWorkdaysForDate(entries, employees, selectedDay, selectedRole, employeeSearch),
-    [entries, employees, selectedDay, selectedRole, employeeSearch]
+    () => buildWorkdaysForDate(entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes),
+    [entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]
   );
 
   const monthWorkdays = useMemo(
-    () => buildWorkdaysForRange(entries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch),
-    [entries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch]
+    () => buildWorkdaysForRange(entries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, null, paidBreakMinutes),
+    [entries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, paidBreakMinutes]
   );
 
   const viewingWorkday = useMemo(() => {
     if (viewingEmployeeId === null) return null;
     const dateToUse = viewingDate || selectedDay;
-    const dayWorkdays = buildWorkdaysForDate(entries, employees, dateToUse, selectedRole, employeeSearch);
+    const dayWorkdays = buildWorkdaysForDate(entries, employees, dateToUse, selectedRole, employeeSearch, paidBreakMinutes);
     return dayWorkdays.find(w => w.employee.id === viewingEmployeeId) || null;
-  }, [viewingEmployeeId, viewingDate, entries, employees, selectedDay, selectedRole, employeeSearch]);
+  }, [viewingEmployeeId, viewingDate, entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]);
 
   const activeDay = viewingDate || selectedDay;
 
@@ -453,7 +482,7 @@ export default function Timesheets() {
       const start = new Date(exportStartDate);
       const end = new Date(exportEndDate);
       const rangeLabel = `Period: ${format(start, "MMM d, yyyy")} – ${format(end, "MMM d, yyyy")}`;
-      await exportPDF(start, end, rangeLabel, entries, employees, exportSelectedEmployeeIds);
+      await exportPDF(start, end, rangeLabel, entries, employees, exportSelectedEmployeeIds, paidBreakMinutes);
       setExportDialogOpen(false);
     } catch (e: any) {
       toast({ title: "Export failed", description: e.message, variant: "destructive" });
@@ -469,7 +498,7 @@ export default function Timesheets() {
   };
 
   const WorkdayCard = ({ wd, date }: { wd: EmployeeWorkday; date: Date }) => {
-    const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, status } = wd;
+    const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status } = wd;
     const sc = statusConfig[status];
     return (
       <button
@@ -492,7 +521,12 @@ export default function Timesheets() {
             <span className="text-sm font-semibold text-muted-foreground">{formatHoursDecimal(netWorkedMinutes)} h</span>
           </div>
           {totalBreakMinutes > 0 && (
-            <div className="text-[11px] text-muted-foreground mt-0.5">Break: {formatMinutes(totalBreakMinutes)}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              Break: {formatMinutes(totalBreakMinutes)}
+              {unpaidBreakMinutes > 0 && (
+                <span className="text-red-500 ml-1">(-{formatMinutes(unpaidBreakMinutes)} unpaid)</span>
+              )}
+            </div>
           )}
         </div>
       </button>
@@ -768,7 +802,7 @@ export default function Timesheets() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Timesheet Details</DialogTitle></DialogHeader>
           {viewingWorkday && (() => {
-            const { employee: emp, entries: dayEntries, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, status } = viewingWorkday;
+            const { employee: emp, entries: dayEntries, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status } = viewingWorkday;
             const sc = statusConfig[status];
             return (
               <div className="space-y-4">
@@ -795,6 +829,9 @@ export default function Timesheets() {
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Break</div>
                     <div className="font-medium">{totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "No break"}</div>
+                    {unpaidBreakMinutes > 0 && (
+                      <div className="text-[11px] text-red-500">-{formatMinutes(unpaidBreakMinutes)} deducted</div>
+                    )}
                   </div>
                 </div>
                 {(() => {

@@ -56,6 +56,9 @@ export interface IStorage {
   createCustomRole(ownerAccountId: number, name: string): Promise<CustomRole>;
   updateCustomRole(id: number, name: string): Promise<CustomRole | undefined>;
   deleteCustomRole(id: number): Promise<void>;
+
+  getBreakPolicy(accountId: number): Promise<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>;
+  updateBreakPolicy(accountId: number, paidBreakMinutes: number | null, maxBreakMinutes: number | null): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -309,6 +312,20 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCustomRole(id: number): Promise<void> {
     await db.delete(customRoles).where(eq(customRoles.id, id));
+  }
+
+  async getBreakPolicy(accountId: number): Promise<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }> {
+    const res = await pool.query("SELECT paid_break_minutes, max_break_minutes FROM accounts WHERE id = $1", [accountId]);
+    const row = res.rows[0];
+    if (!row) return { paidBreakMinutes: null, maxBreakMinutes: null };
+    return { paidBreakMinutes: row.paid_break_minutes, maxBreakMinutes: row.max_break_minutes };
+  }
+
+  async updateBreakPolicy(accountId: number, paidBreakMinutes: number | null, maxBreakMinutes: number | null): Promise<void> {
+    await pool.query(
+      "UPDATE accounts SET paid_break_minutes = $1, max_break_minutes = $2 WHERE id = $3",
+      [paidBreakMinutes, maxBreakMinutes, accountId]
+    );
   }
 }
 

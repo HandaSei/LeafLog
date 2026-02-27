@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Settings2, Plus, Pencil, Trash2, Check, X, Palette } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Settings2, Plus, Pencil, Trash2, Check, X, Palette, Coffee, Save } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,10 +37,39 @@ export default function SettingsPage() {
   const [editingName, setEditingName] = useState("");
   const [editingColor, setEditingColor] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [paidBreakInput, setPaidBreakInput] = useState<string>("");
+  const [maxBreakInput, setMaxBreakInput] = useState<string>("");
 
   const { data: roles = [], isLoading } = useQuery<CustomRole[]>({
     queryKey: ["/api/roles"],
   });
+
+  const { data: breakPolicy, isLoading: policyLoading } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({
+    queryKey: ["/api/settings/break-policy"],
+    select: (data) => {
+      if (paidBreakInput === "" && data.paidBreakMinutes !== null) setPaidBreakInput(String(data.paidBreakMinutes));
+      if (maxBreakInput === "" && data.maxBreakMinutes !== null) setMaxBreakInput(String(data.maxBreakMinutes));
+      return data;
+    },
+  });
+
+  const updatePolicyMutation = useMutation({
+    mutationFn: async (data: { paidBreakMinutes: number | null; maxBreakMinutes: number | null }) => {
+      const res = await apiRequest("PATCH", "/api/settings/break-policy", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/break-policy"] });
+      toast({ title: "Break policy saved" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const handleSavePolicy = () => {
+    const paid = paidBreakInput === "" ? null : Number(paidBreakInput);
+    const max = maxBreakInput === "" ? null : Number(maxBreakInput);
+    updatePolicyMutation.mutate({ paidBreakMinutes: paid, maxBreakMinutes: max });
+  };
 
   const createMutation = useMutation({
     mutationFn: async (data: { name: string; color: string }) => {
@@ -124,6 +154,77 @@ export default function SettingsPage() {
           <p className="text-sm text-muted-foreground">Manage your account preferences</p>
         </div>
       </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Coffee className="w-4 h-4 text-amber-600" />
+            <div>
+              <CardTitle className="text-base">Break Policy</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                Set paid break and recommended maximum break durations
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {policyLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="paid-break" className="text-sm">Paid Break (minutes)</Label>
+                  <Input
+                    id="paid-break"
+                    type="number"
+                    min="0"
+                    max="480"
+                    placeholder="e.g. 30"
+                    value={paidBreakInput}
+                    onChange={(e) => setPaidBreakInput(e.target.value)}
+                    className="h-9"
+                    data-testid="input-paid-break"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Break time included in paid hours</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="max-break" className="text-sm">Max Break (minutes)</Label>
+                  <Input
+                    id="max-break"
+                    type="number"
+                    min="0"
+                    max="480"
+                    placeholder="e.g. 45"
+                    value={maxBreakInput}
+                    onChange={(e) => setMaxBreakInput(e.target.value)}
+                    className="h-9"
+                    data-testid="input-max-break"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Recommended maximum break duration</p>
+                </div>
+              </div>
+              {paidBreakInput !== "" && maxBreakInput !== "" && Number(paidBreakInput) > 0 && (
+                <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-300">
+                  Employees get <strong>{paidBreakInput} min</strong> paid break. Any break over <strong>{paidBreakInput} min</strong> will be deducted from worked hours. Recommended maximum is <strong>{maxBreakInput} min</strong>.
+                </div>
+              )}
+              <Button
+                size="sm"
+                onClick={handleSavePolicy}
+                disabled={updatePolicyMutation.isPending}
+                data-testid="button-save-break-policy"
+              >
+                <Save className="w-3.5 h-3.5 mr-1.5" />
+                {updatePolicyMutation.isPending ? "Saving..." : "Save Policy"}
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">

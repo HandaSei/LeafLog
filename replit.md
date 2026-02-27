@@ -54,6 +54,10 @@ A web-based employee shift management application for scheduling, tracking, and 
 - `POST /api/access-codes/generate` - Generate new access code for employee
 - `GET /api/access-codes/:employeeId` - Get code history for employee
 
+### Break Policy (admin/manager only)
+- `GET /api/settings/break-policy` - Get paid break minutes and max break minutes
+- `PATCH /api/settings/break-policy` - Update break policy settings
+
 ### SteepIn/Kiosk
 - `GET /api/kiosk/employees` - List active employees (filtered by session owner if logged in)
 - `POST /api/kiosk/action` - Record clock-in/out/break-start/break-end (requires passcode)

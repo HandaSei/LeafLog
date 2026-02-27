@@ -19,8 +19,13 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2,
+  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info,
 } from "lucide-react";
+
+interface BreakPolicy {
+  paidBreakMinutes: number | null;
+  maxBreakMinutes: number | null;
+}
 
 type ActionType = "clock-in" | "clock-out" | "break-start" | "break-end";
 
@@ -53,6 +58,12 @@ export default function KioskPage() {
     queryKey: ["/api/kiosk/entries", selectedEmployee?.id?.toString() || ""],
     queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: isActive && !!selectedEmployee,
+  });
+
+  const { data: breakPolicy } = useQuery<BreakPolicy>({
+    queryKey: ["/api/settings/break-policy"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+    enabled: isActive,
   });
 
   const actionMutation = useMutation({
@@ -169,7 +180,7 @@ export default function KioskPage() {
               <EmployeeAvatar name={selectedEmployee.name} color={selectedEmployee.color} size="lg" />
               <div>
                 <h2 className="text-xl font-bold" data-testid="text-kiosk-employee-name">{selectedEmployee.name}</h2>
-                <p className="text-sm text-muted-foreground">{selectedEmployee.role || "Unassigned"}</p>
+                <p className="text-sm text-muted-foreground">{selectedEmployee.role || "Loose Leaf"}</p>
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-primary">SteepIn</h1>
             </div>
@@ -264,6 +275,24 @@ export default function KioskPage() {
                 Please enter your 4-digit passcode to confirm this action.
               </DialogDescription>
             </DialogHeader>
+            {pendingAction === "break-start" && (breakPolicy?.paidBreakMinutes || breakPolicy?.maxBreakMinutes) && (
+              <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  <Info className="w-3.5 h-3.5" />
+                  Break Policy
+                </div>
+                {breakPolicy.paidBreakMinutes != null && breakPolicy.paidBreakMinutes > 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Paid break: <strong>{breakPolicy.paidBreakMinutes} min</strong> — time beyond this will be deducted from your worked hours.
+                  </p>
+                )}
+                {breakPolicy.maxBreakMinutes != null && breakPolicy.maxBreakMinutes > 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Recommended maximum: <strong>{breakPolicy.maxBreakMinutes} min</strong>.
+                  </p>
+                )}
+              </div>
+            )}
             <form onSubmit={submitPasscode} className="space-y-4">
               <div className="flex justify-center">
                 <Input
@@ -355,7 +384,7 @@ export default function KioskPage() {
                 <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                 <div className="text-center">
                   <div className="text-sm font-medium">{emp.name}</div>
-                  <div className="text-[10px] text-muted-foreground">{emp.role || "Unassigned"}</div>
+                  <div className="text-[10px] text-muted-foreground">{emp.role || "Loose Leaf"}</div>
                 </div>
               </button>
             ))}

@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { Router } from "express";
 import { storage } from "./storage";
-import { insertEmployeeSchema, insertShiftSchema } from "@shared/schema";
+import { insertEmployeeSchema, insertShiftSchema, breakPolicySchema } from "@shared/schema";
 import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./auth";
 import { format } from "date-fns";
 
@@ -219,6 +219,20 @@ export async function registerRoutes(
   router.delete("/api/roles/:id", requireRole("admin", "manager"), async (req, res) => {
     await storage.deleteCustomRole(Number(req.params.id));
     res.status(204).send();
+  });
+
+  // === BREAK POLICY ===
+  router.get("/api/settings/break-policy", requireAuth, async (req, res) => {
+    const policy = await storage.getBreakPolicy(req.session.userId!);
+    res.json(policy);
+  });
+
+  router.patch("/api/settings/break-policy", requireRole("admin", "manager"), async (req, res) => {
+    const parsed = breakPolicySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+    await storage.updateBreakPolicy(req.session.userId!, parsed.data.paidBreakMinutes ?? null, parsed.data.maxBreakMinutes ?? null);
+    const policy = await storage.getBreakPolicy(req.session.userId!);
+    res.json(policy);
   });
 
   app.use(router);

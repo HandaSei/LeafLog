@@ -11,7 +11,14 @@ export const accounts = pgTable("accounts", {
   role: text("role").notNull().default("employee"),
   employeeId: integer("employee_id"),
   agencyName: text("agency_name"),
+  paidBreakMinutes: integer("paid_break_minutes"),
+  maxBreakMinutes: integer("max_break_minutes"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const breakPolicySchema = z.object({
+  paidBreakMinutes: z.coerce.number().int().min(0).max(480).nullable(),
+  maxBreakMinutes: z.coerce.number().int().min(0).max(480).nullable(),
 });
 
 export const employees = pgTable("employees", {
