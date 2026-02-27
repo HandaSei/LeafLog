@@ -1,5 +1,5 @@
 import { useForm } from "react-hook-form";
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -7,7 +7,7 @@ import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee, CustomRole } from "@shared/schema";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -42,10 +42,14 @@ const employeeFormSchema = z.object({
   department: z.string().optional(),
   color: z.string().default("#3B82F6"),
   status: z.string().default("active"),
-  accessCode: z.string().length(4, "Passcode must be 4 digits").regex(/^[0-9]+$/, "Passcode must be numeric"),
+  accessCode: z.string().min(4, "Passcode must be 4–6 digits").max(6, "Passcode must be 4–6 digits").regex(/^[0-9]+$/, "Passcode must be numeric"),
 });
 
 type EmployeeFormValues = z.infer<typeof employeeFormSchema>;
+
+function randomPasscode() {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
 
 interface EmployeeFormDialogProps {
   open: boolean;
@@ -69,14 +73,14 @@ export function EmployeeFormDialog({
   const form = useForm<EmployeeFormValues>({
     resolver: zodResolver(employeeFormSchema),
     defaultValues: {
-      name: employee?.name ?? "",
-      email: employee?.email ?? "",
-      phone: employee?.phone ?? "",
-      role: employee?.role ?? "",
-      department: employee?.department ?? "",
-      color: employee?.color ?? EMPLOYEE_COLORS[0],
-      status: employee?.status ?? "active",
-      accessCode: employee?.accessCode ?? "",
+      name: "",
+      email: "",
+      phone: "",
+      role: "",
+      department: "",
+      color: EMPLOYEE_COLORS[0],
+      status: "active",
+      accessCode: randomPasscode(),
     },
   });
 
@@ -90,10 +94,14 @@ export function EmployeeFormDialog({
         department: employee?.department ?? "",
         color: employee?.color ?? EMPLOYEE_COLORS[0],
         status: employee?.status ?? "active",
-        accessCode: employee?.accessCode ?? "",
+        accessCode: employee?.accessCode ?? randomPasscode(),
       });
     }
   }, [open, employee]);
+
+  const regenerate = useCallback(() => {
+    form.setValue("accessCode", randomPasscode(), { shouldValidate: true });
+  }, [form]);
 
   const mutation = useMutation({
     mutationFn: async (values: EmployeeFormValues) => {
@@ -243,15 +251,36 @@ export function EmployeeFormDialog({
               name="accessCode"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>SteepIn Passcode (4 digits)</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="e.g. 1234"
-                      maxLength={4}
-                      data-testid="input-employee-passcode"
-                      {...field}
-                    />
-                  </FormControl>
+                  <FormLabel>SteepIn Passcode (4–6 digits)</FormLabel>
+                  <div className="flex gap-2">
+                    <FormControl>
+                      <Input
+                        placeholder="e.g. 1234"
+                        maxLength={6}
+                        inputMode="numeric"
+                        data-testid="input-employee-passcode"
+                        {...field}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+                          field.onChange(val);
+                        }}
+                      />
+                    </FormControl>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="flex-shrink-0 h-9 w-9"
+                      onClick={regenerate}
+                      title="Generate random passcode"
+                      data-testid="button-regenerate-passcode"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    4 digits generated automatically — customise or regenerate as needed
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

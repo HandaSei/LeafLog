@@ -77,7 +77,7 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
   email: z.string().email().optional().or(z.literal("")),
   role: z.string().optional(),
   department: z.string().optional(),
-  accessCode: z.string().length(4, "Passcode must be 4 digits").regex(/^[0-9]+$/, "Passcode must be numeric").optional(),
+  accessCode: z.string().min(4, "Passcode must be 4–6 digits").max(6, "Passcode must be 4–6 digits").regex(/^[0-9]+$/, "Passcode must be numeric").optional(),
 }).omit({ id: true });
 
 export const insertShiftSchema = createInsertSchema(shifts, {
