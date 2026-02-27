@@ -190,11 +190,11 @@ export async function registerRoutes(
   });
 
   router.post("/api/kiosk/entries", requireRole("admin", "manager"), async (req, res) => {
-    const { employeeId, type, date, timestamp, shiftRole } = req.body;
+    const { employeeId, type, date, timestamp } = req.body;
     if (!employeeId || !type || !date) {
       return res.status(400).json({ message: "Employee ID, type, and date are required" });
     }
-    const entry = await storage.createTimeEntryManual(Number(employeeId), type, date, timestamp ? new Date(timestamp) : new Date(), shiftRole ?? null);
+    const entry = await storage.createTimeEntryManual(Number(employeeId), type, date, timestamp ? new Date(timestamp) : new Date());
     res.status(201).json(entry);
   });
 
@@ -258,28 +258,28 @@ export async function registerRoutes(
     }
     const role = await storage.updateCustomRole(Number(req.params.id), name.trim(), color);
     if (!role) return res.status(404).json({ message: "Role not found" });
-    if (currentRole && currentRole.name !== name.trim()) {
+    if (color && currentRole) {
+      await storage.updateEmployeeColorsByRole(name.trim(), color, req.session.userId!);
+      
+      // Update ALL existing shifts for these employees to the new color
       await pool.query(
-        "UPDATE employees SET role = $1 WHERE role = $2 AND owner_account_id = $3",
-        [name.trim(), currentRole.name, req.session.userId!]
+        `UPDATE shifts 
+         SET color = $1 
+         WHERE employee_id IN (
+           SELECT id FROM employees 
+           WHERE role = $2 AND owner_account_id = $3
+         )`,
+        [color, name.trim(), req.session.userId!]
       );
-      await pool.query(
-        "UPDATE shifts SET shift_role = $1 WHERE shift_role = $2 AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $3)",
-        [name.trim(), currentRole.name, req.session.userId!]
-      );
-    }
-    res.json({ ...role, previousName: currentRole?.name });
-  });
 
-  router.post("/api/roles/:id/cascade", requireRole("admin", "manager"), async (req, res) => {
-    const { color, roleName } = req.body;
-    if (!color || !roleName) return res.status(400).json({ message: "color and roleName are required" });
-    await storage.updateEmployeeColorsByRole(roleName, color, req.session.userId!);
-    await pool.query(
-      "UPDATE shifts SET color = $1 WHERE shift_role = $2 AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $3)",
-      [color, roleName, req.session.userId!]
-    );
-    res.json({ ok: true });
+      if (currentRole.name !== name.trim()) {
+        await pool.query(
+          "UPDATE employees SET role = $1 WHERE role = $2 AND owner_account_id = $3",
+          [name.trim(), currentRole.name, req.session.userId!]
+        );
+      }
+    }
+    res.json(role);
   });
 
   router.delete("/api/roles/:id", requireRole("admin", "manager"), async (req, res) => {

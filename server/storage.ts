@@ -46,7 +46,7 @@ export interface IStorage {
   expireAccessCodesForEmployee(employeeId: number): Promise<void>;
 
   createTimeEntry(employeeId: number, type: string, date: string): Promise<TimeEntry>;
-  createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, shiftRole?: string | null): Promise<TimeEntry>;
+  createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date): Promise<TimeEntry>;
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
   getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
@@ -223,34 +223,28 @@ export class DatabaseStorage implements IStorage {
     return entry;
   }
 
-  async createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, shiftRole?: string | null): Promise<TimeEntry> {
+  async createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date): Promise<TimeEntry> {
     const [entry] = await db.insert(timeEntries).values({
       employeeId,
       type,
       date,
       timestamp,
-      shiftRole: shiftRole ?? null,
     }).returning();
     return entry;
   }
 
-  private mapTimeEntry(row: any): TimeEntry {
-    return {
+  async getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]> {
+    const result = await pool.query(
+      "SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
+      [employeeId, date]
+    );
+    return result.rows.map((row: any) => ({
       id: row.id,
       employeeId: row.employee_id,
       type: row.type,
       timestamp: row.timestamp,
       date: row.entry_date,
-      shiftRole: row.shift_role ?? null,
-    };
-  }
-
-  async getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]> {
-    const result = await pool.query(
-      "SELECT id, employee_id, type, timestamp, entry_date::text, shift_role FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
-      [employeeId, date]
-    );
-    return result.rows.map((row: any) => this.mapTimeEntry(row));
+    }));
   }
 
   async getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]> {
@@ -259,16 +253,28 @@ export class DatabaseStorage implements IStorage {
       if (empIds.length === 0) return [];
       const placeholders = empIds.map((_, i) => `$${i + 2}`).join(',');
       const result = await pool.query(
-        `SELECT id, employee_id, type, timestamp, entry_date::text, shift_role FROM time_entries WHERE entry_date = $1 AND employee_id IN (${placeholders}) ORDER BY timestamp`,
+        `SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE entry_date = $1 AND employee_id IN (${placeholders}) ORDER BY timestamp`,
         [date, ...empIds]
       );
-      return result.rows.map((row: any) => this.mapTimeEntry(row));
+      return result.rows.map((row: any) => ({
+        id: row.id,
+        employeeId: row.employee_id,
+        type: row.type,
+        timestamp: row.timestamp,
+        date: row.entry_date,
+      }));
     }
     const result = await pool.query(
-      "SELECT id, employee_id, type, timestamp, entry_date::text, shift_role FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
+      "SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
       [date]
     );
-    return result.rows.map((row: any) => this.mapTimeEntry(row));
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      type: row.type,
+      timestamp: row.timestamp,
+      date: row.entry_date,
+    }));
   }
 
   async getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]> {
@@ -277,13 +283,25 @@ export class DatabaseStorage implements IStorage {
       if (empIds.length === 0) return [];
       const placeholders = empIds.map((_, i) => `$${i + 1}`).join(',');
       const result = await pool.query(
-        `SELECT id, employee_id, type, timestamp, entry_date::text, shift_role FROM time_entries WHERE employee_id IN (${placeholders}) ORDER BY timestamp`,
+        `SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries WHERE employee_id IN (${placeholders}) ORDER BY timestamp`,
         [...empIds]
       );
-      return result.rows.map((row: any) => this.mapTimeEntry(row));
+      return result.rows.map((row: any) => ({
+        id: row.id,
+        employeeId: row.employee_id,
+        type: row.type,
+        timestamp: row.timestamp,
+        date: row.entry_date,
+      }));
     }
-    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text, shift_role FROM time_entries ORDER BY timestamp");
-    return result.rows.map((row: any) => this.mapTimeEntry(row));
+    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text FROM time_entries ORDER BY timestamp");
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      type: row.type,
+      timestamp: row.timestamp,
+      date: row.entry_date,
+    }));
   }
 
   async updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined> {

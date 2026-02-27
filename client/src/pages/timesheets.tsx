@@ -36,7 +36,6 @@ interface EmployeeWorkday {
   unpaidBreakMinutes: number;
   netWorkedMinutes: number;
   status: "working" | "on-break" | "completed";
-  shiftRole?: string | null;
 }
 
 function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidBreakMinutes?: number | null): EmployeeWorkday[] {
@@ -71,8 +70,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
         status: "working",
         lastClockIn: ts,
         lastBreakStart: null,
-        onBreak: false,
-        shiftRole: entry.shiftRole ?? null,
+        onBreak: false
       };
     }
 
@@ -151,8 +149,7 @@ function finalizeWorkday(emp: Employee, wd: any, paidBreakMinutes?: number | nul
     totalBreakMinutes: wd.totalBreakMinutes,
     unpaidBreakMinutes,
     netWorkedMinutes,
-    status: wd.status,
-    shiftRole: wd.shiftRole ?? null,
+    status: wd.status
   };
 }
 
@@ -344,7 +341,6 @@ export default function Timesheets() {
   const [viewingDate, setViewingDate] = useState<Date | null>(null);
   const [addingTimesheet, setAddingTimesheet] = useState(false);
   const [newTimesheetEmployeeId, setNewTimesheetEmployeeId] = useState<string>("");
-  const [newTimesheetRole, setNewTimesheetRole] = useState<string>("");
   const [newTimesheetClockIn, setNewTimesheetClockIn] = useState<string>("");
   const [newTimesheetClockOut, setNewTimesheetClockOut] = useState<string>("");
   const [newTimesheetBreakStart, setNewTimesheetBreakStart] = useState<string>("");
@@ -386,7 +382,7 @@ export default function Timesheets() {
   });
 
   const addEntryMutation = useMutation({
-    mutationFn: async (data: { employeeId: number; type: string; date: string; timestamp: string; shiftRole?: string }) => {
+    mutationFn: async (data: { employeeId: number; type: string; date: string; timestamp: string }) => {
       const res = await apiRequest("POST", "/api/kiosk/entries", data);
       return res.json();
     },
@@ -630,8 +626,7 @@ export default function Timesheets() {
     if (!newTimesheetEmployeeId || !newTimesheetClockIn || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)) return;
     const dateStr = format(selectedDay, "yyyy-MM-dd");
     const empId = Number(newTimesheetEmployeeId);
-    const roleForSession = newTimesheetRole || undefined;
-    await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockIn}:00`).toISOString(), shiftRole: roleForSession });
+    await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockIn}:00`).toISOString() });
     if (newTimesheetBreakStart && newTimesheetBreakEnd && /^\d{2}:\d{2}$/.test(newTimesheetBreakStart) && /^\d{2}:\d{2}$/.test(newTimesheetBreakEnd)) {
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakStart}:00`).toISOString() });
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakEnd}:00`).toISOString() });
@@ -640,7 +635,7 @@ export default function Timesheets() {
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockOut}:00`).toISOString() });
     }
     toast({ title: "Success", description: "Timesheet added" });
-    setAddingTimesheet(false); setNewTimesheetEmployeeId(""); setNewTimesheetRole(""); setNewTimesheetClockIn(""); setNewTimesheetClockOut(""); setNewTimesheetBreakStart(""); setNewTimesheetBreakEnd("");
+    setAddingTimesheet(false); setNewTimesheetEmployeeId(""); setNewTimesheetClockIn(""); setNewTimesheetClockOut(""); setNewTimesheetBreakStart(""); setNewTimesheetBreakEnd("");
   };
 
   const handleExportPDF = async () => {
@@ -669,12 +664,9 @@ export default function Timesheets() {
   };
 
   const WorkdayCard = ({ wd, date }: { wd: EmployeeWorkday; date: Date }) => {
-    const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status, entries, shiftRole } = wd;
+    const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status, entries } = wd;
     const sc = statusConfig[status];
     const sessionKey = `${emp.id}-${clockIn?.getTime()}`;
-    const displayRole = shiftRole || emp.role;
-    const roleObj = displayRole ? customRoles.find(r => r.name === displayRole) : null;
-    const roleColor = roleObj?.color || emp.color || "#9CA3AF";
     return (
       <button
         key={sessionKey}
@@ -692,15 +684,7 @@ export default function Timesheets() {
             {clockIn ? format(clockIn, "HH:mm") : "--:--"} - {clockOut ? format(clockOut, "HH:mm") : ""}
           </div>
           <div className="flex items-center justify-between gap-2 mt-0.5">
-            <div className="flex items-center gap-1.5 min-w-0">
-              {displayRole && <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: roleColor }} />}
-              <span className="text-xs text-muted-foreground truncate">
-                {displayRole || "Loose Leaf (assign role)"}
-                {shiftRole && emp.role && shiftRole !== emp.role && (
-                  <span className="ml-1 opacity-60">(covering)</span>
-                )}
-              </span>
-            </div>
+            <span className="text-xs text-muted-foreground">{emp.role || "Loose Leaf (assign role)"}</span>
             <span className="text-sm font-semibold text-muted-foreground">{formatHoursDecimal(netWorkedMinutes)} h</span>
           </div>
           {totalBreakMinutes > 0 && (
@@ -1259,12 +1243,7 @@ export default function Timesheets() {
                 <div className="text-sm text-muted-foreground">{format(selectedDay, "EEEE, MMM d, yyyy")}</div>
                 <div className="space-y-2">
                   <Label>Employee</Label>
-                  <Select value={newTimesheetEmployeeId} onValueChange={(val) => {
-                    setNewTimesheetEmployeeId(val);
-                    const emp = employees.find(e => String(e.id) === val);
-                    if (emp?.role) setNewTimesheetRole(emp.role);
-                    else setNewTimesheetRole("");
-                  }}>
+                  <Select value={newTimesheetEmployeeId} onValueChange={setNewTimesheetEmployeeId}>
                     <SelectTrigger data-testid="select-timesheet-employee">
                       <SelectValue placeholder="Select employee" />
                     </SelectTrigger>
@@ -1272,28 +1251,6 @@ export default function Timesheets() {
                       {employees.filter(e => e.status === "active").sort((a, b) => a.name.localeCompare(b.name)).map(emp => (
                         <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Role <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                  <Select value={newTimesheetRole || "__none__"} onValueChange={(val) => setNewTimesheetRole(val === "__none__" ? "" : val)}>
-                    <SelectTrigger data-testid="select-timesheet-role">
-                      <SelectValue placeholder="No role selected" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">No role</SelectItem>
-                      {customRoles.map(role => {
-                        const color = role.color || "#9CA3AF";
-                        return (
-                          <SelectItem key={role.id} value={role.name}>
-                            <div className="flex items-center gap-2">
-                              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                              {role.name}
-                            </div>
-                          </SelectItem>
-                        );
-                      })}
                     </SelectContent>
                   </Select>
                 </div>
