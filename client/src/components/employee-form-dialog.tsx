@@ -2,10 +2,12 @@ import { useForm } from "react-hook-form";
 import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee } from "@shared/schema";
+import type { Employee, CustomRole } from "@shared/schema";
+import { AlertCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -31,8 +33,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EMPLOYEE_COLORS } from "@/lib/constants";
-import { useQuery } from "@tanstack/react-query";
-import type { CustomRole } from "@shared/schema";
 
 const employeeFormSchema = z.object({
   name: z.string().min(1, "Full name is required"),
@@ -58,6 +58,7 @@ export function EmployeeFormDialog({
   onOpenChange,
   employee,
 }: EmployeeFormDialogProps) {
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const isEditing = !!employee;
 
@@ -192,33 +193,57 @@ export function EmployeeFormDialog({
               )}
             />
             <div className="grid grid-cols-1 gap-3">
-              <FormField
-                control={form.control}
-                name="role"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Role (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-role">
-                          <SelectValue placeholder={customRoles.length === 0 ? "No roles — add them in Settings" : "Select a role"} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {customRoles.map((r) => (
-                          <SelectItem key={r.id} value={r.name}>
-                            <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
-                              {r.name}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {customRoles.length === 0 ? (
+                <div className="p-3 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-900/30 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-400">No roles found</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-500 mb-2">
+                      You need to create roles in settings before assigning them to employees.
+                    </p>
+                    <Button 
+                      type="button" 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-7 text-xs border-amber-200 hover:bg-amber-100"
+                      onClick={() => {
+                        onOpenChange(false);
+                        setLocation("/settings");
+                      }}
+                    >
+                      Go to Settings
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <FormField
+                  control={form.control}
+                  name="role"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Role (optional)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-role">
+                            <SelectValue placeholder="Select a role" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {customRoles.map((r) => (
+                            <SelectItem key={r.id} value={r.name}>
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                                {r.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
             </div>
             <FormField
               control={form.control}
