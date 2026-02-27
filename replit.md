@@ -12,7 +12,7 @@ A web-based employee shift management application for scheduling, tracking, and 
 - **Styling**: Tailwind CSS with sage green (#8B9E8B) primary, warm tan (#E8DCC4) backgrounds
 
 ## Project Structure
-- `client/src/pages/` - Dashboard, Schedule, Employees, Login, SteepIn, Timesheets, Settings pages
+- `client/src/pages/` - Dashboard, Schedule, Timesheets, Employees, Login, SteepIn, Settings pages
 - `client/src/components/` - AppSidebar, ShiftFormDialog, EmployeeFormDialog, EmployeeAvatar, AccessCodeDialog, ThemeProvider/Toggle, TimeInput/TimeRangeInput (custom analog clock picker), DateInput (custom calendar picker)
 - `client/src/lib/auth.tsx` - AuthProvider context with login/logout/register hooks
 - `client/src/lib/constants.ts` - Colors, departments, roles, utility functions

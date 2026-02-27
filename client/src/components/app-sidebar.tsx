@@ -40,8 +40,8 @@ export function AppSidebar() {
     { title: "Schedule", url: "/schedule", icon: Calendar },
     ...(isAdmin || isManager
       ? [
-          { title: "Employees", url: "/employees", icon: Users },
           { title: "Timesheets", url: "/timesheets", icon: FileText },
+          { title: "Employees", url: "/employees", icon: Users },
           { title: "Settings", url: "/settings", icon: Settings2 },
         ]
       : []),
