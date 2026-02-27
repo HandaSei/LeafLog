@@ -6,7 +6,7 @@ import type { Shift, Employee } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, ArrowRight, CalendarDays, CheckCircle2, Clock, AlertTriangle, XCircle, Coffee, AlertCircle } from "lucide-react";
+import { Calendar, ArrowRight, CalendarDays, CheckCircle2, Clock, AlertTriangle, XCircle, Coffee, AlertCircle, Plus } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { formatTime } from "@/lib/constants";
 
