@@ -166,7 +166,7 @@ export function ShiftFormDialog({
                             />
                             <span>{emp.name}</span>
                             <span className="text-muted-foreground text-xs">
-                              {emp.role}
+                              {emp.role || "Unassigned"}
                             </span>
                           </div>
                         </SelectItem>
