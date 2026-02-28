@@ -727,170 +727,174 @@ export default function Timesheets() {
   }
 
   return (
-    <div className="h-full overflow-auto flex flex-col">
-      <div className="p-4 pb-0 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="text-xl font-bold" data-testid="text-timesheets-title">Timesheets</h1>
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex flex-col gap-4 p-4 border-b bg-muted/20">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="flex items-center border rounded-md overflow-hidden">
+            <CalendarDays className="w-5 h-5 text-primary" />
+            <h2 className="text-xl font-bold tracking-tight" data-testid="text-timesheets-title">Timesheets</h2>
+          </div>
+          <Button
+            variant="default"
+            size="sm"
+            className="font-bold shadow-sm gap-1.5 px-4 h-9 bg-primary hover:bg-primary/90"
+            onClick={() => setAddingTimesheet(true)}
+            data-testid="button-add-timesheet"
+          >
+            <Plus className="w-4 h-4" /> Add Timesheet
+          </Button>
+        </div>
+
+        <div className="flex flex-col gap-3 bg-background rounded-lg border p-3 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1 bg-muted/30 rounded-lg p-1">
               <Button
-                variant={viewMode === "week" ? "default" : "ghost"}
+                variant={viewMode === "week" ? "secondary" : "ghost"}
                 size="sm"
-                className="rounded-none h-8 px-3 text-xs gap-1.5"
+                className="h-7 px-3 text-[10px] font-bold uppercase tracking-wider"
                 onClick={() => setViewMode("week")}
-                data-testid="button-view-week"
               >
-                <CalendarDays className="w-3.5 h-3.5" />
-                Week
+                Day
               </Button>
               <Button
-                variant={viewMode === "month" ? "default" : "ghost"}
+                variant={viewMode === "month" ? "secondary" : "ghost"}
                 size="sm"
-                className="rounded-none h-8 px-3 text-xs gap-1.5"
+                className="h-7 px-3 text-[10px] font-bold uppercase tracking-wider"
                 onClick={() => setViewMode("month")}
-                data-testid="button-view-month"
               >
-                <Calendar className="w-3.5 h-3.5" />
                 Month
               </Button>
             </div>
             <Button
               variant="outline"
               size="sm"
-              className="h-8 px-3 text-xs gap-1.5"
+              className="h-8 px-3 text-xs font-semibold gap-1.5"
               onClick={() => {
                 setExportSelectedEmployeeIds(employees.map(e => e.id));
                 setExportDialogOpen(true);
               }}
               data-testid="button-export-pdf"
             >
-              <FileDown className="w-3.5 h-3.5" />
-              Export PDF
+              <FileDown className="w-3.5 h-3.5" /> Export PDF
             </Button>
           </div>
-        </div>
 
-        {viewMode === "week" ? (
-          <>
-            <div className="flex items-center justify-center gap-2">
-              <Button variant="ghost" size="icon" onClick={() => navigateWeek(-1)} data-testid="button-week-prev">
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <span className="text-sm font-semibold" data-testid="text-week-range">
-                {format(selectedWeek, "MMM d")} - {format(weekEnd, "MMM d")}
-              </span>
-              <Button variant="ghost" size="icon" onClick={() => navigateWeek(1)} data-testid="button-week-next">
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="flex items-center justify-between gap-1">
-              {weekDays.map(day => {
-                const dayIsToday = isToday(day);
-                const dayIsSelected = isSameDay(day, selectedDay);
-                return (
-                  <button
-                    key={day.toISOString()}
-                    onClick={() => setSelectedDay(day)}
-                    className={`flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-md flex-1 cursor-pointer transition-colors
-                      ${dayIsSelected ? "bg-primary text-primary-foreground" : dayIsToday ? "bg-primary/10" : "hover-elevate"}`}
-                    data-testid={`button-day-${format(day, "EEE").toLowerCase()}`}
-                  >
-                    <span className="text-[10px] font-medium uppercase">{format(day, "EEEEE")}</span>
-                    <span className={`text-sm font-bold ${dayIsToday && !dayIsSelected ? "flex items-center justify-center w-7 h-7 rounded-full bg-primary text-primary-foreground" : ""}`}>
-                      {format(day, "d")}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        ) : (
-          <div className="flex items-center justify-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => navigateMonth(-1)} data-testid="button-month-prev">
+          <div className="flex items-center justify-between border-t pt-2 mt-1">
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => viewMode === "week" ? navigateWeek(-1) : navigateMonth(-1)}>
               <ChevronLeft className="w-4 h-4" />
             </Button>
-            <span className="text-sm font-semibold" data-testid="text-month-range">
-              {format(selectedMonth, "MMMM yyyy")}
-            </span>
-            <Button variant="ghost" size="icon" onClick={() => navigateMonth(1)} data-testid="button-month-next">
+            <div className="flex flex-col items-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                {viewMode === "week" ? "Selected Week" : "Selected Month"}
+              </span>
+              <span className="text-sm font-bold">
+                {viewMode === "week"
+                  ? `${format(selectedWeek, "MMM d")} - ${format(weekEnd, "MMM d")}`
+                  : format(selectedMonth, "MMMM yyyy")}
+              </span>
+            </div>
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => viewMode === "week" ? navigateWeek(1) : navigateMonth(1)}>
               <ChevronRight className="w-4 h-4" />
             </Button>
           </div>
-        )}
-
-        <div className="flex items-center gap-2 pb-2">
-          <Select value={selectedRole} onValueChange={setSelectedRole}>
-            <SelectTrigger className="w-[150px]" data-testid="select-role-filter">
-              <SelectValue placeholder="All Positions" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Positions</SelectItem>
-              {customRoles.map(role => (
-                <SelectItem key={role.id} value={role.name}>{role.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={employeeSearch === "" ? "all" : employeeSearch}
-            onValueChange={(val) => setEmployeeSearch(val === "all" ? "" : val)}
-          >
-            <SelectTrigger className="w-[180px]" data-testid="select-employee-filter">
-              <SelectValue placeholder="All Employees" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Employees</SelectItem>
-              {employees
-                .filter(e => e.status === "active")
-                .sort((a, b) => a.name.localeCompare(b.name))
-                .map(emp => (
-                  <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-          <div className="flex-1" />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setAddingTimesheet(true)}
-            data-testid="button-add-timesheet"
-          >
-            <Plus className="w-4 h-4 mr-1" />
-            Add Timesheet
-          </Button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-4 pb-4 space-y-3">
-        {viewMode === "week" ? (
-          workdays.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">No entries for this day.</div>
-          ) : (
-            workdays.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={selectedDay} />)
-          )
-        ) : (
-          monthWorkdays.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">No entries for this month.</div>
-          ) : (
-            monthWorkdays.map(({ date, workdays: dayWds }) => (
-              <div key={date.toISOString()} className="space-y-2">
-                <div className="flex items-center gap-2 pt-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    {format(date, "EEEE, MMM d")}
+      <div className="p-4 space-y-4 flex-1 overflow-auto">
+        <div className="flex flex-col md:flex-row gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 flex-1">
+            <Select value={selectedRole} onValueChange={setSelectedRole}>
+              <SelectTrigger className="w-full sm:w-[150px] h-9 text-sm" data-testid="select-role-filter">
+                <SelectValue placeholder="All Positions" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Positions</SelectItem>
+                {customRoles.map(role => (
+                  <SelectItem key={role.id} value={role.name}>{role.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={employeeSearch === "" ? "all" : employeeSearch}
+              onValueChange={(val) => setEmployeeSearch(val === "all" ? "" : val)}
+            >
+              <SelectTrigger className="w-full sm:w-[180px] h-9 text-sm" data-testid="select-employee-filter">
+                <SelectValue placeholder="All Employees" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Employees</SelectItem>
+                {employees
+                  .filter(e => e.status === "active")
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(emp => (
+                    <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {viewMode === "week" && (
+          <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
+            {weekDays.map(day => {
+              const dayIsToday = isToday(day);
+              const dayIsSelected = isSameDay(day, selectedDay);
+              return (
+                <button
+                  key={day.toISOString()}
+                  onClick={() => setSelectedDay(day)}
+                  className={`flex-shrink-0 flex flex-col items-center justify-center w-14 py-2 rounded-xl transition-all
+                    ${dayIsSelected ? "bg-primary text-primary-foreground shadow-md scale-105" : dayIsToday ? "bg-primary/10" : "bg-muted/50 hover:bg-muted"}`}
+                  data-testid={`button-day-${format(day, "EEE").toLowerCase()}`}
+                >
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${dayIsSelected ? "opacity-80" : "text-muted-foreground"}`}>
+                    {format(day, "EEE")}
                   </span>
-                  <div className="flex-1 h-px bg-border" />
-                  <span className="text-xs text-muted-foreground">
-                    {formatHoursDecimal(dayWds.reduce((s, w) => s + w.netWorkedMinutes, 0))} h total
-                  </span>
-                </div>
-                {dayWds.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={date} />)}
-              </div>
-            ))
-          )
+                  <span className="text-lg font-black">{format(day, "d")}</span>
+                </button>
+              );
+            })}
+          </div>
         )}
+
+        <div className="space-y-3 pb-20">
+          {viewMode === "week" ? (
+            workdays.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic text-sm">
+                <Calendar className="w-8 h-8 mb-2 opacity-20" />
+                <p>No entries for this day</p>
+              </div>
+            ) : (
+              workdays.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={selectedDay} />)
+            )
+          ) : (
+            monthWorkdays.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic text-sm">
+                <Calendar className="w-8 h-8 mb-2 opacity-20" />
+                <p>No entries for this month</p>
+              </div>
+            ) : (
+              monthWorkdays.map(({ date, workdays: dayWds }) => (
+                <div key={date.toISOString()} className="space-y-2">
+                  <div className="flex items-center gap-2 pt-2">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      {format(date, "EEEE, MMM d")}
+                    </span>
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted-foreground">
+                      {formatHoursDecimal(dayWds.reduce((s, w) => s + w.netWorkedMinutes, 0))} h total
+                    </span>
+                  </div>
+                  {dayWds.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={date} />)}
+                </div>
+              ))
+            )
+          )}
+        </div>
       </div>
 
       {(viewMode === "week" ? workdays.length > 0 : monthWorkdays.length > 0) && (
-        <div className="border-t px-4 py-3 flex items-center justify-end gap-2">
+        <div className="border-t bg-background sticky bottom-0 z-10 px-4 py-3 flex items-center justify-end gap-2 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <span className="text-sm text-muted-foreground">Total:</span>
           <span className="text-lg font-bold" data-testid="text-total-hours">{formatHoursDecimal(totalHours)} h</span>
         </div>
