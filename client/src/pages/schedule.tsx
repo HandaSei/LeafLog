@@ -261,59 +261,43 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
             const empH = Math.floor(empTotalMins / 60);
             const empM = empTotalMins % 60;
             const empDurationLabel = empM === 0 ? `${empH}h total` : `${empH}h ${empM}m total`;
-            return (
-              <div
-                key={empId}
-                className="flex items-stretch gap-3 rounded-lg border bg-card shadow-sm"
-                data-testid={`employee-row-${empId}`}
-              >
-                <div className="flex items-center gap-3 p-3 border-r bg-muted/20 min-w-[140px] shrink-0">
-                  <EmployeeAvatar name={emp?.name || "?"} color={emp?.color || "#3B82F6"} size="sm" />
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate">{emp?.name || "Unknown"}</div>
-                    <div className="text-[10px] text-muted-foreground">
-                      {empShifts.length} shift{empShifts.length !== 1 ? "s" : ""}
-                    </div>
-                    {showHours && empShifts.length > 0 && (
-                      <div className="text-[10px] font-semibold text-primary">{empDurationLabel}</div>
-                    )}
-                  </div>
-                </div>
-                <div 
-                  className="flex gap-3 items-center overflow-x-auto py-3 pr-3 hide-scrollbar cursor-grab active:cursor-grabbing select-none flex-1"
-                  onMouseDown={(e) => {
-                    const el = e.currentTarget;
-                    const startX = e.pageX - el.offsetLeft;
-                    const scrollLeft = el.scrollLeft;
-
-                    const handleMouseMove = (moveEvent: MouseEvent) => {
-                      const x = moveEvent.pageX - el.offsetLeft;
-                      const walk = (x - startX) * 1.5;
-                      el.scrollLeft = scrollLeft - walk;
-                    };
-
-                    const handleMouseUp = () => {
-                      window.removeEventListener('mousemove', handleMouseMove);
-                      window.removeEventListener('mouseup', handleMouseUp);
-                    };
-
-                    window.addEventListener('mousemove', handleMouseMove);
-                    window.addEventListener('mouseup', handleMouseUp);
-                  }}
-                >
-                  {empShifts.map((shift) => (
-                    <div key={shift.id} className="w-[180px] shrink-0">
-                      <ShiftCard
-                        shift={shift}
-                        employee={emp}
-                        onEdit={onEditShift}
-                        onDelete={onDeleteShift}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
+    return (
+      <div
+        key={empId}
+        className="flex flex-col gap-2 rounded-lg border bg-card shadow-sm p-3"
+        data-testid={`employee-row-${empId}`}
+      >
+        <div className="flex items-center justify-between gap-3 border-b pb-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <EmployeeAvatar name={emp?.name || "?"} color={emp?.color || "#3B82F6"} size="sm" />
+            <div className="text-sm font-semibold truncate">{emp?.name || "Unknown"}</div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="text-[10px] text-muted-foreground whitespace-nowrap">
+              {empShifts.length} shift{empShifts.length !== 1 ? "s" : ""}
+            </div>
+            {showHours && empShifts.length > 0 && (
+              <>
+                <div className="w-1 h-1 rounded-full bg-muted-foreground/30" />
+                <div className="text-[10px] font-semibold text-primary whitespace-nowrap">{empDurationLabel}</div>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {empShifts.map((shift) => (
+            <div key={shift.id} className="flex-1 min-w-[140px] max-w-[200px]">
+              <ShiftCard
+                shift={shift}
+                employee={emp}
+                onEdit={onEditShift}
+                onDelete={onDeleteShift}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
           })
         )}
       </div>
