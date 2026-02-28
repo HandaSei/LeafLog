@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { AccessCodeDialog } from "./access-code-dialog";
 import { FeedbackDialog } from "./feedback-dialog";
 import { FeedbackPanelDialog } from "./feedback-panel-dialog";
-import logoImage from "@assets/leaflog-logo-512.png";
+import logoImage from "@assets/m3MJU_1771476103365.png";
 
 export function AppSidebar() {
   const [location, setLocation] = useLocation();
