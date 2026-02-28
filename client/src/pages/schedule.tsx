@@ -24,6 +24,7 @@ export default function Schedule() {
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
+  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const { toast } = useToast();
 
   const dateRange = useMemo(() => {
@@ -34,6 +35,14 @@ export default function Schedule() {
   }, [currentDate]);
 
   const days = useMemo(() => getDaysBetween(dateRange.start, dateRange.end), [dateRange]);
+
+  useEffect(() => {
+    const todayIdx = days.findIndex((d) => isToday(d));
+    setSelectedDayIndex(todayIdx >= 0 ? todayIdx : 0);
+  }, [days]);
+
+  const selectedDay = days[selectedDayIndex];
+  const selectedDateStr = format(selectedDay, "yyyy-MM-dd");
 
   const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
     queryKey: ["/api/shifts"],
@@ -75,7 +84,7 @@ export default function Schedule() {
 
   const handleAddShift = (dateStr?: string) => {
     setEditingShift(null);
-    setSelectedDate(dateStr);
+    setSelectedDate(dateStr || selectedDateStr);
     setShiftDialogOpen(true);
   };
 
@@ -113,7 +122,7 @@ export default function Schedule() {
           <div className="flex flex-col items-center">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Current Week</span>
             <span className="text-sm font-bold" data-testid="text-date-range">
-              {format(dateRange.start, "MMM d")} - {format(dateRange.end, "MMM d, yyyy")}
+              {format(days[0], "MMM d")} - {format(days[6], "MMM d, yyyy")}
             </span>
           </div>
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(1)} data-testid="button-next-period">
@@ -122,18 +131,22 @@ export default function Schedule() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto">
         {isLoading ? (
-          <div className="grid grid-cols-7 gap-2">
-            {Array.from({ length: 7 }).map((_, i) => (
-              <Skeleton key={i} className="h-32 rounded-md" />
-            ))}
+          <div className="p-4">
+            <div className="grid grid-cols-7 gap-2">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <Skeleton key={i} className="h-32 rounded-md" />
+              ))}
+            </div>
           </div>
         ) : (
           <WeekView
             days={days}
             shiftsByDate={shiftsByDate}
             employeeMap={employeeMap}
+            selectedDayIndex={selectedDayIndex}
+            onSelectDayIndex={setSelectedDayIndex}
             onAddShift={handleAddShift}
             onEditShift={handleEditShift}
             onDeleteShift={(id) => deleteShift.mutate(id)}
@@ -155,20 +168,16 @@ interface CalendarViewProps {
   days: Date[];
   shiftsByDate: Map<string, Shift[]>;
   employeeMap: Map<number, Employee>;
+  selectedDayIndex: number;
+  onSelectDayIndex: (idx: number) => void;
   onAddShift: (dateStr: string) => void;
   onEditShift: (shift: Shift) => void;
   onDeleteShift: (id: number) => void;
 }
 
-function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, onDeleteShift }: CalendarViewProps) {
+function WeekView({ days, shiftsByDate, employeeMap, selectedDayIndex, onSelectDayIndex, onAddShift, onEditShift, onDeleteShift }: CalendarViewProps) {
   const { isManager, isAdmin } = useAuth();
   const showHours = isManager || isAdmin;
-  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
-
-  useEffect(() => {
-    const todayIdx = days.findIndex((d) => isToday(d));
-    setSelectedDayIndex(todayIdx >= 0 ? todayIdx : 0);
-  }, [days]);
 
   const selectedDay = days[selectedDayIndex];
   const selectedDateStr = format(selectedDay, "yyyy-MM-dd");
@@ -192,7 +201,7 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
   }, 0);
 
   return (
-    <div className="flex flex-col gap-4 h-full">
+    <div className="flex flex-col gap-4 h-full pb-20 px-4 pt-4">
       <div className="flex items-center gap-2 border rounded-lg p-1.5 bg-muted/30" data-testid="day-selector-bar">
         {days.map((day, idx) => {
           const today = isToday(day);
@@ -203,7 +212,7 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
           return (
             <button
               key={dateStr}
-              onClick={() => setSelectedDayIndex(idx)}
+              onClick={() => onSelectDayIndex(idx)}
               className={`flex-1 flex flex-col items-center py-2 px-1 rounded-md transition-colors ${
                 isSelected
                   ? "bg-primary text-primary-foreground shadow-sm"
@@ -268,43 +277,44 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
             const empH = Math.floor(empTotalMins / 60);
             const empM = empTotalMins % 60;
             const empDurationLabel = empM === 0 ? `${empH}h total` : `${empH}h ${empM}m total`;
-    return (
-      <div
-        key={empId}
-        className="flex flex-col gap-2 rounded-lg border bg-card shadow-sm p-3"
-        data-testid={`employee-row-${empId}`}
-      >
-        <div className="flex items-center justify-between gap-3 border-b pb-2">
-          <div className="flex items-center gap-3 min-w-0">
-            <EmployeeAvatar name={emp?.name || "?"} color={emp?.color || "#3B82F6"} size="sm" />
-            <div className="text-sm font-semibold truncate">{emp?.name || "Unknown"}</div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="text-[10px] text-muted-foreground whitespace-nowrap">
-              {empShifts.length} shift{empShifts.length !== 1 ? "s" : ""}
-            </div>
-            {showHours && empShifts.length > 0 && (
-              <>
-                <div className="w-1 h-1 rounded-full bg-muted-foreground/30" />
-                <div className="text-[10px] font-semibold text-primary whitespace-nowrap">{empDurationLabel}</div>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {empShifts.map((shift) => (
-            <div key={shift.id} className="flex-1 min-w-[140px] max-w-[200px]">
-              <ShiftCard
-                shift={shift}
-                employee={emp}
-                onEdit={onEditShift}
-                onDelete={onDeleteShift}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+            
+            return (
+              <div
+                key={empId}
+                className="flex flex-col gap-2 rounded-lg border bg-card shadow-sm p-3"
+                data-testid={`employee-row-${empId}`}
+              >
+                <div className="flex items-center justify-between gap-3 border-b pb-2">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <EmployeeAvatar name={emp?.name || "?"} color={emp?.color || "#3B82F6"} size="sm" />
+                    <div className="text-sm font-semibold truncate">{emp?.name || "Unknown"}</div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      {empShifts.length} shift{empShifts.length !== 1 ? "s" : ""}
+                    </div>
+                    {showHours && empShifts.length > 0 && (
+                      <>
+                        <div className="w-1 h-1 rounded-full bg-muted-foreground/30" />
+                        <div className="text-[10px] font-semibold text-primary whitespace-nowrap">{empDurationLabel}</div>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {empShifts.map((shift) => (
+                    <div key={shift.id} className="flex-1 min-w-[140px] max-w-[200px]">
+                      <ShiftCard
+                        shift={shift}
+                        employee={emp}
+                        onEdit={onEditShift}
+                        onDelete={onDeleteShift}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
           })
         )}
       </div>
