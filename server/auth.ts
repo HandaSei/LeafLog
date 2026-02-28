@@ -22,7 +22,15 @@ export function setupSession(app: any) {
   app.use(
     session({
       store: new PgStore({
-        conString: process.env.NEON_DATABASE_URL || process.env.DATABASE_URL,
+        conString: (() => {
+          let connStr = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
+          if (connStr) {
+            const u = new URL(connStr);
+            u.searchParams.delete("channel_binding");
+            connStr = u.toString();
+          }
+          return connStr;
+        })(),
         createTableIfMissing: true,
         ssl: (process.env.NEON_DATABASE_URL || process.env.DATABASE_URL)?.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
       }),

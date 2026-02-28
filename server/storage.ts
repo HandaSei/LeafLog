@@ -9,7 +9,12 @@ import {
   type AccessCode, type TimeEntry, type CustomRole, type Feedback,
 } from "@shared/schema";
 
-const connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
+let connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
+if (connectionString) {
+  const url = new URL(connectionString);
+  url.searchParams.delete("channel_binding");
+  connectionString = url.toString();
+}
 const isNeon = connectionString?.includes("neon.tech");
 export const pool = new pg.Pool({
   connectionString,

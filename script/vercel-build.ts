@@ -16,14 +16,23 @@ async function buildAll() {
     bundle: true,
     format: "esm",
     outfile: "api/index.mjs",
-    define: {
-      "process.env.NODE_ENV": '"production"',
-    },
-    minify: true,
-    external: [],
+    minify: false,
     alias: {
       "@shared": "./shared",
     },
+    external: [
+      "pg",
+      "pg-native",
+      "express",
+      "express-session",
+      "connect-pg-simple",
+      "bcryptjs",
+      "drizzle-orm",
+      "drizzle-orm/*",
+      "date-fns",
+      "crypto",
+      "zod",
+    ],
     logLevel: "info",
     target: "node18",
     banner: {
