@@ -1,13 +1,8 @@
 {
-  "buildCommand": "npx vite build",
+  "buildCommand": "npx tsx script/vercel-build.ts",
   "outputDirectory": "dist/public",
   "installCommand": "npm install",
   "framework": null,
-  "functions": {
-    "api/index.ts": {
-      "includeFiles": "server/**,shared/**"
-    }
-  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }
