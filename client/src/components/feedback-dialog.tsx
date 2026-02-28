@@ -76,18 +76,16 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
             {left} message{left !== 1 ? "s" : ""} remaining today
           </p>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
+        <div className="flex justify-end pt-2">
           <Button
             onClick={handleSubmit}
             disabled={mutation.isPending || !message.trim() || left === 0}
+            className="w-full sm:w-auto px-8"
             data-testid="button-send-feedback"
           >
             {mutation.isPending ? "Sending..." : "Send Feedback"}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

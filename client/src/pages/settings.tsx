@@ -542,17 +542,17 @@ export default function SettingsPage() {
               )}
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDeleteFlow}>Cancel</Button>
+          <div className="flex justify-end pt-2">
             <Button
               variant="destructive"
               onClick={handlePasswordCheck}
               disabled={!deletePassword.trim()}
+              className="w-full sm:w-auto px-8"
               data-testid="button-confirm-password"
             >
               Continue
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -332,18 +332,11 @@ export function ShiftFormDialog({
                   </FormItem>
                 )}
               />
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => onOpenChange(false)}
-                  data-testid="button-cancel-shift"
-                >
-                  Cancel
-                </Button>
+              <div className="flex justify-end pt-2">
                 <Button
                   type="submit"
                   disabled={mutation.isPending}
+                  className="w-full sm:w-auto px-8"
                   data-testid="button-save-shift"
                 >
                   {mutation.isPending
@@ -352,7 +345,7 @@ export function ShiftFormDialog({
                       ? "Update Shift"
                       : "Create Shift"}
                 </Button>
-              </DialogFooter>
+              </div>
             </form>
           )}
         </Form>

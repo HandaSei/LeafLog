@@ -969,17 +969,16 @@ export default function Timesheets() {
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancel</Button>
+          <div className="flex justify-end pt-4">
             <Button 
               onClick={handleExportPDF} 
               disabled={isExporting || exportSelectedEmployeeIds.length === 0}
-              className="gap-2"
+              className="w-full sm:w-auto px-8 gap-2"
             >
               <FileDown className="w-4 h-4" />
               {isExporting ? "Generating..." : "Download PDF"}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1224,12 +1223,16 @@ export default function Timesheets() {
               </div>
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingShift(null)}>Cancel</Button>
-            <Button onClick={handleSaveShiftEdit} disabled={updateEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(editShiftClockIn)} data-testid="button-save-shift-edit">
+          <div className="flex justify-end pt-2">
+            <Button 
+              onClick={handleSaveShiftEdit} 
+              disabled={updateEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(editShiftClockIn)} 
+              className="w-full sm:w-auto px-8"
+              data-testid="button-save-shift-edit"
+            >
               Save
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1245,12 +1248,16 @@ export default function Timesheets() {
               </div>
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingBreak(null)}>Cancel</Button>
-            <Button onClick={handleSaveBreakEdit} disabled={updateEntryMutation.isPending} data-testid="button-save-break-edit">
+          <div className="flex justify-end pt-2">
+            <Button 
+              onClick={handleSaveBreakEdit} 
+              disabled={updateEntryMutation.isPending} 
+              className="w-full sm:w-auto px-8"
+              data-testid="button-save-break-edit"
+            >
               Save
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1348,12 +1355,16 @@ export default function Timesheets() {
                   <TimeRangeInput startValue={newTimesheetBreakStart} endValue={newTimesheetBreakEnd} onStartChange={setNewTimesheetBreakStart} onEndChange={setNewTimesheetBreakEnd} startTestId="input-timesheet-break-start" endTestId="input-timesheet-break-end" />
                 </div>
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setAddingTimesheet(false)}>Cancel</Button>
-                <Button onClick={handleAddTimesheet} disabled={addEntryMutation.isPending || !newTimesheetEmployeeId || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)} data-testid="button-save-timesheet">
+              <div className="flex justify-end pt-4">
+                <Button 
+                  onClick={handleAddTimesheet} 
+                  disabled={addEntryMutation.isPending || !newTimesheetEmployeeId || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)} 
+                  className="w-full sm:w-auto px-8"
+                  data-testid="button-save-timesheet"
+                >
                   Add Timesheet
                 </Button>
-              </DialogFooter>
+              </div>
             </>
           )}
         </DialogContent>
