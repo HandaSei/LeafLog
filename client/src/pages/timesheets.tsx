@@ -44,20 +44,33 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
   const workdays: EmployeeWorkday[] = [];
   let currentWorkday: Partial<EmployeeWorkday> & { lastClockIn: Date | null; lastBreakStart: Date | null; onBreak: boolean } | null = null;
 
-  for (const entry of sorted) {
+  for (let i = 0; i < sorted.length; i++) {
+    const entry = sorted[i];
     const ts = new Date(entry.timestamp);
     
     if (entry.type === "clock-in") {
-      // If we already have a workday in progress, we don't start a new one here unless the previous one is closed.
-      // But according to the user's logic, a new clock-in should start a new session.
-      // If there's an existing session that wasn't clocked out, we effectively close it at the new clock-in time (or just before).
       if (currentWorkday && !currentWorkday.clockOut) {
-        // Finalize previous
-        if (currentWorkday.lastClockIn) {
-          currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastClockIn);
+        // Auto-close previous session if it's too long or a new one is starting soon
+        let autoClose = false;
+        const hoursElapsed = differenceInMinutes(ts, currentWorkday.lastClockIn!) / 60;
+        
+        if (hoursElapsed >= 24) {
+          autoClose = true;
+        } else if (hoursElapsed >= 15) {
+          // Check if this new clock-in is within 1 hour of the previous session "running"
+          // In this logic, if we are at 15h+ and a new clock-in happens, we close the old one.
+          autoClose = true;
         }
-        const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
-        workdays.push(finalized);
+
+        if (autoClose) {
+          const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
+          workdays.push(finalized);
+          currentWorkday = null;
+        } else {
+          // Traditional behavior: new clock-in force-closes previous at same timestamp
+          const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
+          workdays.push(finalized);
+        }
       }
       
       currentWorkday = {
@@ -112,11 +125,18 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
 
   // Handle open session
   if (currentWorkday) {
-    if (currentWorkday.lastClockIn) {
-      currentWorkday.totalWorkedMinutes! += differenceInMinutes(new Date(), currentWorkday.lastClockIn);
-    }
-    if (currentWorkday.lastBreakStart && currentWorkday.onBreak) {
-      currentWorkday.totalBreakMinutes! += differenceInMinutes(new Date(), currentWorkday.lastBreakStart);
+    const hoursElapsed = differenceInMinutes(new Date(), currentWorkday.lastClockIn!) / 60;
+    
+    if (hoursElapsed >= 24) {
+      // Mark as finished but without a clock-out (unfinished)
+      currentWorkday.status = "completed"; 
+    } else {
+      if (currentWorkday.lastClockIn) {
+        currentWorkday.totalWorkedMinutes! += differenceInMinutes(new Date(), currentWorkday.lastClockIn);
+      }
+      if (currentWorkday.lastBreakStart && currentWorkday.onBreak) {
+        currentWorkday.totalBreakMinutes! += differenceInMinutes(new Date(), currentWorkday.lastBreakStart);
+      }
     }
     workdays.push(finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes));
   }
@@ -265,7 +285,9 @@ async function exportPDF(
 
   grouped.forEach(({ date, workdays }) => {
     workdays.forEach(wd => {
-      const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes } = wd;
+      const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status } = wd;
+      if (status !== "completed") return; // Skip unfinished shifts
+
       grandTotal += netWorkedMinutes;
       const row: (string | number)[] = [
         format(date, "EEE, MMM d, yyyy"),
