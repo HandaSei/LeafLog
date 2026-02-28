@@ -7,7 +7,7 @@ import { AccessCodeDialog } from "./access-code-dialog";
 import { FeedbackDialog } from "./feedback-dialog";
 import { FeedbackPanelDialog } from "./feedback-panel-dialog";
 import { ThemeToggle } from "./theme-toggle";
-import logoImage from "@assets/m3MJU_1771476103365.png";
+import logoImage from "@assets/leaflog-logo-512.png";
 
 const PRIMARY = "#8B9E8B";
 
