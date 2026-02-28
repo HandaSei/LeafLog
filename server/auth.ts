@@ -33,7 +33,7 @@ export function setupSession(app: any) {
       cookie: {
         maxAge: 10 * 365 * 24 * 60 * 60 * 1000, // 10 years
         httpOnly: true,
-        secure: false,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
       },
     })
