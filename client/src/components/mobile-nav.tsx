@@ -12,15 +12,7 @@ import logoImage from "@assets/m3MJU_1771476103365.png";
 const PRIMARY = "#8B9E8B";
 
 export function MobileHeader() {
-  return (
-    <header className="md:hidden sticky top-0 z-50 flex items-center justify-between px-4 h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="flex items-center gap-2.5">
-        <img src={logoImage} alt="LeafLog" className="w-7 h-7 rounded-md object-cover" />
-        <span className="font-semibold text-sm tracking-tight">LeafLog</span>
-      </div>
-      <ThemeToggle />
-    </header>
-  );
+  return null; // Headers are now handled inside pages for better control
 }
 
 export function MobileBottomNav() {

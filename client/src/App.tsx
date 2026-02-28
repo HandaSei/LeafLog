@@ -47,8 +47,10 @@ function AuthenticatedLayout() {
         </div>
 
         <div className="flex flex-col flex-1 min-w-0">
-          {/* Mobile top header */}
-          <MobileHeader />
+          {/* Mobile top header — hidden on specific pages if needed, but here we keep it simple */}
+          <div className="md:hidden">
+            <MobileHeader />
+          </div>
 
           {/* Desktop top header */}
           <header className="hidden md:flex items-center justify-between gap-2 p-2 border-b sticky top-0 z-50 bg-background">

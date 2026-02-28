@@ -89,23 +89,26 @@ export default function Schedule() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-4 p-4 border-b flex-wrap relative">
-        <div className="flex items-center gap-3">
-          <CalendarDays className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold" data-testid="text-schedule-title">Schedule</h2>
+      <div className="flex flex-col p-4 border-b gap-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <CalendarDays className="w-5 h-5 text-primary" />
+            <h2 className="text-xl font-bold" data-testid="text-schedule-title">Schedule</h2>
+          </div>
+          <ThemeToggle />
         </div>
-        <div className="flex items-center gap-2 flex-wrap absolute left-1/2 -translate-x-1/2">
-          <Button size="icon" variant="ghost" onClick={() => navigate(-1)} data-testid="button-prev-period">
+        
+        <div className="flex items-center justify-center gap-4 bg-muted/30 rounded-xl p-2 relative">
+          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(-1)} data-testid="button-prev-period">
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <span className="text-sm font-medium min-w-[160px] text-center" data-testid="text-date-range">
+          <span className="text-sm font-semibold min-w-[140px] text-center" data-testid="text-date-range">
             {format(dateRange.start, "MMM d")} - {format(dateRange.end, "MMM d, yyyy")}
           </span>
-          <Button size="icon" variant="ghost" onClick={() => navigate(1)} data-testid="button-next-period">
+          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(1)} data-testid="button-next-period">
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
-        <div className="w-[100px] invisible md:visible"></div>
       </div>
 
       <div className="flex-1 overflow-auto p-4">
@@ -213,28 +216,30 @@ function WeekView({ days, shiftsByDate, employeeMap, onAddShift, onEditShift, on
         })}
       </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <h3 className="text-base font-semibold" data-testid="text-selected-day">
+      <div className="flex items-center justify-between gap-2 mt-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="text-lg font-bold" data-testid="text-selected-day">
             {format(selectedDay, "EEEE, MMM d")}
           </h3>
-          {showHours && dayShifts.length > 0 && (
-            <Badge variant="secondary" className="text-[10px] font-bold py-0 h-5">
-              {totalHours.toFixed(1)}h Total
+          <div className="flex items-center gap-1.5">
+            {showHours && dayShifts.length > 0 && (
+              <Badge variant="secondary" className="text-[10px] font-bold py-0.5 px-2 bg-primary/10 text-primary border-none">
+                {totalHours.toFixed(1)}h Total
+              </Badge>
+            )}
+            <Badge variant="outline" className="text-[10px] font-bold py-0.5 px-2 bg-muted/50 border-none">
+              {dayShifts.length} {dayShifts.length === 1 ? "shift" : "shifts"}
             </Badge>
-          )}
-          <Badge variant="outline" className="text-[10px] py-0 h-5">
-            {dayShifts.length} shift{dayShifts.length !== 1 ? "s" : ""}
-          </Badge>
+          </div>
         </div>
         <Button
-          variant="outline"
+          variant="default"
           size="sm"
-          className="text-[11px] font-bold border-dashed gap-1.5"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-md font-bold px-4 py-5 h-auto rounded-xl gap-2"
           onClick={() => onAddShift(selectedDateStr)}
           data-testid={`button-add-shift-${selectedDateStr}`}
         >
-          <Plus className="w-3.5 h-3.5" /> Add Shift
+          <Plus className="w-4 h-4" /> Add Shift
         </Button>
       </div>
 
