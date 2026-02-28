@@ -7,6 +7,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { MobileHeader, MobileBottomNav } from "@/components/mobile-nav";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import NotFound from "@/pages/not-found";
@@ -39,18 +40,31 @@ function AuthenticatedLayout() {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
-        <AppSidebar />
+      <div className="flex h-screen w-full overflow-hidden">
+        {/* Sidebar — hidden on mobile, visible on desktop */}
+        <div className="hidden md:block">
+          <AppSidebar />
+        </div>
+
         <div className="flex flex-col flex-1 min-w-0">
-          <header className="flex items-center justify-between gap-2 p-2 border-b sticky top-0 z-50 bg-background">
+          {/* Mobile top header */}
+          <MobileHeader />
+
+          {/* Desktop top header */}
+          <header className="hidden md:flex items-center justify-between gap-2 p-2 border-b sticky top-0 z-50 bg-background">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
             <ThemeToggle />
           </header>
-          <main className="flex-1 overflow-hidden">
+
+          {/* Main content — extra bottom padding on mobile for the bottom nav */}
+          <main className="flex-1 overflow-hidden pb-16 md:pb-0">
             <AuthenticatedRouter />
           </main>
         </div>
       </div>
+
+      {/* Mobile bottom nav */}
+      <MobileBottomNav />
     </SidebarProvider>
   );
 }

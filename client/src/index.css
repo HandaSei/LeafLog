@@ -308,3 +308,17 @@
     inset: -1px;
   }
 }
+
+/* Safe area insets for mobile (notch / home indicator) */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Mobile bottom nav spacing */
+@media (max-width: 767px) {
+  nav.mobile-bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
