@@ -18,12 +18,10 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 
 let initialized = false;
-let initPromise: Promise<void> | null = null;
 
 async function initialize() {
   if (initialized) return;
-  if (initPromise) return initPromise;
-  initPromise = (async () => {
+  try {
     await seedDatabase();
     const httpServer = createServer(app);
     await registerRoutes(httpServer, app);
@@ -36,11 +34,24 @@ async function initialize() {
       }
     });
     initialized = true;
-  })();
-  return initPromise;
+    console.log("Vercel handler initialized successfully");
+  } catch (err) {
+    console.error("Failed to initialize:", err);
+    throw err;
+  }
 }
 
 export default async function handler(req: Request, res: Response) {
-  await initialize();
-  app(req, res);
+  try {
+    await initialize();
+    return new Promise<void>((resolve) => {
+      res.on("finish", resolve);
+      app(req, res);
+    });
+  } catch (err: any) {
+    console.error("Handler error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Server initialization failed: " + (err.message || "unknown error") });
+    }
+  }
 }
