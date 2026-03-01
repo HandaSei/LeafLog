@@ -117,7 +117,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     await loginMutation.mutateAsync({ username, password });
-    window.location.href = "/";
   }, [loginMutation]);
 
   const loginSteepIn = useCallback(async (username: string, password: string) => {
@@ -126,12 +125,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithCode = useCallback(async (code: string) => {
     await codeMutation.mutateAsync(code);
-    window.location.href = "/";
   }, [codeMutation]);
 
   const registerManager = useCallback(async (username: string, password: string, agencyName: string) => {
     await registerMutation.mutateAsync({ username, password, agencyName });
-    window.location.href = "/";
   }, [registerMutation]);
 
   const registerAccount = useCallback(async (username: string, password: string, confirmPassword: string, email: string) => {
