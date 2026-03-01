@@ -4,7 +4,7 @@ import {
   format, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isSameDay,
   differenceInMinutes, startOfMonth, endOfMonth, addMonths, subMonths,
 } from "date-fns";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, Calendar, CalendarDays, Check, AlertCircle } from "lucide-react";
@@ -50,12 +50,15 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
     
     if (entry.type === "clock-in") {
       if (currentWorkday && !currentWorkday.clockOut) {
+        // Auto-close previous session if it's too long or a new one is starting soon
         let autoClose = false;
         const hoursElapsed = differenceInMinutes(ts, currentWorkday.lastClockIn!) / 60;
         
         if (hoursElapsed >= 24) {
           autoClose = true;
         } else if (hoursElapsed >= 15) {
+          // Check if this new clock-in is within 1 hour of the previous session "running"
+          // In this logic, if we are at 15h+ and a new clock-in happens, we close the old one.
           autoClose = true;
         }
 
@@ -64,6 +67,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
           workdays.push(finalized);
           currentWorkday = null;
         } else {
+          // Traditional behavior: new clock-in force-closes previous at same timestamp
           const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
           workdays.push(finalized);
         }
@@ -119,10 +123,12 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
     }
   }
 
+  // Handle open session
   if (currentWorkday) {
     const hoursElapsed = differenceInMinutes(new Date(), currentWorkday.lastClockIn!) / 60;
     
     if (hoursElapsed >= 24) {
+      // Mark as finished but without a clock-out (unfinished)
       currentWorkday.status = "completed"; 
     } else {
       if (currentWorkday.lastClockIn) {
@@ -241,6 +247,98 @@ function formatHoursDecimal(minutes: number): string {
   return (minutes / 60).toFixed(2);
 }
 
+async function exportPDF(
+  rangeStart: Date,
+  rangeEnd: Date,
+  rangeLabel: string,
+  entries: TimeEntry[],
+  employees: Employee[],
+  targetEmployeeIds: number[],
+  paidBreakMinutes?: number | null
+) {
+  const jspdf = await import("jspdf");
+  const autoTable = (await import("jspdf-autotable")).default;
+  const jsPDF = jspdf.jsPDF;
+
+  const doc = new jsPDF({ orientation: "landscape" });
+
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.text("Timesheet Report", 14, 16);
+
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(rangeLabel, 14, 24);
+  if (paidBreakMinutes != null && paidBreakMinutes > 0) {
+    doc.setFontSize(9);
+    doc.setTextColor(120, 100, 50);
+    doc.text(`Break policy: ${paidBreakMinutes} min paid break. Any excess deducted from worked hours.`, 14, 29);
+    doc.setTextColor(0, 0, 0);
+  }
+
+  const grouped = buildWorkdaysForRange(entries, employees, rangeStart, rangeEnd, "all", "", targetEmployeeIds, paidBreakMinutes);
+
+  const hasUnpaid = grouped.some(({ workdays }) => workdays.some(wd => wd.unpaidBreakMinutes > 0));
+
+  const rows: (string | number)[][] = [];
+  let grandTotal = 0;
+
+  grouped.forEach(({ date, workdays }) => {
+    workdays.forEach(wd => {
+      const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status } = wd;
+      if (status !== "completed") return; // Skip unfinished shifts
+
+      grandTotal += netWorkedMinutes;
+      const row: (string | number)[] = [
+        format(date, "EEE, MMM d, yyyy"),
+        emp.name,
+        emp.role || "Loose Leaf",
+        clockIn ? format(clockIn, "HH:mm") : "—",
+        clockOut ? format(clockOut, "HH:mm") : "—",
+        totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "—",
+        formatHoursDecimal(netWorkedMinutes) + " h",
+      ];
+      if (hasUnpaid) row.splice(6, 0, unpaidBreakMinutes > 0 ? `-${formatMinutes(unpaidBreakMinutes)}` : "—");
+      rows.push(row);
+    });
+  });
+
+  if (rows.length === 0) {
+    const emptyRow = ["No timesheet data for this period.", "", "", "", "", "", ""];
+    if (hasUnpaid) emptyRow.push("");
+    rows.push(emptyRow);
+  }
+
+  const head = hasUnpaid
+    ? [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Unpaid", "Hours"]]
+    : [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Hours"]];
+
+  const foot = rows.length > 1
+    ? hasUnpaid
+      ? [["", "", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      : [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+    : undefined;
+
+  const colStyles: Record<number, object> = hasUnpaid
+    ? { 0: { cellWidth: 38 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 20 }, 4: { cellWidth: 20 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 20, halign: "right" } }
+    : { 0: { cellWidth: 42 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 22 }, 4: { cellWidth: 22 }, 5: { cellWidth: 22 }, 6: { cellWidth: 22, halign: "right" } };
+
+  autoTable(doc, {
+    startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
+    head,
+    body: rows,
+    foot,
+    headStyles: { fillColor: [139, 158, 139], textColor: 255, fontStyle: "bold" },
+    footStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40], fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [252, 252, 252] },
+    styles: { fontSize: 9, cellPadding: 3 },
+    columnStyles: colStyles,
+  });
+
+  const safeLabel = rangeLabel.replace(/[^a-zA-Z0-9-]/g, "_");
+  doc.save(`timesheets_${safeLabel}.pdf`);
+}
+
 export default function Timesheets() {
   const [, setLocation] = useLocation();
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
@@ -254,17 +352,47 @@ export default function Timesheets() {
   const [editingShift, setEditingShift] = useState<EmployeeWorkday | null>(null);
   const [editShiftClockIn, setEditShiftClockIn] = useState<string>("");
   const [editShiftClockOut, setEditShiftClockOut] = useState<string>("");
-  
+  const [clockPicker, setClockPicker] = useState<{ open: boolean; value: string; onConfirm: (v: string) => void }>({
+    open: false, value: "00:00", onConfirm: () => {}
+  });
+
+  const openClock = (initialTime: string, onConfirm: (v: string) => void) => {
+    setClockPicker({ open: true, value: initialTime || format(new Date(), "HH:mm"), onConfirm });
+  };
+  const [viewingEmployeeId, setViewingEmployeeId] = useState<number | null>(null);
   const [viewingDate, setViewingDate] = useState<Date | null>(null);
   const [addingTimesheet, setAddingTimesheet] = useState(false);
+  const [newTimesheetEmployeeId, setNewTimesheetEmployeeId] = useState<string>("");
+  const [newTimesheetClockIn, setNewTimesheetClockIn] = useState<string>("");
+  const [newTimesheetClockOut, setNewTimesheetClockOut] = useState<string>("");
+  const [newTimesheetBreakStart, setNewTimesheetBreakStart] = useState<string>("");
+  const [newTimesheetBreakEnd, setNewTimesheetBreakEnd] = useState<string>("");
+  const [newTimesheetRole, setNewTimesheetRole] = useState<string>("");
+
+  const resetAddTimesheetForm = () => {
+    setNewTimesheetEmployeeId("");
+    setNewTimesheetClockIn("");
+    setNewTimesheetClockOut("");
+    setNewTimesheetBreakStart("");
+    setNewTimesheetBreakEnd("");
+    setNewTimesheetRole("");
+  };
+
+  const [addingClockOut, setAddingClockOut] = useState<EmployeeWorkday | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [clockOutTime, setClockOutTime] = useState<string>("");
+  const [editingBreak, setEditingBreak] = useState<{ start: TimeEntry | null, end: TimeEntry | null } | null>(null);
+  const [editBreakStart, setEditBreakStart] = useState<string>("");
+  const [editBreakEnd, setEditBreakEnd] = useState<string>("");
+  const [isExporting, setIsExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportSelectedEmployeeIds, setExportSelectedEmployeeIds] = useState<number[]>([]);
   const [exportStartDate, setExportStartDate] = useState(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
   const [exportEndDate, setExportEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const { toast } = useToast();
 
-  const weekEnd = useMemo(() => endOfWeek(selectedWeek, { weekStartsOn: 1 }), [selectedWeek]);
-  const weekDays = useMemo(() => eachDayOfInterval({ start: selectedWeek, end: weekEnd }), [selectedWeek, weekEnd]);
+  const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
+  const weekDays = useMemo(() => eachDayOfInterval({ start: selectedWeek, end: weekEnd }), [selectedWeek]);
   const monthEnd = useMemo(() => endOfMonth(selectedMonth), [selectedMonth]);
 
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
@@ -272,6 +400,46 @@ export default function Timesheets() {
   const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({ queryKey: ["/api/kiosk/entries"] });
   const { data: breakPolicy } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({ queryKey: ["/api/settings/break-policy"] });
   const paidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
+
+  const updateEntryMutation = useMutation({
+    mutationFn: async (data: { id: number; timestamp: string; role?: string }) => {
+      const body: any = { timestamp: data.timestamp };
+      if (data.role !== undefined) body.role = data.role;
+      const res = await apiRequest("PATCH", `/api/kiosk/entries/${data.id}`, body);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] });
+      toast({ title: "Success", description: "Time updated successfully" });
+      setEditingEntry(null);
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const addEntryMutation = useMutation({
+    mutationFn: async (data: { employeeId: number; type: string; date: string; timestamp: string; role?: string }) => {
+      const res = await apiRequest("POST", "/api/kiosk/entries", data);
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] }),
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteTimesheetMutation = useMutation({
+    mutationFn: async (data: { employeeId: number; date: string; entries: TimeEntry[] }) => {
+      // Delete all entries for this day
+      await apiRequest("DELETE", `/api/kiosk/entries?employeeId=${data.employeeId}&date=${data.date}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] });
+      toast({ title: "Success", description: "Timesheet deleted successfully" });
+      setSelectedWorkday(null);
+      setViewingDate(null);
+      setConfirmDelete(false);
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
 
   const navigateWeek = (direction: number) => {
     const next = new Date(selectedWeek);
@@ -298,253 +466,931 @@ export default function Timesheets() {
 
   const [selectedWorkday, setSelectedWorkday] = useState<EmployeeWorkday | null>(null);
 
-  const setViewingWorkdayManual = useCallback((wd: EmployeeWorkday, date: Date) => {
+  const setViewingWorkdayManual = (wd: EmployeeWorkday, date: Date) => {
     setSelectedWorkday(wd);
     setViewingDate(date);
-  }, []);
+  };
 
   const viewingWorkday = useMemo(() => {
     if (!selectedWorkday) return null;
     const dateToUse = viewingDate || selectedDay;
     const dayWorkdays = buildWorkdaysForDate(entries, employees, dateToUse, selectedRole, employeeSearch, paidBreakMinutes);
+    // Find matching session by clockIn time
     return dayWorkdays.find(w => 
       w.employee.id === selectedWorkday.employee.id && 
       w.clockIn?.getTime() === selectedWorkday.clockIn?.getTime()
     ) || null;
   }, [selectedWorkday, viewingDate, entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]);
 
+  const activeDay = viewingDate || selectedDay;
+
   const totalHours = useMemo(() => {
     if (viewMode === "week") return workdays.reduce((s, w) => s + w.netWorkedMinutes, 0);
     return monthWorkdays.reduce((s, d) => s + d.workdays.reduce((ss, w) => ss + w.netWorkedMinutes, 0), 0);
   }, [viewMode, workdays, monthWorkdays]);
 
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    working: { label: "Working", color: "#10B981" },
+    "on-break": { label: "On Break", color: "#F59E0B" },
+    completed: { label: "Completed", color: "#3B82F6" },
+  };
+
+  const handleEditEntry = (entry: TimeEntry) => {
+    setEditingEntry(entry);
+    setEditTime(format(new Date(entry.timestamp), "HH:mm"));
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingEntry || !editTime || !/^\d{2}:\d{2}$/.test(editTime)) return;
+    const entryDate = editingEntry.date;
+    const newTimestamp = new Date(`${entryDate}T${editTime}:00`);
+
+    // Validation: Check for chronological order within the session
+    if (viewingWorkday) {
+      const otherEntries = viewingWorkday.entries.filter(e => e.id !== editingEntry.id);
+      const isInvalid = otherEntries.some(e => {
+        const otherTs = new Date(e.timestamp);
+        if (editingEntry.type === "clock-in" && e.type !== "clock-in") return newTimestamp >= otherTs;
+        if (editingEntry.type === "clock-out" && e.type !== "clock-out") return newTimestamp <= otherTs;
+        if (editingEntry.type === "break-start") {
+          if (e.type === "clock-in") return newTimestamp <= otherTs;
+          if (e.type === "clock-out") return newTimestamp >= otherTs;
+          if (e.type === "break-end" && e.timestamp) return newTimestamp >= otherTs;
+        }
+        if (editingEntry.type === "break-end") {
+          if (e.type === "clock-in") return newTimestamp <= otherTs;
+          if (e.type === "clock-out") return newTimestamp >= otherTs;
+          if (e.type === "break-start" && e.timestamp) return newTimestamp <= otherTs;
+        }
+        return false;
+      });
+
+      if (isInvalid) {
+        toast({
+          title: "Invalid Time",
+          description: "This time would conflict with other entries in this session (e.g., break before clock-in).",
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+    
+    if (editingEntry.id) {
+      updateEntryMutation.mutate({ id: editingEntry.id, timestamp: newTimestamp.toISOString() });
+    } else {
+      // Handling "Add End" case where id is missing
+      addEntryMutation.mutate({
+        employeeId: editingEntry.employeeId,
+        type: editingEntry.type,
+        date: entryDate,
+        timestamp: newTimestamp.toISOString()
+      }, {
+        onSuccess: () => {
+          setEditingEntry(null);
+          setSelectedWorkday(null); // Refresh the view
+        }
+      });
+    }
+  };
+
+  const handleSaveShiftEdit = () => {
+    if (!editingShift || !/^\d{2}:\d{2}$/.test(editShiftClockIn)) return;
+    const dateStr = format(activeDay, "yyyy-MM-dd");
+    const clockInEntry = editingShift.entries.find(e => e.type === "clock-in");
+    const clockOutEntry = editingShift.entries.find(e => e.type === "clock-out");
+
+    // Validation: Clock out must be after clock in
+    if (editShiftClockIn && editShiftClockOut) {
+      if (editShiftClockOut <= editShiftClockIn) {
+        toast({
+          title: "Invalid Time",
+          description: "Clock out must be after clock in.",
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+
+    if (clockInEntry) updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockIn}:00`).toISOString() });
+    if (clockOutEntry && /^\d{2}:\d{2}$/.test(editShiftClockOut)) updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockOut}:00`).toISOString() });
+    setEditingShift(null);
+  };
+
+  const handleSaveBreakEdit = () => {
+    if (!editingBreak) return;
+
+    // Validation: Break end must be after break start
+    if (editBreakStart && editBreakEnd) {
+      if (editBreakEnd <= editBreakStart) {
+        toast({
+          title: "Invalid Time",
+          description: "Break end must be after break start.",
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+
+    // Validation: Break must be within session
+    if (viewingWorkday) {
+      const clockIn = viewingWorkday.clockIn ? format(viewingWorkday.clockIn, "HH:mm") : null;
+      const clockOut = viewingWorkday.clockOut ? format(viewingWorkday.clockOut, "HH:mm") : null;
+
+      if (clockIn && (editBreakStart < clockIn || editBreakEnd < clockIn)) {
+        toast({ title: "Invalid Time", description: "Break cannot start before clock in.", variant: "destructive" });
+        return;
+      }
+      if (clockOut && (editBreakStart > clockOut || editBreakEnd > clockOut)) {
+        toast({ title: "Invalid Time", description: "Break cannot end after clock out.", variant: "destructive" });
+        return;
+      }
+    }
+
+    if (editingBreak.start && /^\d{2}:\d{2}$/.test(editBreakStart)) {
+      const dateStr = editingBreak.start.date;
+      updateEntryMutation.mutate({ id: editingBreak.start.id, timestamp: new Date(`${dateStr}T${editBreakStart}:00`).toISOString() });
+    }
+    if (editingBreak.end && /^\d{2}:\d{2}$/.test(editBreakEnd)) {
+      const dateStr = editingBreak.end.date;
+      updateEntryMutation.mutate({ id: editingBreak.end.id, timestamp: new Date(`${dateStr}T${editBreakEnd}:00`).toISOString() });
+    }
+    setEditingBreak(null);
+  };
+
+  const [addingNewBreak, setAddingNewBreak] = useState<EmployeeWorkday | null>(null);
+  const [newBreakStartTime, setNewBreakStartTime] = useState<string>("");
+  const [newBreakEndTime, setNewBreakEndTime] = useState<string>("");
+
+  const handleAddNewBreak = () => {
+    if (!addingNewBreak || !newBreakStartTime || !newBreakEndTime) return;
+    if (!/^\d{2}:\d{2}$/.test(newBreakStartTime) || !/^\d{2}:\d{2}$/.test(newBreakEndTime)) return;
+    const dateStr = format(activeDay, "yyyy-MM-dd");
+    addEntryMutation.mutate(
+      { employeeId: addingNewBreak.employee.id, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newBreakStartTime}:00`).toISOString() },
+      {
+        onSuccess: () => {
+          addEntryMutation.mutate(
+            { employeeId: addingNewBreak!.employee.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newBreakEndTime}:00`).toISOString() },
+            {
+              onSuccess: () => {
+                setAddingNewBreak(null); setNewBreakStartTime(""); setNewBreakEndTime(""); setSelectedWorkday(null);
+                toast({ title: "Success", description: "Break added" });
+              }
+            }
+          );
+        }
+      }
+    );
+  };
+
+  const handleAddClockOut = () => {
+    if (!addingClockOut || !clockOutTime || !/^\d{2}:\d{2}$/.test(clockOutTime)) return;
+    const dateStr = format(activeDay, "yyyy-MM-dd");
+    addEntryMutation.mutate(
+      { employeeId: addingClockOut.employee.id, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${clockOutTime}:00`).toISOString() },
+      {
+        onSuccess: () => {
+          setAddingClockOut(null); setClockOutTime(""); setSelectedWorkday(null);
+          toast({ title: "Success", description: "Clock out added" });
+        }
+      }
+    );
+  };
+
+  const handleAddTimesheet = async () => {
+    if (!newTimesheetEmployeeId || !newTimesheetClockIn || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)) return;
+    const dateStr = format(selectedDay, "yyyy-MM-dd");
+    const empId = Number(newTimesheetEmployeeId);
+    const roleToSave = newTimesheetRole || undefined;
+    await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockIn}:00`).toISOString(), role: roleToSave });
+    if (newTimesheetBreakStart && newTimesheetBreakEnd && /^\d{2}:\d{2}$/.test(newTimesheetBreakStart) && /^\d{2}:\d{2}$/.test(newTimesheetBreakEnd)) {
+      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakStart}:00`).toISOString() });
+      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakEnd}:00`).toISOString() });
+    }
+    if (newTimesheetClockOut && /^\d{2}:\d{2}$/.test(newTimesheetClockOut)) {
+      await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockOut}:00`).toISOString() });
+    }
+    toast({ title: "Success", description: "Timesheet added" });
+    setAddingTimesheet(false);
+    resetAddTimesheetForm();
+  };
+
+  const handleExportPDF = async () => {
+    if (exportSelectedEmployeeIds.length === 0) {
+      toast({ title: "Error", description: "Please select at least one employee", variant: "destructive" });
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const start = new Date(exportStartDate);
+      const end = new Date(exportEndDate);
+      const rangeLabel = `Period: ${format(start, "MMM d, yyyy")} – ${format(end, "MMM d, yyyy")}`;
+      await exportPDF(start, end, rangeLabel, entries, employees, exportSelectedEmployeeIds, paidBreakMinutes);
+      setExportDialogOpen(false);
+    } catch (e: any) {
+      toast({ title: "Export failed", description: e.message, variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const toggleExportEmployee = (id: number) => {
+    setExportSelectedEmployeeIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const WorkdayCard = ({ wd, date }: { wd: EmployeeWorkday; date: Date }) => {
+    const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status, entries } = wd;
+    const sc = statusConfig[status];
+    const sessionKey = `${emp.id}-${clockIn?.getTime()}`;
+    return (
+      <button
+        key={sessionKey}
+        onClick={() => { setViewingWorkdayManual(wd, date); }}
+        className="w-full flex items-start gap-3 p-4 rounded-md border bg-card hover-elevate text-left cursor-pointer"
+        data-testid={`timesheet-card-${emp.id}`}
+      >
+        <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <span className="text-sm font-semibold truncate">{emp.name}</span>
+            <span className="text-xs font-semibold whitespace-nowrap" style={{ color: sc.color }}>{sc.label}</span>
+          </div>
+          <div className="text-base font-bold mt-0.5" data-testid={`text-work-time-${emp.id}`}>
+            {clockIn ? format(clockIn, "HH:mm") : "--:--"} - {clockOut ? format(clockOut, "HH:mm") : ""}
+          </div>
+          <div className="flex items-center justify-between gap-2 mt-0.5">
+            <span className="text-xs text-muted-foreground">{entries.find(e => e.type === "clock-in")?.role || emp.role || "Loose Leaf (assign role)"}</span>
+            <span className="text-sm font-semibold text-muted-foreground">{formatHoursDecimal(netWorkedMinutes)} h</span>
+          </div>
+          {totalBreakMinutes > 0 && (
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              Break: {formatMinutes(totalBreakMinutes)}
+              {unpaidBreakMinutes > 0 && (
+                <span className="text-red-500 ml-1">(-{formatMinutes(unpaidBreakMinutes)} unpaid)</span>
+              )}
+            </div>
+          )}
+        </div>
+      </button>
+    );
+  };
+
+  if (empsLoading || entriesLoading) {
+    return (
+      <div className="h-full overflow-auto p-6 space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-16 w-full" />
+        {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-md" />)}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col h-full bg-muted/20">
+    <div className="flex flex-col h-full overflow-hidden">
       <div className="flex flex-col gap-4 p-4 border-b bg-muted/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CalendarDays className="w-5 h-5 text-primary" />
-            <h2 className="text-xl font-bold tracking-tight">Timesheets</h2>
+            <h2 className="text-xl font-bold tracking-tight" data-testid="text-timesheets-title">Timesheets</h2>
           </div>
-          <Button 
-            size="sm" 
-            className="font-bold shadow-sm gap-1.5 h-9"
+          <Button
+            variant="default"
+            size="sm"
+            className="font-bold shadow-sm gap-1.5 px-4 h-9 bg-primary hover:bg-primary/90"
             onClick={() => setAddingTimesheet(true)}
+            data-testid="button-add-timesheet"
           >
             <Plus className="w-4 h-4" /> Add Timesheet
           </Button>
         </div>
 
-        <div className="flex items-center justify-between bg-background rounded-lg border p-1 shadow-sm">
-          <div className="flex bg-muted rounded-md p-1">
-            <button
-              onClick={() => setViewMode("week")}
-              className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-all ${
-                viewMode === "week" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
+        <div className="flex flex-col gap-3 bg-background rounded-lg border p-3 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1 bg-muted/30 rounded-lg p-1">
+              <Button
+                variant={viewMode === "week" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-3 text-[10px] font-bold uppercase tracking-wider"
+                onClick={() => setViewMode("week")}
+              >
+                Day
+              </Button>
+              <Button
+                variant={viewMode === "month" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-3 text-[10px] font-bold uppercase tracking-wider"
+                onClick={() => setViewMode("month")}
+              >
+                Month
+              </Button>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-xs font-semibold gap-1.5"
+              onClick={() => {
+                setExportSelectedEmployeeIds(employees.map(e => e.id));
+                setExportDialogOpen(true);
+              }}
+              data-testid="button-export-pdf"
             >
-              Day
-            </button>
-            <button
-              onClick={() => setViewMode("month")}
-              className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-all ${
-                viewMode === "month" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Month
-            </button>
+              <FileDown className="w-3.5 h-3.5" /> Export PDF
+            </Button>
           </div>
-          
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-8 text-xs font-bold gap-1.5"
-            onClick={() => setExportDialogOpen(true)}
-          >
-            <FileDown className="w-3.5 h-3.5" /> Export PDF
-          </Button>
-        </div>
-        
-        <div className="flex items-center justify-between bg-background rounded-lg border p-1 shadow-sm">
-          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => viewMode === "week" ? navigateWeek(-1) : navigateMonth(-1)}>
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <div className="flex flex-col items-center">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              {viewMode === "week" ? "Selected Week" : "Selected Month"}
-            </span>
-            <span className="text-sm font-bold">
-              {viewMode === "week" 
-                ? `${format(selectedWeek, "MMM d")} - ${format(weekEnd, "MMM d")}`
-                : format(selectedMonth, "MMMM yyyy")
-              }
-            </span>
+
+          <div className="flex items-center justify-between border-t pt-2 mt-1">
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => viewMode === "week" ? navigateWeek(-1) : navigateMonth(-1)}>
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <div className="flex flex-col items-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                {viewMode === "week" ? "Selected Week" : "Selected Month"}
+              </span>
+              <span className="text-sm font-bold">
+                {viewMode === "week"
+                  ? `${format(selectedWeek, "MMM d")} - ${format(weekEnd, "MMM d")}`
+                  : format(selectedMonth, "MMMM yyyy")}
+              </span>
+            </div>
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => viewMode === "week" ? navigateWeek(1) : navigateMonth(1)}>
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
-          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => viewMode === "week" ? navigateWeek(1) : navigateMonth(1)}>
-            <ChevronRight className="w-4 h-4" />
-          </Button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-4 space-y-4 pb-24">
-        <div className="flex flex-wrap gap-2">
-          <div className="w-[140px]">
+      <div className="p-4 space-y-4 flex-1 overflow-auto">
+        <div className="flex flex-col md:flex-row gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 flex-1">
             <Select value={selectedRole} onValueChange={setSelectedRole}>
-              <SelectTrigger className="h-9 text-xs font-medium">
+              <SelectTrigger className="w-full sm:w-[150px] h-9 text-sm" data-testid="select-role-filter">
                 <SelectValue placeholder="All Positions" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Positions</SelectItem>
-                <SelectItem value="manager">Manager</SelectItem>
-                <SelectItem value="employee">Employee</SelectItem>
                 {customRoles.map(role => (
                   <SelectItem key={role.id} value={role.name}>{role.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex-1 min-w-[180px]">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search employees..."
-                className="pl-9 h-9 text-xs"
-                value={employeeSearch}
-                onChange={(e) => setEmployeeSearch(e.target.value)}
-              />
-            </div>
+            <Select
+              value={employeeSearch === "" ? "all" : employeeSearch}
+              onValueChange={(val) => setEmployeeSearch(val === "all" ? "" : val)}
+            >
+              <SelectTrigger className="w-full sm:w-[180px] h-9 text-sm" data-testid="select-employee-filter">
+                <SelectValue placeholder="All Employees" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Employees</SelectItem>
+                {employees
+                  .filter(e => e.status === "active")
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(emp => (
+                    <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
         {viewMode === "week" && (
-          <div className="flex items-center gap-2 border rounded-lg p-1.5 bg-background shadow-sm overflow-x-auto hide-scrollbar">
-            {weekDays.map((day) => {
-              const today = isToday(day);
-              const isSelected = isSameDay(day, selectedDay);
-              const dayWorkdaysCount = buildWorkdaysForDate(entries, employees, day, selectedRole, employeeSearch, paidBreakMinutes).length;
-
+          <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
+            {weekDays.map(day => {
+              const dayIsToday = isToday(day);
+              const dayIsSelected = isSameDay(day, selectedDay);
               return (
                 <button
                   key={day.toISOString()}
                   onClick={() => setSelectedDay(day)}
-                  className={`flex-1 min-w-[44px] flex flex-col items-center py-2 px-1 rounded-md transition-all ${
-                    isSelected
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : today
-                        ? "bg-primary/10 text-primary hover:bg-primary/20"
-                        : "hover:bg-muted"
-                  }`}
+                  className={`flex-shrink-0 flex flex-col items-center justify-center w-14 py-2 rounded-xl transition-all
+                    ${dayIsSelected ? "bg-primary text-primary-foreground shadow-md scale-105" : dayIsToday ? "bg-primary/10" : "bg-muted/50 hover:bg-muted"}`}
+                  data-testid={`button-day-${format(day, "EEE").toLowerCase()}`}
                 >
-                  <span className={`text-[10px] uppercase tracking-wider font-bold ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${dayIsSelected ? "opacity-80" : "text-muted-foreground"}`}>
                     {format(day, "EEE")}
                   </span>
-                  <span className="text-lg font-black leading-tight">
-                    {format(day, "d")}
-                  </span>
-                  {dayWorkdaysCount > 0 && !isSelected && (
-                    <div className="w-1 h-1 rounded-full bg-primary mt-0.5" />
-                  )}
+                  <span className="text-lg font-black">{format(day, "d")}</span>
                 </button>
               );
             })}
           </div>
         )}
 
-        {entriesLoading || empsLoading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {viewMode === "week" ? (
-              workdays.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic gap-2">
-                  <Calendar className="w-10 h-10 opacity-20" />
-                  <p className="text-sm">No entries for this day</p>
-                </div>
-              ) : (
-                workdays.map((wd, i) => (
-                  <WorkdayCard key={`${wd.employee.id}-${i}`} workday={wd} date={selectedDay} onSelect={setViewingWorkdayManual} />
-                ))
-              )
+        <div className="space-y-3 pb-20">
+          {viewMode === "week" ? (
+            workdays.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic text-sm">
+                <Calendar className="w-8 h-8 mb-2 opacity-20" />
+                <p>No entries for this day</p>
+              </div>
             ) : (
-              monthWorkdays.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic gap-2">
-                  <Calendar className="w-10 h-10 opacity-20" />
-                  <p className="text-sm">No entries for this month</p>
-                </div>
-              ) : (
-                monthWorkdays.map(({ date, workdays: dayWds }) => (
-                  <div key={date.toISOString()} className="space-y-2">
-                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
+              workdays.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={selectedDay} />)
+            )
+          ) : (
+            monthWorkdays.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic text-sm">
+                <Calendar className="w-8 h-8 mb-2 opacity-20" />
+                <p>No entries for this month</p>
+              </div>
+            ) : (
+              monthWorkdays.map(({ date, workdays: dayWds }) => (
+                <div key={date.toISOString()} className="space-y-2">
+                  <div className="flex items-center gap-2 pt-2">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                       {format(date, "EEEE, MMM d")}
-                    </h3>
-                    {dayWds.map((wd, i) => (
-                      <WorkdayCard key={`${wd.employee.id}-${i}`} workday={wd} date={date} onSelect={setViewingWorkdayManual} />
-                    ))}
+                    </span>
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted-foreground">
+                      {formatHoursDecimal(dayWds.reduce((s, w) => s + w.netWorkedMinutes, 0))} h total
+                    </span>
                   </div>
-                ))
-              )
-            )}
-          </div>
-        )}
+                  {dayWds.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={date} />)}
+                </div>
+              ))
+            )
+          )}
+        </div>
       </div>
 
-      <div className="border-t bg-background sticky bottom-0 z-10 px-4 py-3 flex items-center justify-end gap-2 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-        <span className="text-sm text-muted-foreground">Total:</span>
-        <span className="text-lg font-bold" data-testid="text-total-hours">{formatHoursDecimal(totalHours)} h</span>
-      </div>
+      {(viewMode === "week" ? workdays.length > 0 : monthWorkdays.length > 0) && (
+        <div className="border-t bg-background sticky bottom-0 z-10 px-4 py-3 flex items-center justify-end gap-2 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+          <span className="text-sm text-muted-foreground">Total:</span>
+          <span className="text-lg font-bold" data-testid="text-total-hours">{formatHoursDecimal(totalHours)} h</span>
+        </div>
+      )}
 
-      {/* Rest of the dialogs and components should go here, maintaining the existing logic but fitting the new layout */}
-    </div>
-  );
-}
+      {/* Export PDF Dialog */}
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Export Timesheet PDF</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Time Period</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground">From</span>
+                  <DateInput
+                    value={exportStartDate}
+                    onChange={setExportStartDate}
+                    data-testid="input-export-start-date"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground">To</span>
+                  <DateInput
+                    value={exportEndDate}
+                    onChange={setExportEndDate}
+                    data-testid="input-export-end-date"
+                  />
+                </div>
+              </div>
+            </div>
 
-function WorkdayCard({ workday, date, onSelect }: { workday: EmployeeWorkday, date: Date, onSelect: (wd: EmployeeWorkday, date: Date) => void }) {
-  const { employee: emp, clockIn, clockOut, netWorkedMinutes, status } = workday;
-  const sc = {
-    working: { label: "Working", color: "text-emerald-600 bg-emerald-50" },
-    "on-break": { label: "On Break", color: "text-amber-600 bg-amber-50" },
-    completed: { label: "Completed", color: "text-blue-600 bg-blue-50" },
-  }[status];
-
-  return (
-    <div 
-      className="bg-card rounded-lg border shadow-sm p-3 hover-elevate cursor-pointer transition-all"
-      onClick={() => onSelect(workday, date)}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
-          <div className="min-w-0">
-            <div className="text-sm font-bold truncate">{emp.name}</div>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
-              {emp.role || "Loose Leaf"}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Employees</Label>
+                <Button 
+                  variant="link" 
+                  size="sm" 
+                  className="h-auto p-0 text-[11px]" 
+                  onClick={() => setExportSelectedEmployeeIds(
+                    exportSelectedEmployeeIds.length === employees.length ? [] : employees.map(e => e.id)
+                  )}
+                >
+                  {exportSelectedEmployeeIds.length === employees.length ? "Deselect All" : "Select All"}
+                </Button>
+              </div>
+              <div className="max-h-48 overflow-auto border rounded-md p-2 space-y-1">
+                {employees
+                  .filter(e => e.status === "active")
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(emp => (
+                    <div 
+                      key={emp.id} 
+                      className="flex items-center gap-2 p-1.5 rounded-sm hover:bg-muted/50 transition-colors cursor-pointer"
+                      onClick={() => toggleExportEmployee(emp.id)}
+                    >
+                      <Checkbox 
+                        checked={exportSelectedEmployeeIds.includes(emp.id)} 
+                        onCheckedChange={() => toggleExportEmployee(emp.id)}
+                        id={`export-emp-${emp.id}`}
+                      />
+                      <Label 
+                        htmlFor={`export-emp-${emp.id}`} 
+                        className="text-xs font-normal cursor-pointer flex-1"
+                      >
+                        {emp.name}
+                      </Label>
+                    </div>
+                  ))}
+              </div>
             </div>
           </div>
-        </div>
-        <div className="text-right">
-          <div className="text-sm font-black">{formatHoursDecimal(netWorkedMinutes)} h</div>
-          <div className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${sc.color}`}>
-            {sc.label}
+          <div className="flex justify-end pt-4">
+            <Button 
+              onClick={handleExportPDF} 
+              disabled={isExporting || exportSelectedEmployeeIds.length === 0}
+              className="w-full sm:w-auto px-8 gap-2"
+            >
+              <FileDown className="w-4 h-4" />
+              {isExporting ? "Generating..." : "Download PDF"}
+            </Button>
           </div>
-        </div>
-      </div>
-      <div className="flex items-center gap-4 mt-3 pt-3 border-t">
-        <div className="flex-1">
-          <div className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground mb-0.5">Clock In</div>
-          <div className="text-xs font-mono font-bold">{clockIn ? format(clockIn, "HH:mm") : "—"}</div>
-        </div>
-        <div className="flex-1">
-          <div className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground mb-0.5">Clock Out</div>
-          <div className="text-xs font-mono font-bold">{clockOut ? format(clockOut, "HH:mm") : "—"}</div>
-        </div>
-        <div className="flex-1 text-right">
-          <div className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground mb-0.5">Break</div>
-          <div className="text-xs font-mono font-bold">{workday.totalBreakMinutes > 0 ? formatMinutes(workday.totalBreakMinutes) : "—"}</div>
-        </div>
-      </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Detail Dialog */}
+      <Dialog open={!!viewingWorkday} onOpenChange={(open) => { 
+        if (!open) {
+          setSelectedWorkday(null); 
+          setViewingDate(null); 
+          setConfirmDelete(false);
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Timesheet Details</DialogTitle></DialogHeader>
+          {viewingWorkday && (() => {
+            const { employee: emp, entries: dayEntries, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status } = viewingWorkday;
+            const sc = statusConfig[status];
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold">{emp.name}</div>
+                    <div className="text-xs text-muted-foreground">{(() => {
+                      const clockInEntry = dayEntries.find(e => e.type === "clock-in");
+                      return clockInEntry?.role || emp.role || "Loose Leaf";
+                    })()}</div>
+                  </div>
+                  <Select
+                    value={dayEntries.find(e => e.type === "clock-in")?.role || emp.role || ""}
+                    onValueChange={(val) => {
+                      const clockInEntry = dayEntries.find(e => e.type === "clock-in");
+                      if (clockInEntry) {
+                        updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(clockInEntry.timestamp).toISOString(), role: val });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-[140px] h-7 text-xs" data-testid="select-detail-role">
+                      <SelectValue placeholder="Set role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customRoles.map(r => (
+                        <SelectItem key={r.id} value={r.name}>
+                          <span className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: r.color }} />
+                            {r.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Date</div>
+                    <div className="font-medium">{format(activeDay, "EEE, MMM d, yyyy")}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Status</div>
+                    <span className="text-xs font-semibold" style={{ color: sc.color }}>{sc.label}</span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Worked</div>
+                    <div className="font-medium">{formatMinutes(netWorkedMinutes)} ({formatHoursDecimal(netWorkedMinutes)} h)</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-0.5">Break</div>
+                    <div className="font-medium">{totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "No break"}</div>
+                    {unpaidBreakMinutes > 0 && (
+                      <div className="text-[11px] text-red-500">-{formatMinutes(unpaidBreakMinutes)} deducted</div>
+                    )}
+                  </div>
+                </div>
+                {(() => {
+                  const clockInEntry = dayEntries.find(e => e.type === "clock-in");
+                  const clockOutEntry = dayEntries.find(e => e.type === "clock-out");
+                  const dateStr = format(activeDay, "yyyy-MM-dd");
+                  return (
+                    <div className="rounded-md border p-3 text-sm">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Shift Time</span>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="icon" className="h-6 w-6"
+                            onClick={() => {
+                              setEditingShift(viewingWorkday);
+                              setEditShiftClockIn(clockIn ? format(clockIn, "HH:mm") : "");
+                              setEditShiftClockOut(clockOut ? format(clockOut, "HH:mm") : "");
+                            }}
+                            data-testid="button-edit-shift-time"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </Button>
+                          {!clockOut && (
+                            <Button variant="outline" size="sm" className="h-6 text-xs px-2"
+                              onClick={() => openClock(format(new Date(), "HH:mm"), (v) => {
+                                addEntryMutation.mutate({ employeeId: emp.id, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${v}:00`).toISOString() });
+                              })}
+                              data-testid="button-add-clock-out"
+                            >
+                              <Plus className="w-3 h-3 mr-1" /> Add Clock Out
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-0.5">Clock In</div>
+                          <div className="font-medium font-mono">{clockIn ? format(clockIn, "HH:mm") : "—"}</div>
+                        </div>
+                        <div className="text-muted-foreground mt-3">→</div>
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-0.5">Clock Out</div>
+                          <div className="font-medium font-mono">{clockOut ? format(clockOut, "HH:mm") : "—"}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {(() => {
+                  const breakStart = dayEntries.find(e => e.type === "break-start");
+                  const breakEnd = dayEntries.find(e => e.type === "break-end");
+                  if (!breakStart && !breakEnd) return null;
+                  const dateStr = format(activeDay, "yyyy-MM-dd");
+                  return (
+                    <div className="rounded-md border p-3 text-sm">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Break Time</span>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="icon" className="h-6 w-6"
+                            onClick={() => {
+                              setEditingBreak({ start: breakStart || null, end: breakEnd || null });
+                              setEditBreakStart(breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "");
+                              setEditBreakEnd(breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm") : "");
+                            }}
+                            data-testid="button-edit-break-time"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </Button>
+                          {!breakEnd && (
+                            <Button variant="outline" size="sm" className="h-6 text-xs px-2"
+                              onClick={() => openClock(format(new Date(), "HH:mm"), (v) => {
+                                addEntryMutation.mutate({ employeeId: emp.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${v}:00`).toISOString() });
+                              })}
+                              data-testid="button-add-break-end"
+                            >
+                              <Plus className="w-3 h-3 mr-1" /> Add End Break
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-0.5">Start</div>
+                          <div className="font-medium font-mono">{breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "—"}</div>
+                        </div>
+                        <div className="text-muted-foreground mt-3">→</div>
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-0.5">End</div>
+                          <div className="font-medium font-mono">{breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm") : "—"}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <Button variant="outline" size="sm" className="w-full"
+                  onClick={() => {
+                    const dateStr = format(activeDay, "yyyy-MM-dd");
+                    openClock(format(new Date(), "HH:mm"), (startVal) => {
+                      addEntryMutation.mutate(
+                        { employeeId: emp.id, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${startVal}:00`).toISOString() },
+                        { onSuccess: () => {
+                          openClock(format(new Date(), "HH:mm"), (endVal) => {
+                            addEntryMutation.mutate({ employeeId: emp.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${endVal}:00`).toISOString() });
+                          });
+                        }}
+                      );
+                    });
+                  }}
+                  data-testid="button-add-break"
+                >
+                  <Coffee className="w-4 h-4 mr-2" /> Add Break
+                </Button>
+
+                <div className="pt-2 border-t">
+                  {!confirmDelete ? (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => setConfirmDelete(true)}
+                      data-testid="button-delete-timesheet-init"
+                    >
+                      Delete Timesheet
+                    </Button>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[11px] text-center text-muted-foreground font-medium">Are you sure? This will delete all entries for this day.</p>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1 h-8"
+                          onClick={() => setConfirmDelete(false)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          className="flex-1 h-8"
+                          disabled={deleteTimesheetMutation.isPending}
+                          onClick={() => deleteTimesheetMutation.mutate({ 
+                            employeeId: emp.id, 
+                            date: format(activeDay, "yyyy-MM-dd"),
+                            entries: dayEntries
+                          })}
+                          data-testid="button-delete-timesheet-confirm"
+                        >
+                          {deleteTimesheetMutation.isPending ? "Deleting..." : "Confirm Delete"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Shift dialog — pencil edits both Clock In and Clock Out */}
+      <Dialog open={!!editingShift} onOpenChange={() => setEditingShift(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Edit Shift Time</DialogTitle></DialogHeader>
+          {editingShift && (
+            <div className="space-y-4 py-2">
+              <div className="text-sm text-muted-foreground">{editingShift.employee.name} — {format(activeDay, "EEE, MMM d, yyyy")}</div>
+              <div className="space-y-2">
+                <Label>Clock In / Clock Out</Label>
+                <TimeRangeInput startValue={editShiftClockIn} endValue={editShiftClockOut} onStartChange={setEditShiftClockIn} onEndChange={setEditShiftClockOut} startTestId="input-edit-shift-clock-in" endTestId="input-edit-shift-clock-out" />
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end pt-2">
+            <Button 
+              onClick={handleSaveShiftEdit} 
+              disabled={updateEntryMutation.isPending || !/^\d{2}:\d{2}$/.test(editShiftClockIn)} 
+              className="w-full sm:w-auto px-8"
+              data-testid="button-save-shift-edit"
+            >
+              Save
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Break dialog — pencil edits both Break Start and Break End */}
+      <Dialog open={!!editingBreak} onOpenChange={() => setEditingBreak(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Edit Break Time</DialogTitle></DialogHeader>
+          {editingBreak && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>Break Start / Break End</Label>
+                <TimeRangeInput startValue={editBreakStart} endValue={editBreakEnd} onStartChange={setEditBreakStart} onEndChange={setEditBreakEnd} startTestId="input-edit-break-start" endTestId="input-edit-break-end" />
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end pt-2">
+            <Button 
+              onClick={handleSaveBreakEdit} 
+              disabled={updateEntryMutation.isPending} 
+              className="w-full sm:w-auto px-8"
+              data-testid="button-save-break-edit"
+            >
+              Save
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Direct Clock Picker — only for single-action adds (Add Clock Out, Add End Break, Add Break) */}
+      <ClockPickerDialog
+        open={clockPicker.open}
+        onOpenChange={(open) => setClockPicker(p => ({ ...p, open }))}
+        value={clockPicker.value}
+        onChange={(v) => { clockPicker.onConfirm(v); setClockPicker(p => ({ ...p, open: false })); }}
+      />
+
+      {/* Add Timesheet */}
+      <Dialog 
+        open={addingTimesheet} 
+        onOpenChange={(open) => {
+          setAddingTimesheet(open);
+          if (!open) resetAddTimesheetForm();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Missing Timesheet</DialogTitle></DialogHeader>
+          {employees.filter(e => e.status === "active").length === 0 ? (
+            <div className="py-6 flex flex-col items-center text-center">
+              <AlertCircle className="w-12 h-12 text-amber-500 mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No employees found</h3>
+              <p className="text-sm text-muted-foreground mb-6 max-w-[300px]">
+                You need to add at least one employee before you can create a timesheet.
+              </p>
+              <Button 
+                onClick={() => {
+                  setAddingTimesheet(false);
+                  setLocation("/employees");
+                }}
+              >
+                Go to Employees
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-4 py-4">
+                <div className="text-sm text-muted-foreground">{format(selectedDay, "EEEE, MMM d, yyyy")}</div>
+                <div className="space-y-2">
+                  <Label>Employee</Label>
+                  <Select
+                    value={newTimesheetEmployeeId}
+                    onValueChange={(val) => {
+                      setNewTimesheetEmployeeId(val);
+                      const emp = employees.find(e => String(e.id) === val);
+                      if (emp?.role) setNewTimesheetRole(emp.role);
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-timesheet-employee">
+                      <SelectValue placeholder="Select employee" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {employees.filter(e => e.status === "active").sort((a, b) => a.name.localeCompare(b.name)).map(emp => (
+                        <SelectItem key={emp.id} value={String(emp.id)}>
+                          <span className="flex items-center gap-2">
+                            {emp.role && customRoles.find(r => r.name === emp.role) && (
+                              <span className="w-2.5 h-2.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: customRoles.find(r => r.name === emp.role)!.color }} />
+                            )}
+                            {emp.name}
+                            {emp.role && <span className="text-muted-foreground text-xs">{emp.role}</span>}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Role for this timesheet</Label>
+                  <Select value={newTimesheetRole} onValueChange={setNewTimesheetRole}>
+                    <SelectTrigger data-testid="select-timesheet-role">
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customRoles.map(r => (
+                        <SelectItem key={r.id} value={r.name}>
+                          <span className="flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: r.color }} />
+                            {r.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Shift Time</Label>
+                  <TimeRangeInput startValue={newTimesheetClockIn} endValue={newTimesheetClockOut} onStartChange={setNewTimesheetClockIn} onEndChange={setNewTimesheetClockOut} startTestId="input-timesheet-clock-in" endTestId="input-timesheet-clock-out" />
+                  <p className="text-xs text-muted-foreground">Clock out is optional</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Break <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                  <TimeRangeInput startValue={newTimesheetBreakStart} endValue={newTimesheetBreakEnd} onStartChange={setNewTimesheetBreakStart} onEndChange={setNewTimesheetBreakEnd} startTestId="input-timesheet-break-start" endTestId="input-timesheet-break-end" />
+                </div>
+              </div>
+              <div className="flex justify-end pt-4">
+                <Button 
+                  onClick={handleAddTimesheet} 
+                  disabled={addEntryMutation.isPending || !newTimesheetEmployeeId || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)} 
+                  className="w-full sm:w-auto px-8"
+                  data-testid="button-save-timesheet"
+                >
+                  Add Timesheet
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
