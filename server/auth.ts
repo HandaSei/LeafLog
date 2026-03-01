@@ -27,12 +27,15 @@ export function setupSession(app: any) {
           if (connStr) {
             const u = new URL(connStr);
             u.searchParams.delete("channel_binding");
+            // Use direct (non-pooler) connection for session store — Neon's PgBouncer
+            // transaction mode is incompatible with connect-pg-simple
+            u.hostname = u.hostname.replace("-pooler.", ".");
             connStr = u.toString();
           }
           return connStr;
         })(),
         createTableIfMissing: true,
-        ssl: (process.env.NEON_DATABASE_URL || process.env.DATABASE_URL)?.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+        ssl: { rejectUnauthorized: false },
       }),
       secret: process.env.SESSION_SECRET || "shiftflow-secret-key-change-me",
       resave: false,
