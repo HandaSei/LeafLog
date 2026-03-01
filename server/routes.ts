@@ -11,6 +11,43 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Middleware to redirect replit.app to a fake error page
+  app.use((req, res, next) => {
+    const host = req.headers.host || "";
+    if (host.includes("replit.app") && !host.includes("localhost") && !host.includes("127.0.0.1")) {
+      res.status(404).send(`
+        <html>
+          <head>
+            <title>404 Not Found</title>
+            <style>
+              body { 
+                background-color: black; 
+                color: #333; 
+                display: flex; 
+                justify-content: center; 
+                align-items: center; 
+                height: 100vh; 
+                margin: 0;
+                font-family: monospace;
+              }
+              .content { text-align: center; }
+              h1 { color: #222; font-size: 2rem; margin-bottom: 10px; }
+              p { color: #111; font-size: 1rem; }
+            </style>
+          </head>
+          <body>
+            <div class="content">
+              <h1>404 Not Found</h1>
+              <p>Are you sure you typed right?</p>
+            </div>
+          </body>
+        </html>
+      `);
+      return;
+    }
+    next();
+  });
+
   setupSession(app);
 
   const router = Router();
