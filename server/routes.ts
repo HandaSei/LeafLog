@@ -14,7 +14,7 @@ export async function registerRoutes(
   // Middleware to redirect replit.app to a fake error page
   app.use((req, res, next) => {
     const host = req.headers.host || "";
-    if (host.includes("replit.app") && !host.includes("localhost") && !host.includes("127.0.0.1")) {
+    if (host.includes("replit.app") && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("replit.dev")) {
       res.status(404).send(`
         <html>
           <head>
