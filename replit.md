@@ -12,50 +12,51 @@ A web-based employee shift management application for scheduling, tracking, and 
 - **Styling**: Tailwind CSS with sage green (#8B9E8B) primary, warm tan (#E8DCC4) backgrounds
 - **Time format**: 24-hour (HH:MM) throughout the entire app — never use 12-hour AM/PM
 
-## ⚠️ CRITICAL: Database Rules — Read Before Touching Anything
+## Database
 
 ### Which database is in use
-- **`NEON_DATABASE_URL`** (environment secret) is the LIVE database used by **both development and production**.
-- `DATABASE_URL` (Replit internal) is a fallback only — it is NOT the source of truth.
-- The app connects via: `process.env.NEON_DATABASE_URL || process.env.DATABASE_URL` in both `server/storage.ts` and `server/auth.ts`.
-- **NEVER delete or modify the `NEON_DATABASE_URL` secret.** Doing so will break the app in both dev and prod.
+- **`NEON_DATABASE_URL`** (environment secret) is the live database used by both development and production.
+- `DATABASE_URL` (Replit internal) is a fallback only — not the source of truth.
+- Both `server/storage.ts` and `server/auth.ts` connect via: `process.env.NEON_DATABASE_URL || process.env.DATABASE_URL`
+- Credentials live in the `NEON_DATABASE_URL` secret — don't hardcode them anywhere.
+
+### Connecting to Neon for manual SQL
+- **Direct connection** (use for psql, pg_dump, schema changes): strip `-pooler` from the hostname in `NEON_DATABASE_URL`
+  - Pattern: `...@ep-solitary-bar-alfuza4t.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require`
+- **Pooler connection** (what the app runtime uses): the full `NEON_DATABASE_URL` value as-is
 
 ### Schema vs actual database
-- `shared/schema.ts` defines the desired schema using Drizzle ORM.
-- **There is NO automatic migration system.** Schema changes in `schema.ts` do NOT apply to the actual database automatically.
-- To add a column or table: run a raw `ALTER TABLE` / `CREATE TABLE` SQL directly via `psql` against the Neon DB.
-- **Neon direct connection** (for psql/pg_dump): `postgresql://neondb_owner:...@ep-solitary-bar-alfuza4t.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require`
-- **Neon pooler connection** (for app runtime): `postgresql://neondb_owner:...@ep-solitary-bar-alfuza4t-pooler.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`
-- The actual passwords/credentials are in the `NEON_DATABASE_URL` secret — never hardcode them.
+- `shared/schema.ts` defines the Drizzle schema — but changes here do NOT automatically apply to the database.
+- To add a column or table, run `ALTER TABLE` / `CREATE TABLE` directly via psql against the Neon DB, then update `schema.ts` to match.
+- If a Drizzle `db.select().from(table)` query references a column in `schema.ts` that doesn't exist in the actual DB, the server will crash on startup.
 
-### Actual database schema (what really exists in the DB)
+### Actual database schema (what really exists)
 ```
-accounts: id, username, password, role, employee_id, agency_name, created_at, email, paid_break_minutes, max_break_minutes
-employees: id, name, role, color, passcode, status, owner_account_id, is_active
-shifts: id, employee_id, date, start_time, end_time, color, notes, role
+accounts:     id, username, password, role, employee_id, agency_name, created_at, email, paid_break_minutes, max_break_minutes
+employees:    id, name, role, color, passcode, status, owner_account_id, is_active
+shifts:       id, employee_id, date, start_time, end_time, color, notes, role
 access_codes: id, code, employee_id, created_by, created_at, expires_at, used
 time_entries: id, employee_id, entry_date, clock_in, clock_out, break_start, break_end, status, role
 custom_roles: id, account_id, name, color
-feedback: id, account_id, message, created_at
-session: (managed by connect-pg-simple for express-session)
+feedback:     id, account_id, message, created_at
+session:      managed by connect-pg-simple (auto-created)
 ```
 
 ### Session store
-- Uses `connect-pg-simple` with **the direct (non-pooler) Neon connection** — NOT the pooler.
-- Neon's PgBouncer pooler runs in transaction mode which is incompatible with session storage.
-- The session store strips `-pooler` from the hostname automatically: `u.hostname.replace("-pooler.", ".")`.
-- `createTableIfMissing: true` means the `session` table is created automatically if absent.
+- Uses `connect-pg-simple` pointed at the **direct (non-pooler)** Neon connection.
+- Neon's PgBouncer pooler runs in transaction mode — incompatible with session storage, causes logins to silently fail.
+- The session setup in `server/auth.ts` strips `-pooler.` from the hostname automatically.
+- `createTableIfMissing: true` so the session table self-creates if absent.
 
-## ⚠️ CRITICAL: Server Config Rules
+## Server Config
 
 ### trust proxy
-- `app.set("trust proxy", 1)` is set in `server/index.ts` — this is REQUIRED for secure cookies to work behind Replit's reverse proxy in production. Do NOT remove it.
+- `app.set("trust proxy", 1)` in `server/index.ts` is required for secure session cookies to work behind Replit's reverse proxy in production. Removing it breaks login on the deployed version.
 
-### Forbidden files — NEVER edit these
-- `vite.config.ts` — already configured, do not touch
-- `server/vite.ts` — already configured, do not touch
-- `package.json` — do not edit scripts; use the package manager tool to add packages
-- `drizzle.config.ts` — do not edit
+### Key config files
+- `vite.config.ts` and `server/vite.ts` — already set up; changing these usually breaks the dev/build pipeline
+- `drizzle.config.ts` — points to the DB; changing it affects migrations
+- `package.json` scripts — use the package manager tool to add packages rather than editing scripts directly
 
 ## Project Structure
 - `client/src/pages/` - Dashboard, Schedule, Timesheets, Employees, Login, SteepIn (kiosk), Settings
@@ -137,7 +138,7 @@ session: (managed by connect-pg-simple for express-session)
 - Time entry queries use raw SQL with `pool.query()` and `entry_date::text` cast (Drizzle had issues with date column)
 - `pool` is exported from `storage.ts` for direct SQL access in raw queries
 - Multi-tenant filtering uses `getEmployeeIdsByOwner()` helper to get employee IDs, then filters with `IN` clause
-- When adding new Drizzle queries that select from `accounts`, be aware ALL columns in `schema.ts` must exist in the actual DB or the query will crash
+- When adding new Drizzle queries that select from `accounts`, all columns referenced in `schema.ts` must exist in the actual DB
 
 ## Styling Rules
 - Primary color: sage green `#8B9E8B`
