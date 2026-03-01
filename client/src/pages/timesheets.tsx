@@ -857,7 +857,7 @@ export default function Timesheets() {
         </div>
 
         {viewMode === "week" && (
-          <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
+          <div className="grid grid-cols-7 gap-1.5">
             {weekDays.map(day => {
               const dayIsToday = isToday(day);
               const dayIsSelected = isSameDay(day, selectedDay);
@@ -865,7 +865,7 @@ export default function Timesheets() {
                 <button
                   key={day.toISOString()}
                   onClick={() => setSelectedDay(day)}
-                  className={`flex-shrink-0 flex flex-col items-center justify-center w-14 py-2 rounded-xl transition-all
+                  className={`flex flex-col items-center justify-center py-2 rounded-xl transition-all
                     ${dayIsSelected ? "bg-primary text-primary-foreground shadow-md scale-105" : dayIsToday ? "bg-primary/10" : "bg-muted/50 hover:bg-muted"}`}
                   data-testid={`button-day-${format(day, "EEE").toLowerCase()}`}
                 >
