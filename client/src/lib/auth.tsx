@@ -50,8 +50,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await apiRequest("POST", "/api/auth/login", { username, password });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/me"] });
     },
   });
 
@@ -60,8 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await apiRequest("POST", "/api/auth/steepin-login", { username, password });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/me"] });
     },
   });
 
@@ -70,8 +70,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await apiRequest("POST", "/api/auth/access-code", { code });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/me"] });
     },
   });
 
@@ -80,8 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await apiRequest("POST", "/api/auth/register-manager", { username, password, agencyName });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/me"] });
     },
   });
 
@@ -90,8 +90,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await apiRequest("POST", "/api/auth/register", { username, password, confirmPassword, email });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/me"] });
     },
   });
 
@@ -99,9 +99,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mutationFn: async () => {
       await apiRequest("POST", "/api/auth/logout");
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.clear();
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/me"] });
     },
   });
 
@@ -109,9 +109,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mutationFn: async () => {
       await apiRequest("POST", "/api/auth/steepin-exit");
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.clear();
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/me"] });
     },
   });
 
