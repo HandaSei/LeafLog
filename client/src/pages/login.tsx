@@ -38,6 +38,7 @@ export default function LoginPage() {
   const [registerForm, setRegisterForm] = useState({ username: "", password: "", email: "", agencyName: "" });
   const [signupForm, setSignupForm] = useState({ username: "", password: "", email: "", agencyName: "" });
   const [forgotForm, setForgotForm] = useState({ email: "" });
+  const [emailSent, setEmailSent] = useState(true);
   const [resetForm, setResetForm] = useState({ email: "", code: "", newPassword: "" });
   const [verifyCode, setVerifyCode] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
@@ -239,8 +240,11 @@ export default function LoginPage() {
       const result = await registerManager(registerForm.username, registerForm.password, registerForm.email, registerForm.agencyName);
       if (result.requiresVerification) {
         setPendingEmail(result.email);
+        setEmailSent(result.emailSent !== false);
         setView("verify-registration");
-        toast({ title: "Check your email", description: "We sent a verification code to your email." });
+        if (result.emailSent !== false) {
+          toast({ title: "Check your email", description: "We sent a verification code to your email." });
+        }
       }
     } catch (err: any) {
       toast({ title: "Registration failed", description: err.message, variant: "destructive" });
@@ -260,8 +264,11 @@ export default function LoginPage() {
       const result = await registerManager(signupForm.username, signupForm.password, signupForm.email, signupForm.agencyName);
       if (result.requiresVerification) {
         setPendingEmail(result.email);
+        setEmailSent(result.emailSent !== false);
         setView("verify-registration");
-        toast({ title: "Check your email", description: "We sent a verification code to your email." });
+        if (result.emailSent !== false) {
+          toast({ title: "Check your email", description: "We sent a verification code to your email." });
+        }
       }
     } catch (err: any) {
       toast({ title: "Registration failed", description: err.message, variant: "destructive" });
@@ -288,10 +295,13 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await forgotPassword(forgotForm.email);
+      const result = await forgotPassword(forgotForm.email);
       setResetForm({ ...resetForm, email: forgotForm.email });
+      setEmailSent(result?.emailSent !== false);
       setView("reset-password");
-      toast({ title: "Check your email", description: "If an account exists with that email, we sent a reset code." });
+      if (result?.emailSent !== false) {
+        toast({ title: "Check your email", description: "If an account exists with that email, we sent a reset code." });
+      }
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
@@ -375,9 +385,15 @@ export default function LoginPage() {
             <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-verify-title">
               Verify Your Email
             </h1>
-            <p className="text-sm" style={{ color: "#8a7d60" }}>
-              We sent a 6-digit code to <strong>{pendingEmail}</strong>
-            </p>
+            {emailSent ? (
+              <p className="text-sm" style={{ color: "#8a7d60" }}>
+                We sent a 6-digit code to <strong>{pendingEmail}</strong>
+              </p>
+            ) : (
+              <p className="text-sm" style={{ color: "#a06050" }}>
+                Email could not be sent — contact the app administrator for your verification code.
+              </p>
+            )}
           </div>
           <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
             <form onSubmit={handleVerifyRegistration} className="space-y-3">
@@ -395,7 +411,7 @@ export default function LoginPage() {
                 />
               </div>
               <p className="text-xs" style={{ color: "#c8c8b4" }}>
-                The code expires in 15 minutes. Check your spam folder if you don't see it.
+                {emailSent ? "The code expires in 15 minutes. Check your spam folder if you don't see it." : "The code was logged by the server administrator."}
               </p>
               <Button
                 type="submit"
@@ -488,9 +504,15 @@ export default function LoginPage() {
             <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-reset-title">
               Reset Password
             </h1>
-            <p className="text-sm" style={{ color: "#8a7d60" }}>
-              Enter the code sent to <strong>{resetForm.email}</strong>
-            </p>
+            {emailSent ? (
+              <p className="text-sm" style={{ color: "#8a7d60" }}>
+                Enter the code sent to <strong>{resetForm.email}</strong>
+              </p>
+            ) : (
+              <p className="text-sm" style={{ color: "#a06050" }}>
+                Email could not be sent — ask the app administrator for your reset code.
+              </p>
+            )}
           </div>
           <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
             <form onSubmit={handleResetPassword} className="space-y-3">

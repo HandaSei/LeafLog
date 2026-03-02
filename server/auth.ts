@@ -129,10 +129,10 @@ export function registerAuthRoutes(router: Router) {
 
     const sent = await sendVerificationEmail(parsed.data.email, code, "registration");
     if (!sent) {
-      return res.status(500).json({ message: "Failed to send verification email. Please try again." });
+      console.log(`[EMAIL FALLBACK] Registration code for ${parsed.data.email}: ${code}`);
     }
 
-    res.status(200).json({ requiresVerification: true, email: parsed.data.email });
+    res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent });
   });
 
   router.post("/api/auth/verify-email", async (req, res) => {
@@ -196,9 +196,12 @@ export function registerAuthRoutes(router: Router) {
     const code = generateCode();
     await storage.invalidatePendingVerifications(parsed.data.email, "recovery");
     await storage.createEmailVerification(parsed.data.email, code, "recovery", null, account.id);
-    await sendVerificationEmail(parsed.data.email, code, "recovery");
+    const sent = await sendVerificationEmail(parsed.data.email, code, "recovery");
+    if (!sent) {
+      console.log(`[EMAIL FALLBACK] Password reset code for ${parsed.data.email}: ${code}`);
+    }
 
-    res.status(200).json({ success: true });
+    res.status(200).json({ success: true, emailSent: sent });
   });
 
   router.post("/api/auth/reset-password", async (req, res) => {
@@ -256,10 +259,10 @@ export function registerAuthRoutes(router: Router) {
 
     const sent = await sendVerificationEmail(parsed.data.email, code, "employee-upgrade");
     if (!sent) {
-      return res.status(500).json({ message: "Failed to send verification email. Please try again." });
+      console.log(`[EMAIL FALLBACK] Employee upgrade code for ${parsed.data.email}: ${code}`);
     }
 
-    res.status(200).json({ requiresVerification: true, email: parsed.data.email });
+    res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent });
   });
 
   router.post("/api/auth/verify-employee-upgrade", requireAuth, async (req, res) => {
