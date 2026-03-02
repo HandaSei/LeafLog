@@ -447,7 +447,7 @@ export default function Timesheets() {
 
   const addEntryMutation = useMutation({
     mutationFn: async (data: { employeeId: number; type: string; date: string; timestamp: string; role?: string }) => {
-      const res = await apiRequest("POST", "/api/steepin/entries", data);
+      const res = await apiRequest("POST", "/api/steepin/entries", { ...data, role: data.role === "none" ? undefined : data.role });
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }),
@@ -693,11 +693,11 @@ export default function Timesheets() {
     const roleToSave = newTimesheetRole || undefined;
     await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockIn}:00`).toISOString(), role: roleToSave });
     if (newTimesheetBreakStart && newTimesheetBreakEnd && /^\d{2}:\d{2}$/.test(newTimesheetBreakStart) && /^\d{2}:\d{2}$/.test(newTimesheetBreakEnd)) {
-      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakStart}:00`).toISOString() });
-      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakEnd}:00`).toISOString() });
+      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakStart}:00`).toISOString(), role: roleToSave });
+      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakEnd}:00`).toISOString(), role: roleToSave });
     }
     if (newTimesheetClockOut && /^\d{2}:\d{2}$/.test(newTimesheetClockOut)) {
-      await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockOut}:00`).toISOString() });
+      await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockOut}:00`).toISOString(), role: roleToSave });
     }
     toast({ title: "Success", description: "Timesheet added" });
     setAddingTimesheet(false);
