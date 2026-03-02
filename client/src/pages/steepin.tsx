@@ -29,7 +29,7 @@ interface BreakPolicy {
 
 type ActionType = "clock-in" | "clock-out" | "break-start" | "break-end";
 
-export default function KioskPage() {
+export default function SteepInPage() {
   const { data: authState, isLoading: authLoading } = useQuery<any>({
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
@@ -41,23 +41,21 @@ export default function KioskPage() {
   const [passcode, setPasscode] = useState("");
   const [passcodeDialogOpen, setPasscodeDialogOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<ActionType | null>(null);
+  const [exitDialogOpen, setExitDialogOpen] = useState(false);
+  const [exitUsername, setExitUsername] = useState("");
+  const [exitPassword, setExitPassword] = useState("");
   const { toast } = useToast();
 
   const user = authState?.user;
   const isActive = !!authState?.authenticated && !!authState?.steepinMode;
 
-  useEffect(() => {
-    if (!authLoading && !isActive) {
-      setLocation("/login");
-    }
-  }, [authLoading, isActive, setLocation]);
-
   const { data: employees, isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/steepin/employees"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/steepin/employees");
+      if (!res.ok) throw new Error("Failed to fetch employees");
       const data = await res.json();
-      return data || [];
+      return Array.isArray(data) ? data : [];
     },
     enabled: isActive,
     staleTime: Infinity,
@@ -74,6 +72,12 @@ export default function KioskPage() {
     queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: isActive,
   });
+
+  useEffect(() => {
+    if (!authLoading && !isActive) {
+      setLocation("/login");
+    }
+  }, [authLoading, isActive, setLocation]);
 
   const actionMutation = useMutation({
     mutationFn: async ({ employeeId, type, passcode }: { employeeId: number; type: ActionType; passcode: string }) => {
@@ -97,6 +101,26 @@ export default function KioskPage() {
       toast({ title: "Error", description: err.message, variant: "destructive" });
       setPasscode("");
     },
+  });
+
+  const exitMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/auth/steepin-exit", { 
+        username: exitUsername, 
+        password: exitPassword 
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      setExitDialogOpen(false);
+      setExitUsername("");
+      setExitPassword("");
+      toast({ title: "SteepIn Exited", description: "Successfully deactivated SteepIn mode" });
+      setLocation("/login");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Exit Failed", description: err.message, variant: "destructive" });
+    }
   });
 
   const currentStatus = useMemo(() => {
@@ -143,33 +167,9 @@ export default function KioskPage() {
 
   const submitPasscode = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmployee || !pendingAction || passcode.length !== 4) return;
+    if (!selectedEmployee || !pendingAction || passcode.length < 4 || passcode.length > 6) return;
     actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode });
   };
-
-  const [exitDialogOpen, setExitDialogOpen] = useState(false);
-  const [exitUsername, setExitUsername] = useState("");
-  const [exitPassword, setExitPassword] = useState("");
-
-  const exitMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/auth/steepin-exit", { 
-        username: exitUsername, 
-        password: exitPassword 
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      setExitDialogOpen(false);
-      setExitUsername("");
-      setExitPassword("");
-      toast({ title: "SteepIn Exited", description: "Successfully deactivated SteepIn mode" });
-      setLocation("/login");
-    },
-    onError: (err: Error) => {
-      toast({ title: "Exit Failed", description: err.message, variant: "destructive" });
-    }
-  });
 
   const handleExitSteepIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -299,7 +299,7 @@ export default function KioskPage() {
             <DialogHeader>
               <DialogTitle>Enter Passcode</DialogTitle>
               <DialogDescription>
-                Please enter your 4-digit passcode to confirm this action.
+                Please enter your 4-6 digit passcode to confirm this action.
               </DialogDescription>
             </DialogHeader>
             {pendingAction === "break-start" && (breakPolicy?.paidBreakMinutes || breakPolicy?.maxBreakMinutes) && (
@@ -326,10 +326,10 @@ export default function KioskPage() {
                   type="password"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={4}
+                  maxLength={6}
                   value={passcode}
                   onChange={(e) => setPasscode(e.target.value)}
-                  className="w-32 text-center text-2xl tracking-[1em] h-12"
+                  className="w-40 text-center text-2xl tracking-[0.5em] h-12"
                   autoFocus
                   required
                 />
@@ -345,7 +345,7 @@ export default function KioskPage() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={passcode.length !== 4 || actionMutation.isPending}
+                  disabled={passcode.length < 4 || actionMutation.isPending}
                 >
                   {actionMutation.isPending ? "Verifying..." : "Confirm"}
                 </Button>
