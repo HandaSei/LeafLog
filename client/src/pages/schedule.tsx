@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, parseISO, isToday, differenceInMinutes } from "date-fns";
-import type { Shift, Employee } from "@shared/schema";
+import type { Shift, Employee, CustomRole } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -340,6 +340,7 @@ function shiftDuration(startTime: string, endTime: string): string {
 }
 
 function ShiftCard({ shift, employee, onEdit, onDelete }: ShiftCardProps) {
+  const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
   const bgColor = (shift.role ? (customRoles.find(r => r.name === shift.role)?.color || shift.color || employee?.color) : (employee?.color || "#9CA3AF")) || "#9CA3AF";
   const duration = shiftDuration(shift.startTime, shift.endTime);
 
