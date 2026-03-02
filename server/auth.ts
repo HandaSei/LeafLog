@@ -132,7 +132,7 @@ export function registerAuthRoutes(router: Router) {
       console.log(`[EMAIL FALLBACK] Registration code for ${parsed.data.email}: ${code}`);
     }
 
-    res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent });
+    res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent, fallbackCode: sent ? undefined : code });
   });
 
   router.post("/api/auth/verify-email", async (req, res) => {
@@ -201,7 +201,7 @@ export function registerAuthRoutes(router: Router) {
       console.log(`[EMAIL FALLBACK] Password reset code for ${parsed.data.email}: ${code}`);
     }
 
-    res.status(200).json({ success: true, emailSent: sent });
+    res.status(200).json({ success: true, emailSent: sent, fallbackCode: sent ? undefined : code });
   });
 
   router.post("/api/auth/reset-password", async (req, res) => {
@@ -262,7 +262,7 @@ export function registerAuthRoutes(router: Router) {
       console.log(`[EMAIL FALLBACK] Employee upgrade code for ${parsed.data.email}: ${code}`);
     }
 
-    res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent });
+    res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent, fallbackCode: sent ? undefined : code });
   });
 
   router.post("/api/auth/verify-employee-upgrade", requireAuth, async (req, res) => {

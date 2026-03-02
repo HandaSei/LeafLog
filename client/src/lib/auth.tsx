@@ -170,7 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [verifyEmailMutation]);
 
   const forgotPassword = useCallback(async (email: string) => {
-    await forgotPasswordMutation.mutateAsync(email);
+    return await forgotPasswordMutation.mutateAsync(email);
   }, [forgotPasswordMutation]);
 
   const resetPassword = useCallback(async (email: string, code: string, newPassword: string) => {

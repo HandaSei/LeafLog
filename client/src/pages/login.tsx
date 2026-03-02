@@ -39,6 +39,7 @@ export default function LoginPage() {
   const [signupForm, setSignupForm] = useState({ username: "", password: "", email: "", agencyName: "" });
   const [forgotForm, setForgotForm] = useState({ email: "" });
   const [emailSent, setEmailSent] = useState(true);
+  const [fallbackCode, setFallbackCode] = useState<string | undefined>(undefined);
   const [resetForm, setResetForm] = useState({ email: "", code: "", newPassword: "" });
   const [verifyCode, setVerifyCode] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
@@ -136,10 +137,23 @@ export default function LoginPage() {
               <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-verify-upgrade-title">
                 Verify Your Email
               </h1>
-              <p className="text-sm" style={{ color: "#8a7d60" }}>
-                We sent a 6-digit code to <strong>{upgradeEmail}</strong>
-              </p>
+              {emailSent ? (
+                <p className="text-sm" style={{ color: "#8a7d60" }}>
+                  We sent a 6-digit code to <strong>{upgradeEmail}</strong>
+                </p>
+              ) : (
+                <p className="text-sm" style={{ color: "#a06050" }}>
+                  Email delivery is not configured yet — your code appears below.
+                </p>
+              )}
             </div>
+            {!emailSent && fallbackCode && (
+              <div className="rounded-xl px-6 py-4 text-center" style={{ backgroundColor: "#f5f0e8", border: "2px dashed #8B9E8B" }}>
+                <p className="text-xs font-medium mb-2" style={{ color: "#8a7d60" }}>Your verification code</p>
+                <div className="font-mono text-3xl font-bold tracking-[0.4em]" style={{ color: LEAF_GREEN }} data-testid="text-upgrade-fallback-code">{fallbackCode}</div>
+                <p className="text-xs mt-2" style={{ color: "#aaa" }}>Copy this code and paste it below</p>
+              </div>
+            )}
             <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
               <form onSubmit={handleVerifyUpgrade} className="space-y-3">
                 <div className="space-y-1.5">
@@ -240,9 +254,11 @@ export default function LoginPage() {
       const result = await registerManager(registerForm.username, registerForm.password, registerForm.email, registerForm.agencyName);
       if (result.requiresVerification) {
         setPendingEmail(result.email);
-        setEmailSent(result.emailSent !== false);
+        const sent = result.emailSent !== false;
+        setEmailSent(sent);
+        setFallbackCode(sent ? undefined : result.fallbackCode);
         setView("verify-registration");
-        if (result.emailSent !== false) {
+        if (sent) {
           toast({ title: "Check your email", description: "We sent a verification code to your email." });
         }
       }
@@ -264,9 +280,11 @@ export default function LoginPage() {
       const result = await registerManager(signupForm.username, signupForm.password, signupForm.email, signupForm.agencyName);
       if (result.requiresVerification) {
         setPendingEmail(result.email);
-        setEmailSent(result.emailSent !== false);
+        const sent = result.emailSent !== false;
+        setEmailSent(sent);
+        setFallbackCode(sent ? undefined : result.fallbackCode);
         setView("verify-registration");
-        if (result.emailSent !== false) {
+        if (sent) {
           toast({ title: "Check your email", description: "We sent a verification code to your email." });
         }
       }
@@ -297,9 +315,11 @@ export default function LoginPage() {
     try {
       const result = await forgotPassword(forgotForm.email);
       setResetForm({ ...resetForm, email: forgotForm.email });
-      setEmailSent(result?.emailSent !== false);
+      const sent = result?.emailSent !== false;
+      setEmailSent(sent);
+      setFallbackCode(sent ? undefined : result?.fallbackCode);
       setView("reset-password");
-      if (result?.emailSent !== false) {
+      if (sent) {
         toast({ title: "Check your email", description: "If an account exists with that email, we sent a reset code." });
       }
     } catch (err: any) {
@@ -339,8 +359,13 @@ export default function LoginPage() {
       const result = await upgradeEmployee(upgradeForm.username, upgradeForm.password, upgradeForm.email);
       if (result.requiresVerification) {
         setUpgradeEmail(result.email);
+        const sent = result.emailSent !== false;
+        setEmailSent(sent);
+        setFallbackCode(sent ? undefined : result.fallbackCode);
         setView("verify-upgrade");
-        toast({ title: "Check your email", description: "We sent a verification code to your email." });
+        if (sent) {
+          toast({ title: "Check your email", description: "We sent a verification code to your email." });
+        }
       }
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -391,10 +416,17 @@ export default function LoginPage() {
               </p>
             ) : (
               <p className="text-sm" style={{ color: "#a06050" }}>
-                Email could not be sent — contact the app administrator for your verification code.
+                Email delivery is not configured yet — your code appears below.
               </p>
             )}
           </div>
+          {!emailSent && fallbackCode && (
+            <div className="rounded-xl px-6 py-4 text-center" style={{ backgroundColor: "#f5f0e8", border: "2px dashed #8B9E8B" }}>
+              <p className="text-xs font-medium mb-2" style={{ color: "#8a7d60" }}>Your verification code</p>
+              <div className="font-mono text-3xl font-bold tracking-[0.4em]" style={{ color: LEAF_GREEN }} data-testid="text-fallback-code">{fallbackCode}</div>
+              <p className="text-xs mt-2" style={{ color: "#aaa" }}>Copy this code and paste it below</p>
+            </div>
+          )}
           <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
             <form onSubmit={handleVerifyRegistration} className="space-y-3">
               <div className="space-y-1.5">
@@ -411,7 +443,7 @@ export default function LoginPage() {
                 />
               </div>
               <p className="text-xs" style={{ color: "#c8c8b4" }}>
-                {emailSent ? "The code expires in 15 minutes. Check your spam folder if you don't see it." : "The code was logged by the server administrator."}
+                {emailSent ? "The code expires in 15 minutes. Check your spam folder if you don't see it." : "Use the code shown above. It expires in 15 minutes."}
               </p>
               <Button
                 type="submit"
@@ -510,10 +542,17 @@ export default function LoginPage() {
               </p>
             ) : (
               <p className="text-sm" style={{ color: "#a06050" }}>
-                Email could not be sent — ask the app administrator for your reset code.
+                Email delivery is not configured yet — your code appears below.
               </p>
             )}
           </div>
+          {!emailSent && fallbackCode && (
+            <div className="rounded-xl px-6 py-4 text-center" style={{ backgroundColor: "#f5f0e8", border: "2px dashed #8B9E8B" }}>
+              <p className="text-xs font-medium mb-2" style={{ color: "#8a7d60" }}>Your reset code</p>
+              <div className="font-mono text-3xl font-bold tracking-[0.4em]" style={{ color: LEAF_GREEN }} data-testid="text-reset-fallback-code">{fallbackCode}</div>
+              <p className="text-xs mt-2" style={{ color: "#aaa" }}>Copy this code and paste it below</p>
+            </div>
+          )}
           <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
             <form onSubmit={handleResetPassword} className="space-y-3">
               <div className="space-y-1.5">
