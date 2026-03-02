@@ -274,23 +274,23 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
     }
     case "not-yet":
       return (
-        <div className="flex items-center gap-1.5 min-h-[32px]" data-testid="status-not-yet">
+        <div className="flex items-center gap-1.5" data-testid="status-not-yet">
           <Clock className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="text-[11px] text-muted-foreground">Starts in {status.minutesUntil}min</span>
         </div>
       );
     case "late":
       return (
-        <div className="flex items-center gap-1.5 min-h-[32px]" data-testid="status-late">
+        <div className="flex items-center gap-1.5" data-testid="status-late">
           <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
-          <span className="text-[11px] font-medium text-orange-600 dark:text-orange-400">Late · {status.minutesLate}min</span>
+          <span className="text-[11px] font-medium text-orange-600 dark:text-orange-400">Not yet clocked in · {status.minutesLate}min late</span>
         </div>
       );
     case "very-late":
       return (
-        <div className="flex items-center gap-1.5 min-h-[32px]" data-testid="status-very-late">
+        <div className="flex items-center gap-1.5" data-testid="status-very-late">
           <XCircle className="w-3.5 h-3.5 text-red-500" />
-          <span className="text-[11px] font-semibold text-red-600 dark:text-red-400">Very Late · {status.minutesLate}min</span>
+          <span className="text-[11px] font-semibold text-red-600 dark:text-red-400">Not yet at work · {status.minutesLate}min late</span>
         </div>
       );
     case "clocked-out": {
@@ -316,9 +316,9 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
     }
     case "waiting":
       return (
-        <div className="flex items-center gap-1.5 min-h-[32px]" data-testid="status-waiting">
+        <div className="flex items-center gap-1.5" data-testid="status-waiting">
           <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground">Waiting</span>
+          <span className="text-[11px] text-muted-foreground">Waiting for shift</span>
         </div>
       );
     case "working-no-schedule": {
