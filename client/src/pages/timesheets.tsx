@@ -470,7 +470,19 @@ export default function Timesheets() {
     setSelectedMonth(startOfMonth(next));
   };
 
-    const dailyWorkdays = useMemo(() => {
+  const entriesByEmployeeAndDay = useMemo(() => {
+    const map = new Map<string, TimeEntry[]>();
+    entries.forEach(entry => {
+      const dateStr = typeof entry.date === "string" ? entry.date.substring(0, 10) : format(new Date(entry.date), "yyyy-MM-dd");
+      const key = `${entry.employeeId}_${dateStr}`;
+      const list = map.get(key) || [];
+      list.push(entry);
+      map.set(key, list);
+    });
+    return map;
+  }, [entries]);
+
+  const dailyWorkdays = useMemo(() => {
     const map = new Map<number, EmployeeWorkday[]>();
     employees.forEach(emp => {
       const key = `${emp.id}_${format(selectedDay, "yyyy-MM-dd")}`;
@@ -482,6 +494,7 @@ export default function Timesheets() {
 
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
+      if (emp.status !== "active") return false;
       if (selectedRole !== "all" && emp.role !== selectedRole) return false;
       if (employeeSearch && !emp.name.toLowerCase().includes(employeeSearch.toLowerCase())) return false;
       return true;
@@ -495,18 +508,6 @@ export default function Timesheets() {
 
   const [selectedWorkday, setSelectedWorkday] = useState<EmployeeWorkday | null>(null);
 
-  const entriesByEmployeeAndDay = useMemo(() => {
-    const map = new Map<string, TimeEntry[]>();
-    entries.forEach(entry => {
-      const dateStr = typeof entry.date === "string" ? entry.date.substring(0, 10) : format(new Date(entry.date), "yyyy-MM-dd");
-      const key = `${entry.employeeId}_${dateStr}`;
-      const list = map.get(key) || [];
-      list.push(entry);
-      map.set(key, list);
-    });
-    return map;
-  }, [entries]);
-
   const setViewingWorkdayManual = (wd: EmployeeWorkday, date: Date) => {
     setSelectedWorkday(wd);
     setViewingDate(date);
@@ -516,9 +517,8 @@ export default function Timesheets() {
     if (!selectedWorkday) return null;
     const dateToUse = viewingDate || selectedDay;
     const dayWorkdays = buildWorkdaysForDate(entries, employees, dateToUse, selectedRole, employeeSearch, paidBreakMinutes);
-    // Find matching session by clockIn time
-    return dayWorkdays.find(w => 
-      w.employee.id === selectedWorkday.employee.id && 
+    return dayWorkdays.find(w =>
+      w.employee.id === selectedWorkday.employee.id &&
       w.clockIn?.getTime() === selectedWorkday.clockIn?.getTime()
     ) || null;
   }, [selectedWorkday, viewingDate, entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]);
@@ -526,9 +526,16 @@ export default function Timesheets() {
   const activeDay = viewingDate || selectedDay;
 
   const totalHours = useMemo(() => {
-    if (viewMode === "week") return workdays.reduce((s, w) => s + w.netWorkedMinutes, 0);
+    if (viewMode === "week") {
+      let total = 0;
+      filteredEmployees.forEach(emp => {
+        const sessions = dailyWorkdays.get(emp.id) || [];
+        sessions.forEach(s => { total += s.netWorkedMinutes; });
+      });
+      return total;
+    }
     return monthWorkdays.reduce((s, d) => s + d.workdays.reduce((ss, w) => ss + w.netWorkedMinutes, 0), 0);
-  }, [viewMode, workdays, monthWorkdays]);
+  }, [viewMode, filteredEmployees, dailyWorkdays, monthWorkdays]);
 
   const statusConfig: Record<string, { label: string; color: string }> = {
     working: { label: "Working", color: "#10B981" },
@@ -922,14 +929,21 @@ export default function Timesheets() {
 
         <div className="space-y-3 pb-20">
           {viewMode === "week" ? (
-            workdays.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic text-sm">
-                <Calendar className="w-8 h-8 mb-2 opacity-20" />
-                <p>No entries for this day</p>
-              </div>
-            ) : (
-              workdays.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={selectedDay} />)
-            )
+            (() => {
+              const daySessions = filteredEmployees.flatMap(emp =>
+                (dailyWorkdays.get(emp.id) || [])
+              );
+              return daySessions.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic text-sm">
+                  <Calendar className="w-8 h-8 mb-2 opacity-20" />
+                  <p>No entries for this day</p>
+                </div>
+              ) : (
+                daySessions.map((wd, i) => (
+                  <WorkdayCard key={`${wd.employee.id}-${i}`} wd={wd} date={selectedDay} />
+                ))
+              );
+            })()
           ) : (
             monthWorkdays.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic text-sm">
@@ -948,7 +962,7 @@ export default function Timesheets() {
                       {formatHoursDecimal(dayWds.reduce((s, w) => s + w.netWorkedMinutes, 0))} h total
                     </span>
                   </div>
-                  {dayWds.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={date} />)}
+                  {dayWds.map((wd, i) => <WorkdayCard key={`${wd.employee.id}-${i}`} wd={wd} date={date} />)}
                 </div>
               ))
             )
@@ -956,7 +970,7 @@ export default function Timesheets() {
         </div>
       </div>
 
-      {(viewMode === "week" ? workdays.length > 0 : monthWorkdays.length > 0) && (
+      {(viewMode === "week" ? totalHours > 0 : monthWorkdays.length > 0) && (
         <div className="border-t bg-background sticky bottom-0 z-10 px-4 py-3 flex items-center justify-end gap-2 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <span className="text-sm text-muted-foreground">Total:</span>
           <span className="text-lg font-bold" data-testid="text-total-hours">{formatHoursDecimal(totalHours)} h</span>
