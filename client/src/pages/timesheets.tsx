@@ -300,13 +300,12 @@ async function exportPDF(
         const row: (string | number)[] = [
           format(date, "EEE, MMM d, yyyy"),
           emp.name,
-          emp.role || "Loose Leaf",
-          clockIn ? format(clockIn, "HH:mm") : "—",
-          clockOut ? format(clockOut, "HH:mm") : "—",
+          emp.role || "No Role",
+          clockIn && clockOut ? `${format(clockIn, "HH:mm")} - ${format(clockOut, "HH:mm")}` : (clockIn ? format(clockIn, "HH:mm") : "—"),
           totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "—",
           formatHoursDecimal(netWorkedMinutes) + " h",
         ];
-        if (hasUnpaid) row.splice(6, 0, unpaidBreakMinutes > 0 ? `-${formatMinutes(unpaidBreakMinutes)}` : "—");
+        if (hasUnpaid) row.splice(5, 0, unpaidBreakMinutes > 0 ? `-${formatMinutes(unpaidBreakMinutes)}` : "—");
         rows.push(row);
       } else {
         const emp = sessions[0].employee;
@@ -320,37 +319,36 @@ async function exportPDF(
         const row: (string | number)[] = [
           format(date, "EEE, MMM d, yyyy"),
           emp.name,
-          emp.role || "Loose Leaf",
+          emp.role || "No Role",
           timeRanges,
-          "",
           totalBreak > 0 ? formatMinutes(totalBreak) : "—",
           formatHoursDecimal(totalNet) + " h",
         ];
-        if (hasUnpaid) row.splice(6, 0, totalUnpaid > 0 ? `-${formatMinutes(totalUnpaid)}` : "—");
+        if (hasUnpaid) row.splice(5, 0, totalUnpaid > 0 ? `-${formatMinutes(totalUnpaid)}` : "—");
         rows.push(row);
       }
     });
   });
 
   if (rows.length === 0) {
-    const emptyRow = ["No timesheet data for this period.", "", "", "", "", "", ""];
+    const emptyRow = ["No timesheet data for this period.", "", "", "", "", ""];
     if (hasUnpaid) emptyRow.push("");
     rows.push(emptyRow);
   }
 
   const head = hasUnpaid
-    ? [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Unpaid", "Hours"]]
-    : [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Hours"]];
+    ? [["Date", "Employee", "Role", "Shift Time", "Break", "Unpaid", "Hours"]]
+    : [["Date", "Employee", "Role", "Shift Time", "Break", "Hours"]];
 
   const foot = rows.length > 1
     ? hasUnpaid
-      ? [["", "", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
-      : [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      ? [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      : [["", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
     : undefined;
 
   const colStyles: Record<number, object> = hasUnpaid
-    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 30 }, 2: { cellWidth: 24 }, 3: { cellWidth: 32 }, 4: { cellWidth: 16 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 20, halign: "right" } }
-    : { 0: { cellWidth: 40 }, 1: { cellWidth: 34 }, 2: { cellWidth: 28 }, 3: { cellWidth: 36 }, 4: { cellWidth: 16 }, 5: { cellWidth: 20 }, 6: { cellWidth: 22, halign: "right" } };
+    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 48 }, 4: { cellWidth: 18 }, 5: { cellWidth: 18, textColor: [200, 60, 60] }, 6: { cellWidth: 22, halign: "right" } }
+    : { 0: { cellWidth: 40 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 54 }, 4: { cellWidth: 20 }, 5: { cellWidth: 24, halign: "right" } };
 
   autoTable(doc, {
     startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
@@ -360,7 +358,7 @@ async function exportPDF(
     headStyles: { fillColor: [139, 158, 139], textColor: 255, fontStyle: "bold" },
     footStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40], fontStyle: "bold" },
     alternateRowStyles: { fillColor: [252, 252, 252] },
-    styles: { fontSize: 9, cellPadding: 3 },
+    styles: { fontSize: 9, cellPadding: 3, lineWidth: 0.1, lineColor: [220, 220, 220] },
     columnStyles: colStyles,
   });
 
@@ -744,7 +742,7 @@ export default function Timesheets() {
           <div className="flex items-center gap-4">
             <div className="flex-shrink-0 border-r pr-3 min-w-[80px]">
               <span className="text-xs font-semibold truncate block">{emp.name}</span>
-              <span className="text-[10px] text-muted-foreground">{emp.role || "Loose Leaf"}</span>
+              <span className="text-[10px] text-muted-foreground">{emp.role || "No Role"}</span>
             </div>
             <div className="flex items-center gap-4 flex-nowrap">
               {sessions.map((wd, idx) => {

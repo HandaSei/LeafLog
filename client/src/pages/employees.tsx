@@ -147,7 +147,7 @@ export default function Employees() {
                       <div className="font-medium text-sm truncate" data-testid={`text-employee-name-${emp.id}`}>
                         {emp.name}
                       </div>
-                      <div className="text-xs text-muted-foreground truncate">{emp.role || "Loose Leaf (assign role)"}</div>
+                      <div className="text-xs text-muted-foreground truncate">{emp.role || "No Role"}</div>
                     </div>
                   </div>
                   <DropdownMenu>

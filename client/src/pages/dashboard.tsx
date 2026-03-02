@@ -557,7 +557,7 @@ export default function Dashboard() {
                             <div className="flex items-center gap-2">
                               <span className="text-xs font-semibold truncate">{row.employee.name}</span>
                               <span className="text-[10px] text-muted-foreground">
-                                {row.employee.role || "Loose Leaf"}
+                                {row.employee.role || "No Role"}
                               </span>
                             </div>
                             {row.shift && (
@@ -610,10 +610,10 @@ export default function Dashboard() {
                 >
                   <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-medium truncate">{emp.name}</div>
-                      <div className="text-[10px] text-muted-foreground">{emp.role || "Loose Leaf"}</div>
-                    </div>
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-medium truncate">{emp.name}</div>
+                        <div className="text-[10px] text-muted-foreground">{emp.role || "No Role"}</div>
+                      </div>
                     {shift && (
                       <div className="text-[10px] text-muted-foreground">
                         {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
