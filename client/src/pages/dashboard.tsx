@@ -236,15 +236,15 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = workedMins % 60;
       const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
       return (
-        <div className="flex flex-col gap-1" data-testid="status-on-time">
+        <div className="flex items-center gap-3" data-testid="status-on-time">
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-              <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Clocked in on time ({format(parseISO(status.clockInTime), "HH:mm")})</span>
+              <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Clocked in ({format(parseISO(status.clockInTime), "HH:mm")})</span>
             </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Working for {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[10px] text-muted-foreground ml-5">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex flex-wrap gap-1 ml-5">
+          <div className="flex items-center gap-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
           </div>
@@ -257,15 +257,15 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = workedMins % 60;
       const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
       return (
-        <div className="flex flex-col gap-1" data-testid="status-clocked-late">
+        <div className="flex items-center gap-3" data-testid="status-clocked-late">
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-              <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Clocked in {status.minutesLate}min late ({format(parseISO(status.clockInTime), "HH:mm")})</span>
+              <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Late ({format(parseISO(status.clockInTime), "HH:mm")})</span>
             </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Working for {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[10px] text-muted-foreground ml-5">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex flex-wrap gap-1 ml-5">
+          <div className="flex items-center gap-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
           </div>
@@ -299,15 +299,15 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = totalMins % 60;
       const hasWarning = !!status.noBreakWarning;
       return (
-        <div className="flex flex-col gap-1" data-testid="status-clocked-out">
+        <div className="flex items-center gap-3" data-testid="status-clocked-out">
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">Worked {format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
+              <span className="text-[11px] text-muted-foreground">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
             </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Total time: {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[10px] text-muted-foreground ml-5">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex flex-wrap gap-1 ml-5">
+          <div className="flex items-center gap-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} isDone />}
           </div>
@@ -327,15 +327,15 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = workedMins % 60;
       const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
       return (
-        <div className="flex flex-col gap-1" data-testid="status-working-no-schedule">
+        <div className="flex items-center gap-3" data-testid="status-working-no-schedule">
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-              <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Working since {format(parseISO(status.clockInTime), "HH:mm")} (no schedule)</span>
+              <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Working ({format(parseISO(status.clockInTime), "HH:mm")})</span>
             </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Working for {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[10px] text-muted-foreground ml-5">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex flex-wrap gap-1 ml-5">
+          <div className="flex items-center gap-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
           </div>
@@ -348,15 +348,15 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = totalMins % 60;
       const hasWarning = !!status.noBreakWarning;
       return (
-        <div className="flex flex-col gap-1" data-testid="status-done-no-schedule">
+        <div className="flex items-center gap-3" data-testid="status-done-no-schedule">
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">Worked {format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")} (no schedule)</span>
+              <span className="text-[11px] text-muted-foreground">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
             </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Total time: {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[10px] text-muted-foreground ml-5">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex flex-wrap gap-1 ml-5">
+          <div className="flex items-center gap-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} isDone />}
           </div>
@@ -552,29 +552,39 @@ export default function Dashboard() {
                       />
                       <EmployeeAvatar name={row.employee.name} color={row.employee.color} size="sm" />
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-medium truncate">{row.employee.name}</span>
-                          <span className="text-[10px] text-muted-foreground ml-auto">
-                            {row.employee.role || "Loose Leaf"}
-                          </span>
-                          {row.shift && (
-                            <span className="text-[10px] text-muted-foreground">
-                              {formatTime(row.shift.startTime)} - {formatTime(row.shift.endTime)}
-                            </span>
-                          )}
-                        </div>
-                        <div className="space-y-2 mt-1">
-                          {sortedStatuses.map((status, sIdx) => {
-                            const isActive = sIdx === 0 && (status.kind === "on-time" || status.kind === "clocked-late" || status.kind === "working-no-schedule");
-                            return (
-                              <div key={sIdx} className="flex items-start gap-2">
-                                <div 
-                                  className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${isActive ? "bg-green-500" : "bg-blue-500"}`} 
-                                />
-                                <StatusIndicator status={status} />
+                        <div className="flex items-center gap-4 overflow-x-auto pb-1 no-scrollbar">
+                          <div className="flex-shrink-0 border-r pr-4">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold truncate">{row.employee.name}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {row.employee.role || "Loose Leaf"}
+                              </span>
+                            </div>
+                            {row.shift && (
+                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                                {formatTime(row.shift.startTime)} - {formatTime(row.shift.endTime)}
                               </div>
-                            );
-                          })}
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 flex-nowrap">
+                            {sortedStatuses.map((status, sIdx) => {
+                              const isActive = sIdx === 0 && (status.kind === "on-time" || status.kind === "clocked-late" || status.kind === "working-no-schedule");
+                              return (
+                                <div key={sIdx} className="flex items-center gap-3 flex-shrink-0 border-l first:border-l-0 pl-4 first:pl-0">
+                                  <div className="relative flex-shrink-0">
+                                    <div 
+                                      className={`w-2 h-2 rounded-full ${isActive ? "bg-green-500 animate-pulse" : "bg-blue-400"}`}
+                                      title={isActive ? "Active session" : "Finished session"}
+                                    />
+                                    {isActive && (
+                                      <div className="absolute -inset-1 bg-green-500/20 rounded-full animate-ping" />
+                                    )}
+                                  </div>
+                                  <StatusIndicator status={status} />
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
                     </div>
