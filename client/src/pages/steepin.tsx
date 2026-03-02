@@ -47,9 +47,13 @@ export default function KioskPage() {
     }
   }, [authLoading, isActive, setLocation]);
 
-  const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({
+  const { data: employees, isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/steepin/employees"],
-    queryFn: getQueryFn({ on401: "returnNull" }),
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/steepin/employees");
+      const data = await res.json();
+      return data || [];
+    },
     enabled: isActive,
     staleTime: Infinity,
   });
@@ -110,6 +114,7 @@ export default function KioskPage() {
   }, [currentStatus]);
 
   const filteredEmployees = useMemo(() => {
+    if (!employees) return [];
     return employees.filter(
       (e) =>
         e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -149,9 +154,9 @@ export default function KioskPage() {
       });
     },
     onSuccess: () => {
-      queryClient.clear();
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       setLocation("/login");
-      toast({ title: "SteepIn Exited", description: "Successfully logged out" });
+      toast({ title: "SteepIn Exited", description: "Successfully deactivated SteepIn mode" });
     },
     onError: (err: Error) => {
       toast({ title: "Exit Failed", description: err.message, variant: "destructive" });
