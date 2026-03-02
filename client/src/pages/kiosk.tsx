@@ -359,7 +359,7 @@ export default function KioskPage() {
         <Button
           variant="ghost"
           size="sm"
-          className="text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50"
+          className="text-red-500/50 hover:text-red-600 hover:bg-red-50/50 dark:hover:bg-red-950/20"
           onClick={() => setExitDialogOpen(true)}
           data-testid="button-exit-kiosk-list"
         >
