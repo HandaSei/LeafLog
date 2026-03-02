@@ -30,7 +30,11 @@ interface BreakPolicy {
 type ActionType = "clock-in" | "clock-out" | "break-start" | "break-end";
 
 export default function KioskPage() {
-  const { user, isLoading: authLoading, isSteepIn, exitSteepIn } = useAuth();
+  const { data: authState, isLoading: authLoading } = useQuery<any>({
+    queryKey: ["/api/auth/me"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+  });
+  const { exitSteepIn } = useAuth();
   const [, setLocation] = useLocation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -39,7 +43,8 @@ export default function KioskPage() {
   const [pendingAction, setPendingAction] = useState<ActionType | null>(null);
   const { toast } = useToast();
 
-  const isActive = !!user && isSteepIn;
+  const user = authState?.user;
+  const isActive = !!authState?.authenticated && !!authState?.steepinMode;
 
   useEffect(() => {
     if (!authLoading && !isActive) {

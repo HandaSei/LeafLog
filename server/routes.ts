@@ -151,7 +151,8 @@ export async function registerRoutes(
   router.get("/api/steepin/employees", requireAuth, async (req, res) => {
     const ownerAccountId = req.session.userId!;
     const emps = await storage.getEmployees(ownerAccountId);
-    res.json(emps.filter(e => e.isActive));
+    // Use is_active for DB filter, but Drizzle might map it to isActive
+    res.json(emps.filter(e => e.status === "active"));
   });
 
   router.get("/api/steepin/entries/:employeeId", async (req, res) => {
