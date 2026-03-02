@@ -186,9 +186,9 @@ function BreakBadge({ breakInfo, hasWarning, isDone }: { breakInfo: BreakInfo; h
 
   if (breakInfo.totalBreakMinutes > 0) {
     return (
-      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/70 dark:bg-muted/30" data-testid="badge-break-taken">
-        <Coffee className="w-3 h-3 text-muted-foreground/70 dark:text-muted-foreground/50" />
-        <span className="text-[10px] text-muted-foreground/80 dark:text-muted-foreground/60">Today · {breakInfo.totalBreakMinutes}min break</span>
+      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/70" data-testid="badge-break-taken">
+        <Coffee className="w-3 h-3 text-muted-foreground" />
+        <span className="text-[10px] text-muted-foreground">Today · {breakInfo.totalBreakMinutes}min break</span>
       </div>
     );
   }
@@ -197,17 +197,17 @@ function BreakBadge({ breakInfo, hasWarning, isDone }: { breakInfo: BreakInfo; h
 
   if (isDone) {
     return (
-      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/40 dark:bg-muted/20" data-testid="badge-no-break-done">
-        <Coffee className="w-3 h-3 text-muted-foreground/60 dark:text-muted-foreground/40" />
-        <span className="text-[10px] text-muted-foreground/70 dark:text-muted-foreground/50">Didn't take any break</span>
+      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/30" data-testid="badge-no-break-done">
+        <Coffee className="w-3 h-3 text-muted-foreground/50" />
+        <span className="text-[10px] text-muted-foreground/60">Didn't take any break</span>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/40 dark:bg-muted/20" data-testid="badge-no-break-yet">
-      <Coffee className="w-3 h-3 text-muted-foreground/60 dark:text-muted-foreground/40" />
-      <span className="text-[10px] text-muted-foreground/70 dark:text-muted-foreground/50">No break yet</span>
+    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/30" data-testid="badge-no-break-yet">
+      <Coffee className="w-3 h-3 text-muted-foreground/50" />
+      <span className="text-[10px] text-muted-foreground/60">No break yet</span>
     </div>
   );
 }
@@ -295,8 +295,8 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       return (
         <div className="flex flex-col gap-0.5" data-testid="status-clocked-out">
           <div className="flex flex-col">
-            <span className="text-[11px] text-foreground dark:text-white font-medium">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
-            <span className="text-[10px] text-muted-foreground font-medium">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[11px] text-foreground font-medium">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
+            <span className="text-[10px] text-muted-foreground">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
           <div className="flex items-center gap-1 mt-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
@@ -338,8 +338,8 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       return (
         <div className="flex flex-col gap-0.5" data-testid="status-done-no-schedule">
           <div className="flex flex-col">
-            <span className="text-[11px] text-foreground dark:text-white font-medium">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
-            <span className="text-[10px] text-muted-foreground font-medium">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[11px] text-foreground font-medium">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
+            <span className="text-[10px] text-muted-foreground">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
           <div className="flex items-center gap-1 mt-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
