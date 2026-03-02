@@ -369,7 +369,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
 interface FlowRow {
   employee: Employee;
   shift: Shift | null;
-  status: ClockStatus;
+  statuses: ClockStatus[];
 }
 
 export default function Dashboard() {
@@ -424,9 +424,7 @@ export default function Dashboard() {
       if (!emp) return;
       const entries = entriesByEmployee.get(shift.employeeId) || [];
       const statuses = getClockStatusForScheduled(shift, entries, now);
-      statuses.forEach(status => {
-        rows.push({ employee: emp, shift, status });
-      });
+      rows.push({ employee: emp, shift, statuses });
       includedEmployeeIds.add(emp.id);
     });
 
@@ -435,10 +433,10 @@ export default function Dashboard() {
       const emp = employeeMap.get(employeeId);
       if (!emp || emp.status !== "active") return;
       const statuses = getClockStatusForUnscheduled(entries, now);
-      statuses.forEach(status => {
-        rows.push({ employee: emp, shift: null, status });
-      });
-      includedEmployeeIds.add(emp.id);
+      if (statuses.length > 0) {
+        rows.push({ employee: emp, shift: null, statuses });
+        includedEmployeeIds.add(emp.id);
+      }
     });
 
     return rows;
@@ -457,10 +455,12 @@ export default function Dashboard() {
       "waiting": 8,
     };
     return [...flowRows].sort((a, b) => {
-      const pa = priority[a.status.kind] ?? 99;
-      const pb = priority[b.status.kind] ?? 99;
+      const statusA = a.statuses[a.statuses.length - 1];
+      const statusB = b.statuses[b.statuses.length - 1];
+      const pa = statusA ? priority[statusA.kind] ?? 99 : 99;
+      const pb = statusB ? priority[statusB.kind] ?? 99 : 99;
       if (pa !== pb) return pa - pb;
-      if (a.status.kind === "waiting" && b.status.kind === "waiting" && a.shift && b.shift) {
+      if (statusA?.kind === "waiting" && statusB?.kind === "waiting" && a.shift && b.shift) {
         return a.shift.startTime.localeCompare(b.shift.startTime);
       }
       return a.employee.name.localeCompare(b.employee.name);
@@ -468,12 +468,12 @@ export default function Dashboard() {
   }, [flowRows]);
 
   const flowRowsToDisplay = useMemo(() => 
-    sortedRows.filter(r => r.status.kind !== "waiting"),
+    sortedRows.filter(r => r.statuses.some(s => s.kind !== "waiting")),
     [sortedRows]
   );
 
   const waitingRows = useMemo(() => 
-    sortedRows.filter(r => r.status.kind === "waiting"),
+    sortedRows.filter(r => r.statuses.every(s => s.kind === "waiting")),
     [sortedRows]
   );
 
@@ -537,33 +537,50 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-2">
-              {flowRowsToDisplay.map((row, idx) => (
-                <div
-                  key={`${row.employee.id}-${row.status.kind}-${idx}`}
-                  className="flex items-center gap-3 p-2.5 rounded-md bg-muted/50"
-                  data-testid={`flow-row-${row.employee.id}-${idx}`}
-                >
+              {flowRowsToDisplay.map((row) => {
+                const sortedStatuses = [...row.statuses].reverse();
+                return (
                   <div
-                    className="w-1 h-10 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: row.shift?.color || row.employee.color || "#8B9E8B" }}
-                  />
-                  <EmployeeAvatar name={row.employee.name} color={row.employee.color} size="sm" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-medium truncate">{row.employee.name}</span>
-                      <span className="text-[10px] text-muted-foreground ml-auto">
-                        {row.employee.role || "Loose Leaf"}
-                      </span>
-                      {row.shift && (
-                        <span className="text-[10px] text-muted-foreground">
-                          {formatTime(row.shift.startTime)} - {formatTime(row.shift.endTime)}
-                        </span>
-                      )}
+                    key={row.employee.id}
+                    className="flex flex-col gap-2 p-2.5 rounded-md bg-muted/50"
+                    data-testid={`flow-row-${row.employee.id}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-1 h-10 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: row.shift?.color || row.employee.color || "#8B9E8B" }}
+                      />
+                      <EmployeeAvatar name={row.employee.name} color={row.employee.color} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-medium truncate">{row.employee.name}</span>
+                          <span className="text-[10px] text-muted-foreground ml-auto">
+                            {row.employee.role || "Loose Leaf"}
+                          </span>
+                          {row.shift && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {formatTime(row.shift.startTime)} - {formatTime(row.shift.endTime)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-2 mt-1">
+                          {sortedStatuses.map((status, sIdx) => {
+                            const isActive = sIdx === 0 && (status.kind === "on-time" || status.kind === "clocked-late" || status.kind === "working-no-schedule");
+                            return (
+                              <div key={sIdx} className="flex items-start gap-2">
+                                <div 
+                                  className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${isActive ? "bg-green-500" : "bg-blue-500"}`} 
+                                />
+                                <StatusIndicator status={status} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                    <StatusIndicator status={row.status} />
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Card>
