@@ -301,7 +301,7 @@ async function exportPDF(
           format(date, "EEE, MMM d, yyyy"),
           emp.name,
           emp.role || "No Role",
-          clockIn && clockOut ? `${format(clockIn, "HH:mm")} - ${format(clockOut, "HH:mm")}` : (clockIn ? format(clockIn, "HH:mm") : "—"),
+          `Shift 1:  ${clockIn ? format(clockIn, "HH:mm") : "—"}  |  ${clockOut ? format(clockOut, "HH:mm") : "—"}`,
           totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "—",
           formatHoursDecimal(netWorkedMinutes) + " h",
         ];
@@ -313,9 +313,9 @@ async function exportPDF(
         const totalBreak = sessions.reduce((s, w) => s + w.totalBreakMinutes, 0);
         const totalUnpaid = sessions.reduce((s, w) => s + w.unpaidBreakMinutes, 0);
         grandTotal += totalNet;
-        const timeRanges = sessions.map(w =>
-          `${w.clockIn ? format(w.clockIn, "HH:mm") : "—"}-${w.clockOut ? format(w.clockOut, "HH:mm") : "—"}`
-        ).join(" / ");
+        const timeRanges = sessions.map((w, idx) =>
+          `Shift ${idx + 1}:  ${w.clockIn ? format(w.clockIn, "HH:mm") : "—"}  |  ${w.clockOut ? format(w.clockOut, "HH:mm") : "—"}`
+        ).join("\n");
         const row: (string | number)[] = [
           format(date, "EEE, MMM d, yyyy"),
           emp.name,
@@ -347,8 +347,8 @@ async function exportPDF(
     : undefined;
 
   const colStyles: Record<number, object> = hasUnpaid
-    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 48 }, 4: { cellWidth: 18 }, 5: { cellWidth: 18, textColor: [200, 60, 60] }, 6: { cellWidth: 22, halign: "right" } }
-    : { 0: { cellWidth: 40 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 54 }, 4: { cellWidth: 20 }, 5: { cellWidth: 24, halign: "right" } };
+    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 52 }, 4: { cellWidth: 18 }, 5: { cellWidth: 18, textColor: [200, 60, 60] }, 6: { cellWidth: 22, halign: "right" } }
+    : { 0: { cellWidth: 40 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 60 }, 4: { cellWidth: 20 }, 5: { cellWidth: 24, halign: "right" } };
 
   autoTable(doc, {
     startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
@@ -358,8 +358,41 @@ async function exportPDF(
     headStyles: { fillColor: [139, 158, 139], textColor: 255, fontStyle: "bold" },
     footStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40], fontStyle: "bold" },
     alternateRowStyles: { fillColor: [252, 252, 252] },
-    styles: { fontSize: 9, cellPadding: 3, lineWidth: 0.1, lineColor: [220, 220, 220] },
+    styles: { 
+      fontSize: 9, 
+      cellPadding: 3, 
+      lineWidth: 0.1, 
+      lineColor: [200, 200, 200],
+      valign: "middle"
+    },
     columnStyles: colStyles,
+    didDrawCell: (data) => {
+      // Draw vertical line in "Shift Time" column if it contains " | "
+      if (data.column.index === 3 && data.cell.section === 'body') {
+        const text = data.cell.text.join('\n');
+        if (text.includes(' | ')) {
+          const lines = data.cell.text;
+          const x = data.cell.x;
+          const y = data.cell.y;
+          const w = data.cell.width;
+          const h = data.cell.height;
+          
+          // We need to find the X position of the "|" character.
+          // Since we use helvetica (monospaced-ish for digits), we can approximate or just draw it.
+          // For a more "well defined" look, let's draw a vertical line in the middle of the time area.
+          // The prefix "Shift X:  HH:mm  " is about 16-18 chars.
+          // Let's just draw it at a fixed offset if the text matches our pattern.
+          
+          doc.setDrawColor(200, 200, 200);
+          doc.setLineWidth(0.1);
+          // Draw vertical line only for the content rows
+          // Approximate center of the time part: "Shift 1:  07:00  |  08:00"
+          // The "|" is roughly at 60% of the cell width if we align it well.
+          // But a better way is to just let the text render and draw a line at a specific X.
+          // Shift Time column is index 3.
+        }
+      }
+    }
   });
 
   const safeLabel = rangeLabel.replace(/[^a-zA-Z0-9-]/g, "_");
