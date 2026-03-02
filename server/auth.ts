@@ -4,8 +4,9 @@ import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { loginSchema, registerManagerSchema, accessCodeLoginSchema } from "@shared/schema";
+import { loginSchema, registerManagerSchema, accessCodeLoginSchema, forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema, upgradeEmployeeSchema } from "@shared/schema";
 import { format } from "date-fns";
+import { sendVerificationEmail, generateCode } from "./email";
 
 declare module "express-session" {
   interface SessionData {
@@ -110,13 +111,68 @@ export function registerAuthRoutes(router: Router) {
       return res.status(400).json({ message: "Username already taken" });
     }
 
+    const existingEmail = await storage.getAccountByEmail(parsed.data.email);
+    if (existingEmail) {
+      return res.status(400).json({ message: "Email already in use" });
+    }
+
     const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
-    const account = await storage.createAccount({
+    const code = generateCode();
+
+    await storage.invalidatePendingVerifications(parsed.data.email, "registration");
+    await storage.createEmailVerification(parsed.data.email, code, "registration", {
       username: parsed.data.username,
       password: hashedPassword,
-      role: "manager",
       agencyName: parsed.data.agencyName,
+      email: parsed.data.email,
     });
+
+    const sent = await sendVerificationEmail(parsed.data.email, code, "registration");
+    if (!sent) {
+      return res.status(500).json({ message: "Failed to send verification email. Please try again." });
+    }
+
+    res.status(200).json({ requiresVerification: true, email: parsed.data.email });
+  });
+
+  router.post("/api/auth/verify-email", async (req, res) => {
+    const parsed = verifyEmailSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0].message });
+    }
+
+    const verification = await storage.getEmailVerification(parsed.data.email, parsed.data.code, "registration");
+    if (!verification) {
+      return res.status(400).json({ message: "Invalid or expired verification code" });
+    }
+
+    const accountData = typeof verification.account_data === "string"
+      ? JSON.parse(verification.account_data)
+      : verification.account_data;
+
+    if (!accountData) {
+      return res.status(400).json({ message: "Invalid verification data" });
+    }
+
+    const existingUser = await storage.getAccountByUsername(accountData.username);
+    if (existingUser) {
+      return res.status(400).json({ message: "Username was taken while you were verifying. Please try again." });
+    }
+
+    const existingEmail = await storage.getAccountByEmail(accountData.email);
+    if (existingEmail) {
+      return res.status(400).json({ message: "Email was taken while you were verifying. Please try again." });
+    }
+
+    const account = await storage.createAccount({
+      username: accountData.username,
+      password: accountData.password,
+      role: "manager",
+      agencyName: accountData.agencyName,
+      email: accountData.email,
+    });
+
+    await storage.markEmailVerificationUsed(verification.id);
 
     req.session.userId = account.id;
     req.session.role = account.role;
@@ -124,6 +180,121 @@ export function registerAuthRoutes(router: Router) {
 
     const { password, ...safe } = account;
     res.status(201).json({ user: safe });
+  });
+
+  router.post("/api/auth/forgot-password", async (req, res) => {
+    const parsed = forgotPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0].message });
+    }
+
+    const account = await storage.getAccountByEmail(parsed.data.email);
+    if (!account) {
+      return res.status(200).json({ success: true });
+    }
+
+    const code = generateCode();
+    await storage.invalidatePendingVerifications(parsed.data.email, "recovery");
+    await storage.createEmailVerification(parsed.data.email, code, "recovery", null, account.id);
+    await sendVerificationEmail(parsed.data.email, code, "recovery");
+
+    res.status(200).json({ success: true });
+  });
+
+  router.post("/api/auth/reset-password", async (req, res) => {
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0].message });
+    }
+
+    const verification = await storage.getEmailVerification(parsed.data.email, parsed.data.code, "recovery");
+    if (!verification) {
+      return res.status(400).json({ message: "Invalid or expired verification code" });
+    }
+
+    const account = await storage.getAccountByEmail(parsed.data.email);
+    if (!account) {
+      return res.status(400).json({ message: "Account not found" });
+    }
+
+    const hashedPassword = await bcrypt.hash(parsed.data.newPassword, 10);
+    await storage.updateAccountPassword(account.id, hashedPassword);
+    await storage.markEmailVerificationUsed(verification.id);
+
+    res.status(200).json({ success: true });
+  });
+
+  router.post("/api/auth/upgrade-employee", requireAuth, async (req, res) => {
+    const parsed = upgradeEmployeeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0].message });
+    }
+
+    const currentAccount = await storage.getAccount(req.session.userId!);
+    if (!currentAccount || !currentAccount.username.startsWith("emp_")) {
+      return res.status(400).json({ message: "Only temporary employee accounts can be upgraded" });
+    }
+
+    const existingUsername = await storage.getAccountByUsername(parsed.data.username);
+    if (existingUsername && existingUsername.id !== req.session.userId) {
+      return res.status(400).json({ message: "Username already taken" });
+    }
+
+    const existingEmail = await storage.getAccountByEmail(parsed.data.email);
+    if (existingEmail && existingEmail.id !== req.session.userId) {
+      return res.status(400).json({ message: "Email already in use" });
+    }
+
+    const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
+    const code = generateCode();
+    await storage.invalidatePendingVerifications(parsed.data.email, "employee-upgrade");
+    await storage.createEmailVerification(parsed.data.email, code, "employee-upgrade", {
+      username: parsed.data.username,
+      passwordHash: hashedPassword,
+      accountId: req.session.userId,
+    }, req.session.userId);
+
+    const sent = await sendVerificationEmail(parsed.data.email, code, "employee-upgrade");
+    if (!sent) {
+      return res.status(500).json({ message: "Failed to send verification email. Please try again." });
+    }
+
+    res.status(200).json({ requiresVerification: true, email: parsed.data.email });
+  });
+
+  router.post("/api/auth/verify-employee-upgrade", requireAuth, async (req, res) => {
+    const parsed = verifyEmailSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0].message });
+    }
+
+    const verification = await storage.getEmailVerification(parsed.data.email, parsed.data.code, "employee-upgrade");
+    if (!verification) {
+      return res.status(400).json({ message: "Invalid or expired verification code" });
+    }
+
+    const upgradeData = typeof verification.account_data === "string"
+      ? JSON.parse(verification.account_data)
+      : verification.account_data;
+
+    if (!upgradeData || upgradeData.accountId !== req.session.userId) {
+      return res.status(400).json({ message: "Invalid verification data" });
+    }
+
+    const account = await storage.updateAccount(req.session.userId!, {
+      username: upgradeData.username,
+      password: upgradeData.passwordHash,
+      email: parsed.data.email,
+    });
+
+    await storage.markEmailVerificationUsed(verification.id);
+
+    if (account) {
+      const { password, ...safe } = account;
+      res.status(200).json({ user: safe });
+    } else {
+      res.status(500).json({ message: "Failed to update account" });
+    }
   });
 
   router.post("/api/auth/login", async (req, res) => {

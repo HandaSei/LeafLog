@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LogIn, KeyRound, Monitor, UserPlus } from "lucide-react";
+import { LogIn, KeyRound, Monitor, UserPlus, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
 import logoImage from "@assets/m3MJU_1771476103365.png";
 
@@ -15,30 +15,179 @@ const LEAF_YELLOW = "#D4C5A0";
 const LEAF_YELLOW_BG = "#E8DCC4";
 const LEAF_GREEN = "#8B9E8B";
 
+type View = "main" | "signup" | "verify-registration" | "forgot-password" | "reset-password" | "upgrade-employee" | "verify-upgrade";
+
 export default function LoginPage() {
-  const { isAuthenticated, login, loginSteepIn, loginWithCode, registerManager, registerAccount } = useAuth();
+  const {
+    isAuthenticated, isShadowAccount, login, loginSteepIn, loginWithCode,
+    registerManager, verifyEmail, forgotPassword, resetPassword,
+    upgradeEmployee, verifyEmployeeUpgrade, logout,
+  } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-
-  if (isAuthenticated) {
-    setLocation("/");
-    return null;
-  }
 
   const { data: setupData, isLoading: setupLoading } = useQuery<{ setupRequired: boolean }>({
     queryKey: ["/api/auth/setup-required"],
   });
 
+  const [view, setView] = useState<View>("main");
   const [tab, setTab] = useState<string>("login");
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [codeForm, setCodeForm] = useState({ code: "" });
   const [steepinForm, setSteepinForm] = useState({ username: "", password: "" });
-  const [registerForm, setRegisterForm] = useState({ username: "", password: "", agencyName: "" });
-  const [signupForm, setSignupForm] = useState({ username: "", password: "", agencyName: "" });
+  const [registerForm, setRegisterForm] = useState({ username: "", password: "", email: "", agencyName: "" });
+  const [signupForm, setSignupForm] = useState({ username: "", password: "", email: "", agencyName: "" });
+  const [forgotForm, setForgotForm] = useState({ email: "" });
+  const [resetForm, setResetForm] = useState({ email: "", code: "", newPassword: "" });
+  const [verifyCode, setVerifyCode] = useState("");
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [upgradeForm, setUpgradeForm] = useState({ username: "", password: "", email: "" });
+  const [upgradeEmail, setUpgradeEmail] = useState("");
+  const [upgradeCode, setUpgradeCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showSignup, setShowSignup] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  if (isAuthenticated && isShadowAccount) {
+    if (view !== "upgrade-employee" && view !== "verify-upgrade") {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
+          <div className="w-full max-w-[420px] space-y-6">
+            <div className="text-center space-y-2">
+              <img src={logoImage} alt="LeafLog" className="w-28 h-28 mx-auto rounded-xl object-cover" data-testid="img-logo" />
+              <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-upgrade-title">
+                Create Your Account
+              </h1>
+              <p className="text-sm" style={{ color: "#8a7d60" }}>Set up a permanent account to access LeafLog anytime</p>
+            </div>
+            <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
+              <form onSubmit={handleUpgradeEmployee} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="upgrade-username" style={labelStyle}>Username</Label>
+                  <Input
+                    id="upgrade-username"
+                    placeholder="Choose a username"
+                    value={upgradeForm.username}
+                    onChange={(e) => setUpgradeForm({ ...upgradeForm, username: e.target.value })}
+                    required
+                    minLength={3}
+                    className={inputStyle}
+                    data-testid="input-upgrade-username"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="upgrade-email" style={labelStyle}>Email</Label>
+                  <Input
+                    id="upgrade-email"
+                    type="email"
+                    placeholder="your@email.com"
+                    value={upgradeForm.email}
+                    onChange={(e) => setUpgradeForm({ ...upgradeForm, email: e.target.value })}
+                    required
+                    className={inputStyle}
+                    data-testid="input-upgrade-email"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="upgrade-password" style={labelStyle}>Password</Label>
+                  <Input
+                    id="upgrade-password"
+                    type="password"
+                    placeholder="Min 6 characters"
+                    value={upgradeForm.password}
+                    onChange={(e) => setUpgradeForm({ ...upgradeForm, password: e.target.value })}
+                    required
+                    minLength={6}
+                    className={inputStyle}
+                    data-testid="input-upgrade-password"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full font-semibold"
+                  style={{ backgroundColor: LEAF_YELLOW, color: "#3a4a3a" }}
+                  disabled={loading}
+                  data-testid="button-upgrade-submit"
+                >
+                  {loading ? "Sending verification..." : "Create Account"}
+                </Button>
+              </form>
+              <div className="mt-4 pt-4 border-t border-white/20 text-center">
+                <button
+                  onClick={() => { setLocation("/"); }}
+                  className="text-sm underline underline-offset-2 cursor-pointer"
+                  style={{ color: LEAF_YELLOW }}
+                  data-testid="button-skip-upgrade"
+                >
+                  Skip for now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (view === "verify-upgrade") {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
+          <div className="w-full max-w-[420px] space-y-6">
+            <div className="text-center space-y-2">
+              <img src={logoImage} alt="LeafLog" className="w-28 h-28 mx-auto rounded-xl object-cover" data-testid="img-logo" />
+              <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-verify-upgrade-title">
+                Verify Your Email
+              </h1>
+              <p className="text-sm" style={{ color: "#8a7d60" }}>
+                We sent a 6-digit code to <strong>{upgradeEmail}</strong>
+              </p>
+            </div>
+            <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
+              <form onSubmit={handleVerifyUpgrade} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="verify-upgrade-code" style={labelStyle}>Verification Code</Label>
+                  <Input
+                    id="verify-upgrade-code"
+                    placeholder="000000"
+                    value={upgradeCode}
+                    onChange={(e) => setUpgradeCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    required
+                    maxLength={6}
+                    className={`font-mono text-center text-lg tracking-[0.3em] ${inputStyle}`}
+                    data-testid="input-verify-upgrade-code"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full font-semibold"
+                  style={{ backgroundColor: LEAF_YELLOW, color: "#3a4a3a" }}
+                  disabled={loading || upgradeCode.length !== 6}
+                  data-testid="button-verify-upgrade"
+                >
+                  {loading ? "Verifying..." : "Verify & Create Account"}
+                </Button>
+              </form>
+              <div className="mt-4 pt-4 border-t border-white/20 text-center">
+                <button
+                  onClick={() => setView("upgrade-employee")}
+                  className="text-sm underline underline-offset-2 cursor-pointer"
+                  style={{ color: LEAF_YELLOW }}
+                  data-testid="button-back-upgrade"
+                >
+                  <ArrowLeft className="w-3 h-3 inline mr-1" />
+                  Back
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
+
+  if (isAuthenticated && !isShadowAccount) {
+    setLocation("/");
+    return null;
+  }
+
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
@@ -50,9 +199,9 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const handleCodeLogin = async (e: React.FormEvent) => {
+  async function handleCodeLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
@@ -63,9 +212,9 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const handleSteepInLogin = async (e: React.FormEvent) => {
+  async function handleSteepInLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
@@ -77,9 +226,9 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const handleRegister = async (e: React.FormEvent) => {
+  async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     if (registerForm.password.length < 6) {
       toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
@@ -87,16 +236,20 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      await registerManager(registerForm.username, registerForm.password, registerForm.agencyName);
-      toast({ title: "Account created", description: "Your manager account is ready." });
+      const result = await registerManager(registerForm.username, registerForm.password, registerForm.email, registerForm.agencyName);
+      if (result.requiresVerification) {
+        setPendingEmail(result.email);
+        setView("verify-registration");
+        toast({ title: "Check your email", description: "We sent a verification code to your email." });
+      }
     } catch (err: any) {
       toast({ title: "Registration failed", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const handleSignup = async (e: React.FormEvent) => {
+  async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     if (signupForm.password.length < 6) {
       toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
@@ -104,15 +257,104 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      await registerManager(signupForm.username, signupForm.password, signupForm.agencyName);
-      toast({ title: "Account created", description: "Your manager account is ready." });
-      setLocation("/");
+      const result = await registerManager(signupForm.username, signupForm.password, signupForm.email, signupForm.agencyName);
+      if (result.requiresVerification) {
+        setPendingEmail(result.email);
+        setView("verify-registration");
+        toast({ title: "Check your email", description: "We sent a verification code to your email." });
+      }
     } catch (err: any) {
       toast({ title: "Registration failed", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  async function handleVerifyRegistration(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await verifyEmail(pendingEmail, verifyCode);
+      toast({ title: "Account created", description: "Your email has been verified and your account is ready." });
+      setLocation("/");
+    } catch (err: any) {
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForgotPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await forgotPassword(forgotForm.email);
+      setResetForm({ ...resetForm, email: forgotForm.email });
+      setView("reset-password");
+      toast({ title: "Check your email", description: "If an account exists with that email, we sent a reset code." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (resetForm.newPassword.length < 6) {
+      toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
+      return;
+    }
+    setLoading(true);
+    try {
+      await resetPassword(resetForm.email, resetForm.code, resetForm.newPassword);
+      toast({ title: "Password reset", description: "Your password has been updated. You can now sign in." });
+      setView("main");
+      setTab("login");
+    } catch (err: any) {
+      toast({ title: "Reset failed", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUpgradeEmployee(e: React.FormEvent) {
+    e.preventDefault();
+    if (upgradeForm.password.length < 6) {
+      toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await upgradeEmployee(upgradeForm.username, upgradeForm.password, upgradeForm.email);
+      if (result.requiresVerification) {
+        setUpgradeEmail(result.email);
+        setView("verify-upgrade");
+        toast({ title: "Check your email", description: "We sent a verification code to your email." });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyUpgrade(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await verifyEmployeeUpgrade(upgradeEmail, upgradeCode);
+      toast({ title: "Account created", description: "Your permanent account is ready." });
+      setLocation("/");
+    } catch (err: any) {
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputStyle = "bg-white/90 border-[#b8cbb8] text-[#3a4a3a] placeholder:text-[#8B9E8B]/70 focus-visible:ring-[#8B9E8B]";
+  const labelStyle = { color: LEAF_YELLOW };
 
   if (setupLoading) {
     return (
@@ -124,26 +366,199 @@ export default function LoginPage() {
 
   const showSetup = setupData?.setupRequired;
 
-  const inputStyle = "bg-white/90 border-[#b8cbb8] text-[#3a4a3a] placeholder:text-[#8B9E8B]/70 focus-visible:ring-[#8B9E8B]";
-  const labelStyle = { color: LEAF_YELLOW };
-
-  if (showSignup) {
+  if (view === "verify-registration") {
     return (
       <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
         <div className="w-full max-w-[420px] space-y-6">
           <div className="text-center space-y-2">
-            <img
-              src={logoImage}
-              alt="LeafLog"
-              className="w-28 h-28 mx-auto rounded-xl object-cover"
-              data-testid="img-logo"
-            />
+            <img src={logoImage} alt="LeafLog" className="w-28 h-28 mx-auto rounded-xl object-cover" data-testid="img-logo" />
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-verify-title">
+              Verify Your Email
+            </h1>
+            <p className="text-sm" style={{ color: "#8a7d60" }}>
+              We sent a 6-digit code to <strong>{pendingEmail}</strong>
+            </p>
+          </div>
+          <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
+            <form onSubmit={handleVerifyRegistration} className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="verify-code" style={labelStyle}>Verification Code</Label>
+                <Input
+                  id="verify-code"
+                  placeholder="000000"
+                  value={verifyCode}
+                  onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  required
+                  maxLength={6}
+                  className={`font-mono text-center text-lg tracking-[0.3em] ${inputStyle}`}
+                  data-testid="input-verify-code"
+                />
+              </div>
+              <p className="text-xs" style={{ color: "#c8c8b4" }}>
+                The code expires in 15 minutes. Check your spam folder if you don't see it.
+              </p>
+              <Button
+                type="submit"
+                className="w-full font-semibold"
+                style={{ backgroundColor: LEAF_YELLOW, color: "#3a4a3a" }}
+                disabled={loading || verifyCode.length !== 6}
+                data-testid="button-verify"
+              >
+                {loading ? "Verifying..." : "Verify Email"}
+              </Button>
+            </form>
+            <div className="mt-4 pt-4 border-t border-white/20 text-center">
+              <button
+                onClick={() => { setView(showSetup ? "main" : "signup"); setVerifyCode(""); }}
+                className="text-sm underline underline-offset-2 cursor-pointer"
+                style={{ color: LEAF_YELLOW }}
+                data-testid="button-back-verify"
+              >
+                <ArrowLeft className="w-3 h-3 inline mr-1" />
+                Back to registration
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "forgot-password") {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
+        <div className="w-full max-w-[420px] space-y-6">
+          <div className="text-center space-y-2">
+            <img src={logoImage} alt="LeafLog" className="w-28 h-28 mx-auto rounded-xl object-cover" data-testid="img-logo" />
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-forgot-title">
+              Forgot Password
+            </h1>
+            <p className="text-sm" style={{ color: "#8a7d60" }}>
+              Enter the email address linked to your account
+            </p>
+          </div>
+          <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
+            <form onSubmit={handleForgotPassword} className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="forgot-email" style={labelStyle}>Email Address</Label>
+                <Input
+                  id="forgot-email"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={forgotForm.email}
+                  onChange={(e) => setForgotForm({ email: e.target.value })}
+                  required
+                  className={inputStyle}
+                  data-testid="input-forgot-email"
+                />
+              </div>
+              <Button
+                type="submit"
+                className="w-full font-semibold"
+                style={{ backgroundColor: LEAF_YELLOW, color: "#3a4a3a" }}
+                disabled={loading}
+                data-testid="button-forgot-submit"
+              >
+                {loading ? "Sending..." : "Send Reset Code"}
+              </Button>
+            </form>
+            <div className="mt-4 pt-4 border-t border-white/20 text-center">
+              <button
+                onClick={() => setView("main")}
+                className="text-sm underline underline-offset-2 cursor-pointer"
+                style={{ color: LEAF_YELLOW }}
+                data-testid="button-back-forgot"
+              >
+                <ArrowLeft className="w-3 h-3 inline mr-1" />
+                Back to sign in
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "reset-password") {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
+        <div className="w-full max-w-[420px] space-y-6">
+          <div className="text-center space-y-2">
+            <img src={logoImage} alt="LeafLog" className="w-28 h-28 mx-auto rounded-xl object-cover" data-testid="img-logo" />
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-reset-title">
+              Reset Password
+            </h1>
+            <p className="text-sm" style={{ color: "#8a7d60" }}>
+              Enter the code sent to <strong>{resetForm.email}</strong>
+            </p>
+          </div>
+          <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
+            <form onSubmit={handleResetPassword} className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="reset-code" style={labelStyle}>Verification Code</Label>
+                <Input
+                  id="reset-code"
+                  placeholder="000000"
+                  value={resetForm.code}
+                  onChange={(e) => setResetForm({ ...resetForm, code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                  required
+                  maxLength={6}
+                  className={`font-mono text-center text-lg tracking-[0.3em] ${inputStyle}`}
+                  data-testid="input-reset-code"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="reset-new-password" style={labelStyle}>New Password</Label>
+                <Input
+                  id="reset-new-password"
+                  type="password"
+                  placeholder="Min 6 characters"
+                  value={resetForm.newPassword}
+                  onChange={(e) => setResetForm({ ...resetForm, newPassword: e.target.value })}
+                  required
+                  minLength={6}
+                  className={inputStyle}
+                  data-testid="input-reset-new-password"
+                />
+              </div>
+              <Button
+                type="submit"
+                className="w-full font-semibold"
+                style={{ backgroundColor: LEAF_YELLOW, color: "#3a4a3a" }}
+                disabled={loading || resetForm.code.length !== 6}
+                data-testid="button-reset-submit"
+              >
+                {loading ? "Resetting..." : "Reset Password"}
+              </Button>
+            </form>
+            <div className="mt-4 pt-4 border-t border-white/20 text-center">
+              <button
+                onClick={() => setView("forgot-password")}
+                className="text-sm underline underline-offset-2 cursor-pointer"
+                style={{ color: LEAF_YELLOW }}
+                data-testid="button-back-reset"
+              >
+                <ArrowLeft className="w-3 h-3 inline mr-1" />
+                Back
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "signup") {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
+        <div className="w-full max-w-[420px] space-y-6">
+          <div className="text-center space-y-2">
+            <img src={logoImage} alt="LeafLog" className="w-28 h-28 mx-auto rounded-xl object-cover" data-testid="img-logo" />
             <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-signup-title">
               Create Account
             </h1>
             <p className="text-sm" style={{ color: "#8a7d60" }}>Register a new LeafLog account</p>
           </div>
-
           <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
             <form onSubmit={handleSignup} className="space-y-3">
               <div className="space-y-1.5">
@@ -156,6 +571,19 @@ export default function LoginPage() {
                   required
                   className={inputStyle}
                   data-testid="input-signup-agency"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-email" style={labelStyle}>Email</Label>
+                <Input
+                  id="signup-email"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={signupForm.email}
+                  onChange={(e) => setSignupForm({ ...signupForm, email: e.target.value })}
+                  required
+                  className={inputStyle}
+                  data-testid="input-signup-email"
                 />
               </div>
               <div className="space-y-1.5">
@@ -192,12 +620,12 @@ export default function LoginPage() {
                 disabled={loading}
                 data-testid="button-signup"
               >
-                {loading ? "Creating account..." : "Create Manager Account"}
+                {loading ? "Sending verification..." : "Create Manager Account"}
               </Button>
             </form>
             <div className="mt-4 pt-4 border-t border-white/20 text-center">
               <button
-                onClick={() => setShowSignup(false)}
+                onClick={() => setView("main")}
                 className="text-sm underline underline-offset-2 cursor-pointer"
                 style={{ color: LEAF_YELLOW }}
                 data-testid="button-back-to-login"
@@ -215,12 +643,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
       <div className="w-full max-w-[420px] space-y-6">
         <div className="text-center space-y-2">
-          <img
-            src={logoImage}
-            alt="LeafLog"
-            className="w-28 h-28 mx-auto rounded-xl object-cover"
-            data-testid="img-logo"
-          />
+          <img src={logoImage} alt="LeafLog" className="w-28 h-28 mx-auto rounded-xl object-cover" data-testid="img-logo" />
           <h1 className="text-2xl font-bold tracking-tight" style={{ color: LEAF_GREEN }} data-testid="text-login-title">
             LeafLog
           </h1>
@@ -247,6 +670,19 @@ export default function LoginPage() {
                   required
                   className={inputStyle}
                   data-testid="input-register-agency"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="reg-email" style={labelStyle}>Email</Label>
+                <Input
+                  id="reg-email"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={registerForm.email}
+                  onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+                  required
+                  className={inputStyle}
+                  data-testid="input-register-email"
                 />
               </div>
               <div className="space-y-1.5">
@@ -283,7 +719,7 @@ export default function LoginPage() {
                 disabled={loading}
                 data-testid="button-register"
               >
-                {loading ? "Creating account..." : "Create Manager Account"}
+                {loading ? "Sending verification..." : "Create Manager Account"}
               </Button>
             </form>
           </div>
@@ -352,6 +788,16 @@ export default function LoginPage() {
                     {loading ? "Signing in..." : "Sign In"}
                   </Button>
                 </form>
+                <div className="text-center">
+                  <button
+                    onClick={() => setView("forgot-password")}
+                    className="text-xs underline underline-offset-2 cursor-pointer"
+                    style={{ color: "#c8c8b4" }}
+                    data-testid="button-forgot-password"
+                  >
+                    Forgot your password?
+                  </button>
+                </div>
               </TabsContent>
 
               <TabsContent value="code" className="space-y-4">
@@ -431,7 +877,7 @@ export default function LoginPage() {
 
             <div className="mt-4 pt-4 border-t border-white/20 text-center">
               <button
-                onClick={() => setShowSignup(true)}
+                onClick={() => setView("signup")}
                 className="text-sm underline underline-offset-2 cursor-pointer"
                 style={{ color: LEAF_YELLOW }}
                 data-testid="button-go-to-signup"

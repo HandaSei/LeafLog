@@ -2,11 +2,11 @@ import { eq, and, gt, desc, inArray, gte, asc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
-  employees, shifts, accounts, accessCodes, timeEntries, customRoles, feedback,
+  employees, shifts, accounts, accessCodes, timeEntries, customRoles, feedback, emailVerifications,
   type Employee, type InsertEmployee,
   type Shift, type InsertShift,
   type Account, type InsertAccount,
-  type AccessCode, type TimeEntry, type CustomRole, type Feedback,
+  type AccessCode, type TimeEntry, type CustomRole, type Feedback, type EmailVerification,
 } from "@shared/schema";
 
 let connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
@@ -75,6 +75,14 @@ export interface IStorage {
   getAllFeedback(): Promise<(Feedback & { username: string; email: string | null })[]>;
 
   deleteAccount(id: number): Promise<void>;
+
+  createEmailVerification(email: string, code: string, type: string, accountData?: any, accountId?: number): Promise<EmailVerification>;
+  getEmailVerification(email: string, code: string, type: string): Promise<EmailVerification | undefined>;
+  markEmailVerificationUsed(id: number): Promise<void>;
+  invalidatePendingVerifications(email: string, type: string): Promise<void>;
+  updateAccountPassword(id: number, passwordHash: string): Promise<void>;
+  updateAccountEmail(id: number, email: string): Promise<void>;
+  updateAccount(id: number, data: Partial<Account>): Promise<Account | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -402,6 +410,50 @@ export class DatabaseStorage implements IStorage {
     }
     await pool.query("DELETE FROM custom_roles WHERE owner_account_id = $1", [id]);
     await db.delete(accounts).where(eq(accounts.id, id));
+  }
+
+  async createEmailVerification(email: string, code: string, type: string, accountData?: any, accountId?: number): Promise<EmailVerification> {
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    const res = await pool.query(
+      `INSERT INTO email_verifications (email, code, type, account_data, account_id, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [email, code, type, accountData ? JSON.stringify(accountData) : null, accountId || null, expiresAt]
+    );
+    return res.rows[0];
+  }
+
+  async getEmailVerification(email: string, code: string, type: string): Promise<EmailVerification | undefined> {
+    const res = await pool.query(
+      `SELECT * FROM email_verifications
+       WHERE email = $1 AND code = $2 AND type = $3 AND used = false AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [email, code, type]
+    );
+    return res.rows[0];
+  }
+
+  async markEmailVerificationUsed(id: number): Promise<void> {
+    await pool.query("UPDATE email_verifications SET used = true WHERE id = $1", [id]);
+  }
+
+  async invalidatePendingVerifications(email: string, type: string): Promise<void> {
+    await pool.query(
+      "UPDATE email_verifications SET used = true WHERE email = $1 AND type = $2 AND used = false",
+      [email, type]
+    );
+  }
+
+  async updateAccountPassword(id: number, passwordHash: string): Promise<void> {
+    await pool.query("UPDATE accounts SET password = $1 WHERE id = $2", [passwordHash, id]);
+  }
+
+  async updateAccountEmail(id: number, email: string): Promise<void> {
+    await pool.query("UPDATE accounts SET email = $1 WHERE id = $2", [email, id]);
+  }
+
+  async updateAccount(id: number, data: Partial<Account>): Promise<Account | undefined> {
+    const [acc] = await db.update(accounts).set(data).where(eq(accounts.id, id)).returning();
+    return acc;
   }
 
   async getAllFeedback(): Promise<(Feedback & { username: string; email: string | null })[]> {

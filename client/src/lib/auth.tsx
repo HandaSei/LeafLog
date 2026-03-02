@@ -8,6 +8,7 @@ interface AuthUser {
   role: string;
   employeeId: number | null;
   agencyName: string | null;
+  email: string | null;
 }
 
 interface AuthState {
@@ -26,11 +27,16 @@ interface AuthContextType {
   isManager: boolean;
   isEmployee: boolean;
   isSteepIn: boolean;
+  isShadowAccount: boolean;
   login: (username: string, password: string) => Promise<void>;
   loginSteepIn: (username: string, password: string) => Promise<void>;
   loginWithCode: (code: string) => Promise<void>;
-  registerManager: (username: string, password: string, agencyName: string) => Promise<void>;
-  registerAccount: (username: string, password: string, confirmPassword: string, email: string) => Promise<void>;
+  registerManager: (username: string, password: string, email: string, agencyName: string) => Promise<any>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<void>;
+  resetPassword: (email: string, code: string, newPassword: string) => Promise<void>;
+  upgradeEmployee: (username: string, password: string, email: string) => Promise<any>;
+  verifyEmployeeUpgrade: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   exitSteepIn: () => Promise<void>;
 }
@@ -76,8 +82,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const registerMutation = useMutation({
-    mutationFn: async ({ username, password, agencyName }: { username: string; password: string; agencyName: string }) => {
-      const res = await apiRequest("POST", "/api/auth/register-manager", { username, password, agencyName });
+    mutationFn: async ({ username, password, email, agencyName }: { username: string; password: string; email: string; agencyName: string }) => {
+      const res = await apiRequest("POST", "/api/auth/register-manager", { username, password, email, agencyName });
+      return res.json();
+    },
+  });
+
+  const verifyEmailMutation = useMutation({
+    mutationFn: async ({ email, code }: { email: string; code: string }) => {
+      const res = await apiRequest("POST", "/api/auth/verify-email", { email, code });
       return res.json();
     },
     onSuccess: () => {
@@ -85,9 +98,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
   });
 
-  const registerAccountMutation = useMutation({
-    mutationFn: async ({ username, password, confirmPassword, email }: { username: string; password: string; confirmPassword: string; email: string }) => {
-      const res = await apiRequest("POST", "/api/auth/register", { username, password, confirmPassword, email });
+  const forgotPasswordMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const res = await apiRequest("POST", "/api/auth/forgot-password", { email });
+      return res.json();
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ email, code, newPassword }: { email: string; code: string; newPassword: string }) => {
+      const res = await apiRequest("POST", "/api/auth/reset-password", { email, code, newPassword });
+      return res.json();
+    },
+  });
+
+  const upgradeEmployeeMutation = useMutation({
+    mutationFn: async ({ username, password, email }: { username: string; password: string; email: string }) => {
+      const res = await apiRequest("POST", "/api/auth/upgrade-employee", { username, password, email });
+      return res.json();
+    },
+  });
+
+  const verifyEmployeeUpgradeMutation = useMutation({
+    mutationFn: async ({ email, code }: { email: string; code: string }) => {
+      const res = await apiRequest("POST", "/api/auth/verify-employee-upgrade", { email, code });
       return res.json();
     },
     onSuccess: () => {
@@ -127,13 +161,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await codeMutation.mutateAsync(code);
   }, [codeMutation]);
 
-  const registerManager = useCallback(async (username: string, password: string, agencyName: string) => {
-    await registerMutation.mutateAsync({ username, password, agencyName });
+  const registerManager = useCallback(async (username: string, password: string, email: string, agencyName: string) => {
+    return await registerMutation.mutateAsync({ username, password, email, agencyName });
   }, [registerMutation]);
 
-  const registerAccount = useCallback(async (username: string, password: string, confirmPassword: string, email: string) => {
-    await registerAccountMutation.mutateAsync({ username, password, confirmPassword, email });
-  }, [registerAccountMutation]);
+  const verifyEmail = useCallback(async (email: string, code: string) => {
+    await verifyEmailMutation.mutateAsync({ email, code });
+  }, [verifyEmailMutation]);
+
+  const forgotPassword = useCallback(async (email: string) => {
+    await forgotPasswordMutation.mutateAsync(email);
+  }, [forgotPasswordMutation]);
+
+  const resetPassword = useCallback(async (email: string, code: string, newPassword: string) => {
+    await resetPasswordMutation.mutateAsync({ email, code, newPassword });
+  }, [resetPasswordMutation]);
+
+  const upgradeEmployee = useCallback(async (username: string, password: string, email: string) => {
+    return await upgradeEmployeeMutation.mutateAsync({ username, password, email });
+  }, [upgradeEmployeeMutation]);
+
+  const verifyEmployeeUpgrade = useCallback(async (email: string, code: string) => {
+    await verifyEmployeeUpgradeMutation.mutateAsync({ email, code });
+  }, [verifyEmployeeUpgradeMutation]);
 
   const logout = useCallback(async () => {
     await logoutMutation.mutateAsync();
@@ -144,6 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [exitSteepInMutation]);
 
   const user = authState?.authenticated ? authState.user : null;
+  const isShadow = !!user && user.role === "employee" && user.username.startsWith("emp_");
 
   const value: AuthContextType = {
     user,
@@ -154,11 +205,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isManager: user?.role === "manager",
     isEmployee: user?.role === "employee",
     isSteepIn: !!authState?.steepinMode,
+    isShadowAccount: isShadow,
     login,
     loginSteepIn,
     loginWithCode,
     registerManager,
-    registerAccount,
+    verifyEmail,
+    forgotPassword,
+    resetPassword,
+    upgradeEmployee,
+    verifyEmployeeUpgrade,
     logout,
     exitSteepIn,
   };
