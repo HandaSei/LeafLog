@@ -207,7 +207,7 @@ export default function SteepInPage() {
               <EmployeeAvatar name={selectedEmployee.name} color={selectedEmployee.color} size="lg" />
               <div>
                 <h2 className="text-xl font-bold" data-testid="text-steepin-employee-name">{selectedEmployee.name}</h2>
-                <p className="text-sm text-muted-foreground">{selectedEmployee.role || "Loose Leaf (assign role)"}</p>
+                <p className="text-sm text-muted-foreground">{selectedEmployee.role || "No Role"}</p>
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-primary">SteepIn</h1>
             </div>
@@ -459,7 +459,7 @@ export default function SteepInPage() {
                 <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                 <div className="text-center">
                   <div className="text-sm font-medium">{emp.name}</div>
-                  <div className="text-[10px] text-muted-foreground">{emp.role || "Loose Leaf (assign role)"}</div>
+                  <div className="text-[10px] text-muted-foreground">{emp.role || "No Role"}</div>
                 </div>
               </button>
             ))}

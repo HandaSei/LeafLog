@@ -247,11 +247,12 @@ export function ShiftFormDialog({
                     <FormLabel>Role for this shift</FormLabel>
                     <Select
                       onValueChange={(val) => {
-                        field.onChange(val);
-                        const roleColor = customRoles.find(r => r.name === val)?.color;
+                        const actualVal = val === "none" ? "" : val;
+                        field.onChange(actualVal);
+                        const roleColor = customRoles.find(r => r.name === actualVal)?.color;
                         if (roleColor) form.setValue("color", roleColor);
                       }}
-                      value={field.value ?? ""}
+                      value={field.value || "none"}
                     >
                       <FormControl>
                         <SelectTrigger data-testid="select-shift-role">
@@ -259,6 +260,7 @@ export function ShiftFormDialog({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
+                        <SelectItem value="none" className="text-muted-foreground italic">Default Employee Role</SelectItem>
                         {customRoles.map((r) => (
                           <SelectItem key={r.id} value={r.name}>
                             <div className="flex items-center gap-2">

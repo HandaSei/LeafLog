@@ -1091,15 +1091,16 @@ export default function Timesheets() {
                     <div className="font-semibold">{emp.name}</div>
                     <div className="text-xs text-muted-foreground">{(() => {
                       const clockInEntry = dayEntries.find(e => e.type === "clock-in");
-                      return clockInEntry?.role || emp.role || "Loose Leaf";
+                      return clockInEntry?.role || emp.role || "No Role";
                     })()}</div>
                   </div>
                   <Select
-                    value={dayEntries.find(e => e.type === "clock-in")?.role || emp.role || ""}
+                    value={dayEntries.find(e => e.type === "clock-in")?.role || emp.role || "none"}
                     onValueChange={(val) => {
+                      const actualVal = val === "none" ? "" : val;
                       const clockInEntry = dayEntries.find(e => e.type === "clock-in");
                       if (clockInEntry) {
-                        updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(clockInEntry.timestamp).toISOString(), role: val });
+                        updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(clockInEntry.timestamp).toISOString(), role: actualVal });
                       }
                     }}
                   >
@@ -1107,6 +1108,7 @@ export default function Timesheets() {
                       <SelectValue placeholder="Set role" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="none" className="text-muted-foreground italic">No Role</SelectItem>
                       {customRoles.map(r => (
                         <SelectItem key={r.id} value={r.name}>
                           <span className="flex items-center gap-2">
@@ -1417,11 +1419,12 @@ export default function Timesheets() {
                 </div>
                 <div className="space-y-2">
                   <Label>Role for this timesheet</Label>
-                  <Select value={newTimesheetRole} onValueChange={setNewTimesheetRole}>
+                  <Select value={newTimesheetRole || "none"} onValueChange={(v) => setNewTimesheetRole(v === "none" ? "" : v)}>
                     <SelectTrigger data-testid="select-timesheet-role">
                       <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="none" className="text-muted-foreground italic">Default Employee Role</SelectItem>
                       {customRoles.map(r => (
                         <SelectItem key={r.id} value={r.name}>
                           <span className="flex items-center gap-2">

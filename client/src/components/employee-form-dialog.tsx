@@ -251,13 +251,17 @@ export function EmployeeFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Role (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <Select 
+                      onValueChange={(val) => field.onChange(val === "none" ? "" : val)} 
+                      value={field.value || "none"}
+                    >
                       <FormControl>
                         <SelectTrigger data-testid="select-role">
                           <SelectValue placeholder="Select a role" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
+                        <SelectItem value="none" className="text-muted-foreground italic">No Role</SelectItem>
                         {customRoles.map((r) => (
                           <SelectItem key={r.id} value={r.name}>
                             <div className="flex items-center gap-2">
