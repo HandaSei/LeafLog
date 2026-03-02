@@ -397,7 +397,7 @@ export default function Timesheets() {
 
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({ queryKey: ["/api/kiosk/entries"] });
+  const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({ queryKey: ["/api/steepin/entries"] });
   const { data: breakPolicy } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({ queryKey: ["/api/settings/break-policy"] });
   const paidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
 
@@ -405,11 +405,11 @@ export default function Timesheets() {
     mutationFn: async (data: { id: number; timestamp: string; role?: string }) => {
       const body: any = { timestamp: data.timestamp };
       if (data.role !== undefined) body.role = data.role;
-      const res = await apiRequest("PATCH", `/api/kiosk/entries/${data.id}`, body);
+      const res = await apiRequest("PATCH", `/api/steepin/entries/${data.id}`, body);
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
       toast({ title: "Success", description: "Time updated successfully" });
       setEditingEntry(null);
     },
@@ -418,20 +418,20 @@ export default function Timesheets() {
 
   const addEntryMutation = useMutation({
     mutationFn: async (data: { employeeId: number; type: string; date: string; timestamp: string; role?: string }) => {
-      const res = await apiRequest("POST", "/api/kiosk/entries", data);
+      const res = await apiRequest("POST", "/api/steepin/entries", data);
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }),
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const deleteTimesheetMutation = useMutation({
     mutationFn: async (data: { employeeId: number; date: string; entries: TimeEntry[] }) => {
       // Delete all entries for this day
-      await apiRequest("DELETE", `/api/kiosk/entries?employeeId=${data.employeeId}&date=${data.date}`);
+      await apiRequest("DELETE", `/api/steepin/entries?employeeId=${data.employeeId}&date=${data.date}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
       toast({ title: "Success", description: "Timesheet deleted successfully" });
       setSelectedWorkday(null);
       setViewingDate(null);

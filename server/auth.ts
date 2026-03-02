@@ -37,7 +37,7 @@ export function setupSession(app: any) {
         createTableIfMissing: true,
         ssl: { rejectUnauthorized: false },
       }),
-      secret: process.env.SESSION_SECRET || "shiftflow-secret-key-change-me",
+      secret: process.env.SESSION_SECRET || "leaflog-secret-key",
       resave: false,
       saveUninitialized: false,
       rolling: true,

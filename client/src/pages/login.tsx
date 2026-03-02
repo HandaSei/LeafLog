@@ -70,7 +70,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await loginSteepIn(steepinForm.username, steepinForm.password);
-      toast({ title: "SteepIn Active", description: "Kiosk mode is now active." });
+      toast({ title: "SteepIn Active", description: "SteepIn mode is now active." });
       setLocation("/SteepIn");
     } catch (err: any) {
       toast({ title: "SteepIn login failed", description: err.message, variant: "destructive" });
@@ -306,9 +306,9 @@ export default function LoginPage() {
                   <KeyRound className="w-3.5 h-3.5 mr-1" /> Leaf Login
                 </TabsTrigger>
                 <TabsTrigger
-                  value="kiosk"
+                  value="steepin"
                   className="text-xs data-[state=active]:bg-[#D4C5A0] data-[state=active]:text-[#3a4a3a] text-[#D4C5A0]/80"
-                  data-testid="tab-kiosk"
+                  data-testid="tab-steepin"
                 >
                   <Monitor className="w-3.5 h-3.5 mr-1" /> SteepIn
                 </TabsTrigger>
@@ -386,9 +386,9 @@ export default function LoginPage() {
                 </form>
               </TabsContent>
 
-              <TabsContent value="kiosk" className="space-y-4">
+              <TabsContent value="steepin" className="space-y-4">
                 <p className="text-sm" style={{ color: "#d4d4c0" }}>
-                  Sign in with manager or admin credentials to launch the SteepIn kiosk for employee time tracking.
+                  Sign in with manager or admin credentials to launch the SteepIn mode for employee time tracking.
                 </p>
                 <form onSubmit={handleSteepInLogin} className="space-y-3">
                   <div className="space-y-1.5">

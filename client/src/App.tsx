@@ -17,7 +17,7 @@ import Employees from "@/pages/employees";
 import Timesheets from "@/pages/timesheets";
 import Settings from "@/pages/settings";
 import LoginPage from "@/pages/login";
-import KioskPage from "@/pages/kiosk";
+import SteepInPage from "@/pages/steepin";
 
 function AuthenticatedRouter() {
   return (
@@ -83,7 +83,7 @@ function AppContent() {
   if (isSteepIn) {
     return (
       <Switch>
-        <Route path="/SteepIn" component={KioskPage} />
+        <Route path="/SteepIn" component={SteepInPage} />
         <Route><Redirect to="/SteepIn" /></Route>
       </Switch>
     );
@@ -91,7 +91,7 @@ function AppContent() {
 
   return (
     <Switch>
-      <Route path="/SteepIn" component={KioskPage} />
+      <Route path="/SteepIn" component={SteepInPage} />
       <Route path="/login">
         {isAuthenticated ? <Redirect to="/" /> : <LoginPage />}
       </Route>

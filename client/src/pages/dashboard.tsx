@@ -356,7 +356,7 @@ export default function Dashboard() {
   const todayStr = format(new Date(), "yyyy-MM-dd");
 
   const { data: todayEntries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
-    queryKey: [`/api/kiosk/entries?date=${todayStr}`],
+    queryKey: [`/api/steepin/entries?date=${todayStr}`],
     refetchInterval: 30000,
   });
 

@@ -48,14 +48,14 @@ export default function KioskPage() {
   }, [authLoading, isActive, setLocation]);
 
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({
-    queryKey: ["/api/kiosk/employees"],
+    queryKey: ["/api/steepin/employees"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: isActive,
     staleTime: Infinity,
   });
 
   const { data: entries = [] } = useQuery<TimeEntry[]>({
-    queryKey: ["/api/kiosk/entries", selectedEmployee?.id?.toString() || ""],
+    queryKey: ["/api/steepin/entries", selectedEmployee?.id?.toString() || ""],
     queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: isActive && !!selectedEmployee,
   });
@@ -68,11 +68,11 @@ export default function KioskPage() {
 
   const actionMutation = useMutation({
     mutationFn: async ({ employeeId, type, passcode }: { employeeId: number; type: ActionType; passcode: string }) => {
-      const res = await apiRequest("POST", "/api/kiosk/action", { employeeId, type, passcode });
+      const res = await apiRequest("POST", "/api/steepin/action", { employeeId, type, passcode });
       return res.json();
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/kiosk/entries", variables.employeeId.toString()] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
       const labels: Record<ActionType, string> = {
         "clock-in": "Clocked In",
         "clock-out": "Clocked Out",
@@ -171,11 +171,11 @@ export default function KioskPage() {
             variant="ghost"
             size="sm"
             onClick={() => setSelectedEmployee(null)}
-            data-testid="button-kiosk-back"
+            data-testid="button-steepin-back"
           >
             <ArrowLeft className="w-4 h-4 mr-1" /> Back
           </Button>
-          <div className="text-sm text-muted-foreground font-mono" data-testid="text-kiosk-time">
+          <div className="text-sm text-muted-foreground font-mono" data-testid="text-steepin-time">
             {(() => {
               const now = new Date();
               const seconds = now.getSeconds();
@@ -193,7 +193,7 @@ export default function KioskPage() {
             <div className="text-center space-y-3">
               <EmployeeAvatar name={selectedEmployee.name} color={selectedEmployee.color} size="lg" />
               <div>
-                <h2 className="text-xl font-bold" data-testid="text-kiosk-employee-name">{selectedEmployee.name}</h2>
+                <h2 className="text-xl font-bold" data-testid="text-steepin-employee-name">{selectedEmployee.name}</h2>
                 <p className="text-sm text-muted-foreground">{selectedEmployee.role || "Loose Leaf (assign role)"}</p>
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-primary">SteepIn</h1>
@@ -361,7 +361,7 @@ export default function KioskPage() {
           size="sm"
           className="text-red-500/50 hover:text-red-600 hover:bg-red-50/50 dark:hover:bg-red-950/20"
           onClick={() => setExitDialogOpen(true)}
-          data-testid="button-exit-kiosk-list"
+          data-testid="button-exit-steepin-list"
         >
           Exit
         </Button>
@@ -372,7 +372,7 @@ export default function KioskPage() {
           <DialogHeader>
             <DialogTitle>Exit SteepIn</DialogTitle>
             <DialogDescription>
-              Manager credentials are required to deactivate kiosk mode.
+              Manager credentials are required to deactivate SteepIn mode.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleExitSteepIn} className="space-y-4">
@@ -422,7 +422,7 @@ export default function KioskPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8"
-            data-testid="input-kiosk-search"
+            data-testid="input-steepin-search"
           />
         </div>
       </div>
@@ -441,7 +441,7 @@ export default function KioskPage() {
                 key={emp.id}
                 onClick={() => setSelectedEmployee(emp)}
                 className="flex flex-col items-center gap-2 p-4 rounded-md border bg-card hover-elevate transition-colors cursor-pointer"
-                data-testid={`kiosk-employee-${emp.id}`}
+                data-testid={`steepin-employee-${emp.id}`}
               >
                 <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
                 <div className="text-center">

@@ -48,7 +48,7 @@ export async function seedDatabase() {
     username: "admin",
     password: adminPassword,
     role: "manager",
-    agencyName: "ShiftFlow HQ",
+    agencyName: "LeafLog",
   });
   console.log("Admin account created (username: admin, password: admin123)");
 

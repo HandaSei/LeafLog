@@ -148,13 +148,13 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  router.get("/api/kiosk/entries/:employeeId", async (req, res) => {
+  router.get("/api/steepin/entries/:employeeId", async (req, res) => {
     const todayStr = format(new Date(), "yyyy-MM-dd");
     const entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), todayStr);
     res.json(entries);
   });
 
-  router.get("/api/kiosk/entries", requireAuth, async (req, res) => {
+  router.get("/api/steepin/entries", requireAuth, async (req, res) => {
     const ownerAccountId = req.session.userId!;
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
     const date = typeof req.query.date === 'string' ? req.query.date : undefined;
@@ -170,7 +170,7 @@ export async function registerRoutes(
     res.json(entries);
   });
 
-  router.post("/api/kiosk/action", async (req, res) => {
+  router.post("/api/steepin/action", async (req, res) => {
     const { employeeId, type, passcode } = req.body;
     if (!employeeId || !type || !passcode) {
       return res.status(400).json({ message: "Employee ID, action type, and passcode are required" });
@@ -188,7 +188,7 @@ export async function registerRoutes(
     res.status(201).json(entry);
   });
 
-  router.patch("/api/kiosk/entries/:id", requireRole("admin", "manager"), async (req, res) => {
+  router.patch("/api/steepin/entries/:id", requireRole("admin", "manager"), async (req, res) => {
     const id = parseInt(req.params.id);
     const updateData: any = {};
     if (req.body.timestamp) {
@@ -205,7 +205,7 @@ export async function registerRoutes(
     res.json(entry);
   });
 
-  router.post("/api/kiosk/entries", requireRole("admin", "manager"), async (req, res) => {
+  router.post("/api/steepin/entries", requireRole("admin", "manager"), async (req, res) => {
     const { employeeId, type, date, timestamp, role } = req.body;
     if (!employeeId || !type || !date) {
       return res.status(400).json({ message: "Employee ID, type, and date are required" });
@@ -214,7 +214,7 @@ export async function registerRoutes(
     res.status(201).json(entry);
   });
 
-  router.delete("/api/kiosk/entries", requireRole("admin", "manager"), async (req, res) => {
+  router.delete("/api/steepin/entries", requireRole("admin", "manager"), async (req, res) => {
     const employeeId = Number(req.query.employeeId);
     const date = req.query.date as string;
     if (!employeeId || !date) {
@@ -228,7 +228,7 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  router.delete("/api/kiosk/entries/:id", requireRole("admin", "manager"), async (req, res) => {
+  router.delete("/api/steepin/entries/:id", requireRole("admin", "manager"), async (req, res) => {
     // Note: The existing storage doesn't have a single entry delete yet, 
     // but the user wants to delete timesheets (sessions).
     // For now, the existing delete handles the whole day.
