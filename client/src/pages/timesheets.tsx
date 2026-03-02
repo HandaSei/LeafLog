@@ -307,17 +307,17 @@ async function exportPDF(
           row.push({ 
             content: format(date, "EEE, MMM d, yyyy"), 
             rowSpan: sessions.length,
-            styles: { lineWidth: { top: 1, right: 0.1, bottom: 0.1, left: 0.1 }, fontStyle: 'bold', lineColor: [139, 158, 139] }
+            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, fontStyle: 'bold', lineColor: [160, 180, 160] }
           });
           row.push({ 
             content: wd.employee.name, 
             rowSpan: sessions.length,
-            styles: { lineWidth: { top: 1, right: 0.1, bottom: 0.1, left: 0.1 }, fontStyle: 'bold', lineColor: [139, 158, 139] }
+            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, fontStyle: 'bold', lineColor: [160, 180, 160] }
           });
           row.push({ 
             content: wd.employee.role || "No Role", 
             rowSpan: sessions.length,
-            styles: { lineWidth: { top: 1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: [139, 158, 139] }
+            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: [160, 180, 160] }
           });
         }
 
@@ -325,30 +325,30 @@ async function exportPDF(
         const clockOutStr = wd.clockOut ? format(wd.clockOut, "HH:mm") : "—";
         row.push({ 
           content: clockInStr, 
-          styles: { lineWidth: { top: isFirst ? 1 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [139, 158, 139] : [150, 150, 150] }
+          styles: { lineWidth: { top: isFirst ? 0.6 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [160, 180, 160] : [150, 150, 150] }
         });
         row.push({ 
           content: clockOutStr, 
-          styles: { lineWidth: { top: isFirst ? 1 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [139, 158, 139] : [150, 150, 150] }
+          styles: { lineWidth: { top: isFirst ? 0.6 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [160, 180, 160] : [150, 150, 150] }
         });
 
         if (isFirst) {
           row.push({ 
             content: totalBreak > 0 ? formatMinutes(totalBreak) : "—", 
             rowSpan: sessions.length,
-            styles: { lineWidth: { top: 1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: [139, 158, 139] }
+            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: [160, 180, 160] }
           });
           if (hasUnpaid) {
             row.push({ 
               content: totalUnpaid > 0 ? `-${formatMinutes(totalUnpaid)}` : "—", 
               rowSpan: sessions.length,
-              styles: { lineWidth: { top: 1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: [139, 158, 139] }
+              styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: [160, 180, 160] }
             });
           }
           row.push({ 
             content: formatHoursDecimal(totalNet) + " h", 
             rowSpan: sessions.length,
-            styles: { lineWidth: { top: 1, right: 0.1, bottom: 0.1, left: 0.1 }, halign: "right", fontStyle: 'bold', lineColor: [139, 158, 139] }
+            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, halign: "right", fontStyle: 'bold', lineColor: [160, 180, 160] }
           });
         }
         
