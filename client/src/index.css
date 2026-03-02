@@ -309,6 +309,10 @@
   }
 }
 
+/* Hide scrollbar but keep scrolling */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
 /* Safe area insets for mobile (notch / home indicator) */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .safe-area-bottom {

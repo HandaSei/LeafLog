@@ -284,22 +284,51 @@ async function exportPDF(
   let grandTotal = 0;
 
   grouped.forEach(({ date, workdays }) => {
+    const byEmployee = new Map<number, typeof workdays>();
     workdays.forEach(wd => {
-      const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status } = wd;
-      if (status !== "completed") return; // Skip unfinished shifts
+      if (wd.status !== "completed") return;
+      const list = byEmployee.get(wd.employee.id) || [];
+      list.push(wd);
+      byEmployee.set(wd.employee.id, list);
+    });
 
-      grandTotal += netWorkedMinutes;
-      const row: (string | number)[] = [
-        format(date, "EEE, MMM d, yyyy"),
-        emp.name,
-        emp.role || "Loose Leaf",
-        clockIn ? format(clockIn, "HH:mm") : "—",
-        clockOut ? format(clockOut, "HH:mm") : "—",
-        totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "—",
-        formatHoursDecimal(netWorkedMinutes) + " h",
-      ];
-      if (hasUnpaid) row.splice(6, 0, unpaidBreakMinutes > 0 ? `-${formatMinutes(unpaidBreakMinutes)}` : "—");
-      rows.push(row);
+    byEmployee.forEach((sessions) => {
+      if (sessions.length === 1) {
+        const wd = sessions[0];
+        const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes } = wd;
+        grandTotal += netWorkedMinutes;
+        const row: (string | number)[] = [
+          format(date, "EEE, MMM d, yyyy"),
+          emp.name,
+          emp.role || "Loose Leaf",
+          clockIn ? format(clockIn, "HH:mm") : "—",
+          clockOut ? format(clockOut, "HH:mm") : "—",
+          totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "—",
+          formatHoursDecimal(netWorkedMinutes) + " h",
+        ];
+        if (hasUnpaid) row.splice(6, 0, unpaidBreakMinutes > 0 ? `-${formatMinutes(unpaidBreakMinutes)}` : "—");
+        rows.push(row);
+      } else {
+        const emp = sessions[0].employee;
+        const totalNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
+        const totalBreak = sessions.reduce((s, w) => s + w.totalBreakMinutes, 0);
+        const totalUnpaid = sessions.reduce((s, w) => s + w.unpaidBreakMinutes, 0);
+        grandTotal += totalNet;
+        const timeRanges = sessions.map(w =>
+          `${w.clockIn ? format(w.clockIn, "HH:mm") : "—"}-${w.clockOut ? format(w.clockOut, "HH:mm") : "—"}`
+        ).join(" / ");
+        const row: (string | number)[] = [
+          format(date, "EEE, MMM d, yyyy"),
+          emp.name,
+          emp.role || "Loose Leaf",
+          timeRanges,
+          "",
+          totalBreak > 0 ? formatMinutes(totalBreak) : "—",
+          formatHoursDecimal(totalNet) + " h",
+        ];
+        if (hasUnpaid) row.splice(6, 0, totalUnpaid > 0 ? `-${formatMinutes(totalUnpaid)}` : "—");
+        rows.push(row);
+      }
     });
   });
 
@@ -320,8 +349,8 @@ async function exportPDF(
     : undefined;
 
   const colStyles: Record<number, object> = hasUnpaid
-    ? { 0: { cellWidth: 38 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 20 }, 4: { cellWidth: 20 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 20, halign: "right" } }
-    : { 0: { cellWidth: 42 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 22 }, 4: { cellWidth: 22 }, 5: { cellWidth: 22 }, 6: { cellWidth: 22, halign: "right" } };
+    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 30 }, 2: { cellWidth: 24 }, 3: { cellWidth: 32 }, 4: { cellWidth: 16 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 20, halign: "right" } }
+    : { 0: { cellWidth: 40 }, 1: { cellWidth: 34 }, 2: { cellWidth: 28 }, 3: { cellWidth: 36 }, 4: { cellWidth: 16 }, 5: { cellWidth: 20 }, 6: { cellWidth: 22, halign: "right" } };
 
   autoTable(doc, {
     startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
@@ -700,40 +729,55 @@ export default function Timesheets() {
     );
   };
 
-  const WorkdayCard = ({ wd, date }: { wd: EmployeeWorkday; date: Date }) => {
-    const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status, entries } = wd;
-    const sc = statusConfig[status];
-    const sessionKey = `${emp.id}-${clockIn?.getTime()}`;
+  const WorkdayCard = ({ sessions, date }: { sessions: EmployeeWorkday[]; date: Date }) => {
+    const emp = sessions[0].employee;
+    const totalNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
+    const isSingle = sessions.length === 1;
+
     return (
-      <button
-        key={sessionKey}
-        onClick={() => { setViewingWorkdayManual(wd, date); }}
-        className="w-full flex items-start gap-3 p-4 rounded-md border bg-card hover-elevate text-left cursor-pointer"
+      <div
+        className="w-full flex items-center gap-3 p-3 rounded-md border bg-card hover-elevate text-left"
         data-testid={`timesheet-card-${emp.id}`}
       >
-        <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <span className="text-sm font-semibold truncate">{emp.name}</span>
-            <span className="text-xs font-semibold whitespace-nowrap" style={{ color: sc.color }}>{sc.label}</span>
-          </div>
-          <div className="text-base font-bold mt-0.5" data-testid={`text-work-time-${emp.id}`}>
-            {clockIn ? format(clockIn, "HH:mm") : "--:--"} - {clockOut ? format(clockOut, "HH:mm") : ""}
-          </div>
-          <div className="flex items-center justify-between gap-2 mt-0.5">
-            <span className="text-xs text-muted-foreground">{entries.find(e => e.type === "clock-in")?.role || emp.role || "Loose Leaf (assign role)"}</span>
-            <span className="text-sm font-semibold text-muted-foreground">{formatHoursDecimal(netWorkedMinutes)} h</span>
-          </div>
-          {totalBreakMinutes > 0 && (
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              Break: {formatMinutes(totalBreakMinutes)}
-              {unpaidBreakMinutes > 0 && (
-                <span className="text-red-500 ml-1">(-{formatMinutes(unpaidBreakMinutes)} unpaid)</span>
-              )}
+        <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
+        <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-4">
+            <div className="flex-shrink-0 border-r pr-3 min-w-[80px]">
+              <span className="text-xs font-semibold truncate block">{emp.name}</span>
+              <span className="text-[10px] text-muted-foreground">{emp.role || "Loose Leaf"}</span>
             </div>
-          )}
+            <div className="flex items-center gap-4 flex-nowrap">
+              {sessions.map((wd, idx) => {
+                const sc = statusConfig[wd.status];
+                return (
+                  <button
+                    key={`${wd.employee.id}-${wd.clockIn?.getTime()}-${idx}`}
+                    onClick={() => { setViewingWorkdayManual(wd, date); }}
+                    className={`flex items-center gap-3 flex-shrink-0 cursor-pointer hover:bg-muted/50 rounded px-2 py-1 transition-colors ${!isSingle && idx > 0 ? "border-l pl-4" : ""}`}
+                  >
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: sc.color }} />
+                        <span className="text-xs font-bold whitespace-nowrap">
+                          {wd.clockIn ? format(wd.clockIn, "HH:mm") : "--:--"} - {wd.clockOut ? format(wd.clockOut, "HH:mm") : ""}
+                        </span>
+                        <span className="text-[10px] font-medium text-muted-foreground">{formatHoursDecimal(wd.netWorkedMinutes)}h</span>
+                      </div>
+                      {wd.totalBreakMinutes > 0 && (
+                        <span className="text-[10px] text-muted-foreground ml-3">
+                          Break {formatMinutes(wd.totalBreakMinutes)}
+                          {wd.unpaidBreakMinutes > 0 && <span className="text-red-500 ml-0.5">(-{formatMinutes(wd.unpaidBreakMinutes)})</span>}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-xs font-bold text-muted-foreground ml-auto flex-shrink-0 pl-2">{formatHoursDecimal(totalNet)} h</span>
+          </div>
         </div>
-      </button>
+      </div>
     );
   };
 
@@ -887,7 +931,17 @@ export default function Timesheets() {
                 <p>No entries for this day</p>
               </div>
             ) : (
-              workdays.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={selectedDay} />)
+              (() => {
+                const grouped = new Map<number, EmployeeWorkday[]>();
+                workdays.forEach(wd => {
+                  const list = grouped.get(wd.employee.id) || [];
+                  list.push(wd);
+                  grouped.set(wd.employee.id, list);
+                });
+                return Array.from(grouped.entries()).map(([empId, sessions]) => (
+                  <WorkdayCard key={empId} sessions={sessions} date={selectedDay} />
+                ));
+              })()
             )
           ) : (
             monthWorkdays.length === 0 ? (
@@ -907,7 +961,17 @@ export default function Timesheets() {
                       {formatHoursDecimal(dayWds.reduce((s, w) => s + w.netWorkedMinutes, 0))} h total
                     </span>
                   </div>
-                  {dayWds.map(wd => <WorkdayCard key={wd.employee.id} wd={wd} date={date} />)}
+                  {(() => {
+                    const grouped = new Map<number, EmployeeWorkday[]>();
+                    dayWds.forEach(wd => {
+                      const list = grouped.get(wd.employee.id) || [];
+                      list.push(wd);
+                      grouped.set(wd.employee.id, list);
+                    });
+                    return Array.from(grouped.entries()).map(([empId, sessions]) => (
+                      <WorkdayCard key={empId} sessions={sessions} date={date} />
+                    ));
+                  })()}
                 </div>
               ))
             )
