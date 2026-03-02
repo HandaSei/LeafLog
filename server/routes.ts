@@ -148,6 +148,12 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  router.get("/api/steepin/employees", requireAuth, async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    const emps = await storage.getEmployees(ownerAccountId);
+    res.json(emps.filter(e => e.isActive));
+  });
+
   router.get("/api/steepin/entries/:employeeId", async (req, res) => {
     const todayStr = format(new Date(), "yyyy-MM-dd");
     const entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), todayStr);
