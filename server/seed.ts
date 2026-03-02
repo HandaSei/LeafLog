@@ -12,19 +12,6 @@ async function runMigrations() {
     )
   `);
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS email_verifications (
-      id integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-      email text NOT NULL,
-      code text NOT NULL,
-      type text NOT NULL,
-      account_data jsonb,
-      account_id integer,
-      expires_at timestamp NOT NULL,
-      used boolean DEFAULT false,
-      created_at timestamp DEFAULT now()
-    )
-  `);
-  await pool.query(`
     UPDATE accounts SET role = 'admin'
     WHERE agency_name = 'LeafLog' AND role = 'manager'
   `);
