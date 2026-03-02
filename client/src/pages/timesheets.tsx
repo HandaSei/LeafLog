@@ -755,20 +755,22 @@ export default function Timesheets() {
                     onClick={() => { setViewingWorkdayManual(wd, date); }}
                     className={`flex items-center gap-3 flex-shrink-0 cursor-pointer hover:bg-muted/50 rounded px-2 py-1 transition-colors ${!isSingle && idx > 0 ? "border-l pl-4" : ""}`}
                   >
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: sc.color }} />
+                    <div className="flex flex-col items-center">
+                      <div className="w-1.5 h-1.5 rounded-full mb-1" style={{ backgroundColor: sc.color }} />
+                      <div className="flex flex-col items-center">
                         <span className="text-xs font-bold whitespace-nowrap">
                           {wd.clockIn ? format(wd.clockIn, "HH:mm") : "--:--"} - {wd.clockOut ? format(wd.clockOut, "HH:mm") : ""}
                         </span>
-                        <span className="text-[10px] font-medium text-muted-foreground">{formatHoursDecimal(wd.netWorkedMinutes)}h</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-medium text-muted-foreground">{formatHoursDecimal(wd.netWorkedMinutes)}h</span>
+                          {wd.totalBreakMinutes > 0 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              (Break {formatMinutes(wd.totalBreakMinutes)}
+                              {wd.unpaidBreakMinutes > 0 && <span className="text-red-500 ml-0.5">-{formatMinutes(wd.unpaidBreakMinutes)}</span>})
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      {wd.totalBreakMinutes > 0 && (
-                        <span className="text-[10px] text-muted-foreground ml-3">
-                          Break {formatMinutes(wd.totalBreakMinutes)}
-                          {wd.unpaidBreakMinutes > 0 && <span className="text-red-500 ml-0.5">(-{formatMinutes(wd.unpaidBreakMinutes)})</span>}
-                        </span>
-                      )}
                     </div>
                   </button>
                 );
