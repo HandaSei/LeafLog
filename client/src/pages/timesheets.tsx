@@ -343,8 +343,8 @@ async function exportPDF(
     : undefined;
 
   const colStyles: Record<number, object> = hasUnpaid
-    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 32, halign: "right" }, 4: { cellWidth: 16 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 22, halign: "right" } }
-    : { 0: { cellWidth: 40 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 36, halign: "right" }, 4: { cellWidth: 18 }, 5: { cellWidth: 20 }, 6: { cellWidth: 24, halign: "right" } };
+    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 24, halign: "right" }, 4: { cellWidth: 24 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 22, halign: "right" } }
+    : { 0: { cellWidth: 40 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 27, halign: "right" }, 4: { cellWidth: 27 }, 5: { cellWidth: 20 }, 6: { cellWidth: 24, halign: "right" } };
 
   autoTable(doc, {
     startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
