@@ -103,7 +103,43 @@ export const loginSchema = z.object({
 export const registerManagerSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(6, "Password must be at least 6 characters"),
+  email: z.string().email("Valid email is required"),
   agencyName: z.string().min(1, "Agency name is required"),
+});
+
+export const emailVerifications = pgTable("email_verifications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  email: text("email").notNull(),
+  code: text("code").notNull(),
+  type: text("type").notNull(),
+  accountData: text("account_data").$type<string>(),
+  accountId: integer("account_id"),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type EmailVerification = typeof emailVerifications.$inferSelect;
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email("Valid email is required"),
+});
+
+export const resetPasswordSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  code: z.string().min(6).max(6),
+  newPassword: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+export const verifyEmailSchema = z.object({
+  email: z.string().email(),
+  code: z.string().min(6).max(6),
+});
+
+export const upgradeEmployeeSchema = z.object({
+  username: z.string().min(3, "Username must be at least 3 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  email: z.string().email("Valid email is required"),
 });
 
 export const accessCodeLoginSchema = z.object({
