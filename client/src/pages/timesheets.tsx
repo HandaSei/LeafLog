@@ -1091,58 +1091,59 @@ export default function Timesheets() {
             const sc = statusConfig[status];
             return (
               <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold">{emp.name}</div>
-                    <div className="text-xs text-muted-foreground">{(() => {
-                      const clockInEntry = dayEntries.find(e => e.type === "clock-in");
-                      return clockInEntry?.role || emp.role || "No Role";
-                    })()}</div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b pb-4 mb-2">
+                  <div className="flex items-center gap-3">
+                    <EmployeeAvatar name={emp.name} color={emp.color} size="lg" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-lg leading-tight">{emp.name}</div>
+                      <div className="text-xs text-muted-foreground">{emp.role || "No Role"}</div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Role for this shift</div>
+                  <div className="flex flex-col gap-1.5 sm:items-end w-full sm:w-auto">
+                    <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Role for this shift</div>
+                    <Select
+                      value={dayEntries.find(e => e.type === "clock-in")?.role || emp.role || "none"}
+                      onValueChange={(val) => {
+                        const actualVal = val === "none" ? "" : val;
+                        const clockInEntry = dayEntries.find(e => e.type === "clock-in");
+                        if (clockInEntry) {
+                          updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(clockInEntry.timestamp).toISOString(), role: actualVal });
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full sm:w-[140px] h-8 text-xs bg-background" data-testid="select-detail-role">
+                        <SelectValue placeholder="Set role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none" className="text-muted-foreground italic">No Role</SelectItem>
+                        {customRoles.map(r => (
+                          <SelectItem key={r.id} value={r.name}>
+                            <span className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: r.color }} />
+                              {r.name}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {customRoles.length === 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <AlertCircle className="w-3 h-3 text-amber-500" />
+                          <span>No roles created yet</span>
+                        </div>
+                        <button 
+                          className="text-[10px] text-primary hover:underline font-medium"
+                          onClick={() => {
+                            setViewingWorkday(null);
+                            setLocation("/settings");
+                          }}
+                        >
+                          Add in Settings
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <Select
-                    value={dayEntries.find(e => e.type === "clock-in")?.role || emp.role || "none"}
-                    onValueChange={(val) => {
-                      const actualVal = val === "none" ? "" : val;
-                      const clockInEntry = dayEntries.find(e => e.type === "clock-in");
-                      if (clockInEntry) {
-                        updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(clockInEntry.timestamp).toISOString(), role: actualVal });
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-[140px] h-7 text-xs" data-testid="select-detail-role">
-                      <SelectValue placeholder="Set role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none" className="text-muted-foreground italic">No Role</SelectItem>
-                      {customRoles.map(r => (
-                        <SelectItem key={r.id} value={r.name}>
-                          <span className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: r.color }} />
-                            {r.name}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {customRoles.length === 0 && (
-                    <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3 text-amber-500" />
-                      No roles created yet. 
-                      <button 
-                        className="text-primary hover:underline font-medium"
-                        onClick={() => {
-                          setViewingWorkday(null);
-                          setLocation("/settings");
-                        }}
-                      >
-                        Add in Settings
-                      </button>
-                    </p>
-                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
