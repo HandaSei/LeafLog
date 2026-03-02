@@ -236,15 +236,12 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = workedMins % 60;
       const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
       return (
-        <div className="flex items-center gap-3" data-testid="status-on-time">
+        <div className="flex flex-col gap-0.5" data-testid="status-on-time">
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-              <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Clocked in ({format(parseISO(status.clockInTime), "HH:mm")})</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Working ({format(parseISO(status.clockInTime), "HH:mm")})</span>
+            <span className="text-[10px] text-muted-foreground">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 mt-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
           </div>
@@ -257,15 +254,12 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = workedMins % 60;
       const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
       return (
-        <div className="flex items-center gap-3" data-testid="status-clocked-late">
+        <div className="flex flex-col gap-0.5" data-testid="status-clocked-late">
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-              <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Late ({format(parseISO(status.clockInTime), "HH:mm")})</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Late ({format(parseISO(status.clockInTime), "HH:mm")})</span>
+            <span className="text-[10px] text-muted-foreground">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 mt-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
           </div>
@@ -289,7 +283,7 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
     case "very-late":
       return (
         <div className="flex items-center gap-1.5" data-testid="status-very-late">
-          <XCircle className="w-3.5 h-3.5 text-red-500" />
+          <AlertCircle className="w-3.5 h-3.5 text-red-500" />
           <span className="text-[11px] font-semibold text-red-600 dark:text-red-400">Not yet at work · {status.minutesLate}min late</span>
         </div>
       );
@@ -299,15 +293,12 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = totalMins % 60;
       const hasWarning = !!status.noBreakWarning;
       return (
-        <div className="flex items-center gap-3" data-testid="status-clocked-out">
+        <div className="flex flex-col gap-0.5" data-testid="status-clocked-out">
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[11px] text-foreground font-medium">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
+            <span className="text-[10px] text-muted-foreground">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 mt-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} isDone />}
           </div>
@@ -327,15 +318,12 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = workedMins % 60;
       const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
       return (
-        <div className="flex items-center gap-3" data-testid="status-working-no-schedule">
+        <div className="flex flex-col gap-0.5" data-testid="status-working-no-schedule">
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-              <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Working ({format(parseISO(status.clockInTime), "HH:mm")})</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Working ({format(parseISO(status.clockInTime), "HH:mm")})</span>
+            <span className="text-[10px] text-muted-foreground">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 mt-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
           </div>
@@ -348,15 +336,12 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       const m = totalMins % 60;
       const hasWarning = !!status.noBreakWarning;
       return (
-        <div className="flex items-center gap-3" data-testid="status-done-no-schedule">
+        <div className="flex flex-col gap-0.5" data-testid="status-done-no-schedule">
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground ml-5">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
+            <span className="text-[11px] text-foreground font-medium">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
+            <span className="text-[10px] text-muted-foreground">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 mt-1">
             <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
             {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} isDone />}
           </div>
