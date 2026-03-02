@@ -119,7 +119,7 @@ export default function KioskPage() {
   }, [currentStatus]);
 
   const filteredEmployees = useMemo(() => {
-    if (!employees) return [];
+    if (!employees || !Array.isArray(employees)) return [];
     return employees.filter(
       (e) =>
         e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -160,8 +160,11 @@ export default function KioskPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      setLocation("/login");
+      setExitDialogOpen(false);
+      setExitUsername("");
+      setExitPassword("");
       toast({ title: "SteepIn Exited", description: "Successfully deactivated SteepIn mode" });
+      setLocation("/login");
     },
     onError: (err: Error) => {
       toast({ title: "Exit Failed", description: err.message, variant: "destructive" });

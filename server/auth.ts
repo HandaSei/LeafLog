@@ -239,7 +239,10 @@ export function registerAuthRoutes(router: Router) {
 
     // Instead of destroying session, just clear the steepin mode flag
     (req.session as any).steepinMode = false;
-    res.json({ success: true });
+    req.session.save((err) => {
+      if (err) return res.status(500).json({ message: "Failed to save session" });
+      res.json({ success: true });
+    });
   });
 
   router.post("/api/auth/logout", (req, res) => {
