@@ -527,7 +527,7 @@ export default function Dashboard() {
                 return (
                   <div
                     key={row.employee.id}
-                    className="flex flex-col gap-2 p-2.5 rounded-md bg-muted/50"
+                    className="flex flex-col gap-2 p-2.5 rounded-md bg-card border border-border/60"
                     data-testid={`flow-row-${row.employee.id}`}
                   >
                     <div className="flex items-center gap-3">
