@@ -140,6 +140,16 @@ session:      managed by connect-pg-simple (auto-created)
 - Multi-tenant filtering uses `getEmployeeIdsByOwner()` helper to get employee IDs, then filters with `IN` clause
 - When adding new Drizzle queries that select from `accounts`, all columns referenced in `schema.ts` must exist in the actual DB
 
+## Capacitor (Native App)
+- **Packages**: `@capacitor/core`, `@capacitor/cli`, `@capacitor/android`, `@capacitor/ios`
+- **Config**: `capacitor.config.ts` at project root — `appId: com.leaflog.app`, `webDir: dist/public`
+- **Android project**: `android/` folder (scaffolded, ready for Android Studio)
+- **API base URL**: `client/src/lib/queryClient.ts` reads `VITE_API_BASE_URL` env var. Set this to the deployed Replit URL (e.g. `https://your-app.replit.app`) when building the native app. Empty/unset = relative URLs (browser mode).
+- **CORS**: `server/index.ts` allows Capacitor origins (`capacitor://localhost`, `http://localhost`) with credentials
+- **Session cookies**: `sameSite: "none"` in production so cross-origin cookies work from the native app shell
+- **Build guide**: `CAPACITOR_BUILD.md` — step-by-step instructions for building the APK on a local machine
+- **Update workflow**: `npm run build` → `npx cap sync android` → open Android Studio → Build APK
+
 ## Styling Rules
 - Primary color: sage green `#8B9E8B`
 - Background: warm tan `#E8DCC4`

@@ -45,7 +45,7 @@ export function setupSession(app: any) {
         maxAge: 10 * 365 * 24 * 60 * 60 * 1000, // 10 years
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: process.env.NODE_ENV === "production" ? "none" as const : "lax" as const,
       },
     })
   );
