@@ -283,25 +283,41 @@ async function exportPDF(
   const rows: (string | number)[][] = [];
   let grandTotal = 0;
 
+  const employeeDayGroups = new Map<string, { date: Date, employee: Employee, sessions: EmployeeWorkday[] }>();
+
   grouped.forEach(({ date, workdays }) => {
     workdays.forEach(wd => {
-      const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status } = wd;
-      if (status !== "completed") return; // Skip unfinished shifts
-
-      grandTotal += netWorkedMinutes;
-      const row: (string | number)[] = [
-        format(date, "EEE, MMM d, yyyy"),
-        emp.name,
-        emp.role || "Loose Leaf",
-        clockIn ? format(clockIn, "HH:mm") : "—",
-        clockOut ? format(clockOut, "HH:mm") : "—",
-        totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "—",
-        formatHoursDecimal(netWorkedMinutes) + " h",
-      ];
-      if (hasUnpaid) row.splice(6, 0, unpaidBreakMinutes > 0 ? `-${formatMinutes(unpaidBreakMinutes)}` : "—");
-      rows.push(row);
+      if (wd.status !== "completed") return;
+      const key = `${wd.employee.id}_${format(date, "yyyy-MM-dd")}`;
+      const group = employeeDayGroups.get(key) || { date, employee: wd.employee, sessions: [] };
+      group.sessions.push(wd);
+      employeeDayGroups.set(key, group);
     });
   });
+
+  Array.from(employeeDayGroups.values())
+    .sort((a, b) => a.date.getTime() - b.date.getTime() || a.employee.name.localeCompare(b.employee.name))
+    .forEach(({ date, employee, sessions }) => {
+      const totalNet = sessions.reduce((s, ss) => s + ss.netWorkedMinutes, 0);
+      const totalBreak = sessions.reduce((s, ss) => s + ss.totalBreakMinutes, 0);
+      const totalUnpaid = sessions.reduce((s, ss) => s + ss.unpaidBreakMinutes, 0);
+      grandTotal += totalNet;
+
+      const timeStrings = sessions.map(s => 
+        `${s.clockIn ? format(s.clockIn, "HH:mm") : "—"}-${s.clockOut ? format(s.clockOut, "HH:mm") : "—"}`
+      ).join("\n");
+
+      const row: (string | number)[] = [
+        format(date, "EEE, MMM d, yyyy"),
+        employee.name,
+        employee.role || "Loose Leaf",
+        timeStrings,
+        totalBreak > 0 ? formatMinutes(totalBreak) : "—",
+        formatHoursDecimal(totalNet) + " h",
+      ];
+      if (hasUnpaid) row.splice(5, 0, totalUnpaid > 0 ? `-${formatMinutes(totalUnpaid)}` : "—");
+      rows.push(row);
+    });
 
   if (rows.length === 0) {
     const emptyRow = ["No timesheet data for this period.", "", "", "", "", "", ""];
@@ -310,18 +326,18 @@ async function exportPDF(
   }
 
   const head = hasUnpaid
-    ? [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Unpaid", "Hours"]]
-    : [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Hours"]];
+    ? [["Date", "Employee", "Role", "Sessions", "Break", "Unpaid", "Hours"]]
+    : [["Date", "Employee", "Role", "Sessions", "Break", "Hours"]];
 
   const foot = rows.length > 1
     ? hasUnpaid
-      ? [["", "", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
-      : [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      ? [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      : [["", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
     : undefined;
 
   const colStyles: Record<number, object> = hasUnpaid
-    ? { 0: { cellWidth: 38 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 20 }, 4: { cellWidth: 20 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 20, halign: "right" } }
-    : { 0: { cellWidth: 42 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 22 }, 4: { cellWidth: 22 }, 5: { cellWidth: 22 }, 6: { cellWidth: 22, halign: "right" } };
+    ? { 0: { cellWidth: 38 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 40 }, 4: { cellWidth: 18 }, 5: { cellWidth: 18, textColor: [200, 60, 60] }, 6: { cellWidth: 20, halign: "right" } }
+    : { 0: { cellWidth: 42 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 44 }, 4: { cellWidth: 22 }, 5: { cellWidth: 22, halign: "right" } };
 
   autoTable(doc, {
     startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
@@ -454,10 +470,23 @@ export default function Timesheets() {
     setSelectedMonth(startOfMonth(next));
   };
 
-  const workdays = useMemo(
-    () => buildWorkdaysForDate(entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes),
-    [entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]
-  );
+    const dailyWorkdays = useMemo(() => {
+    const map = new Map<number, EmployeeWorkday[]>();
+    employees.forEach(emp => {
+      const key = `${emp.id}_${format(selectedDay, "yyyy-MM-dd")}`;
+      const dayEntries = entriesByEmployeeAndDay.get(key) || [];
+      map.set(emp.id, processEntriesForEmployee(emp, dayEntries, paidBreakMinutes));
+    });
+    return map;
+  }, [employees, entriesByEmployeeAndDay, selectedDay, paidBreakMinutes]);
+
+  const filteredEmployees = useMemo(() => {
+    return employees.filter(emp => {
+      if (selectedRole !== "all" && emp.role !== selectedRole) return false;
+      if (employeeSearch && !emp.name.toLowerCase().includes(employeeSearch.toLowerCase())) return false;
+      return true;
+    });
+  }, [employees, selectedRole, employeeSearch]);
 
   const monthWorkdays = useMemo(
     () => buildWorkdaysForRange(entries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, null, paidBreakMinutes),
@@ -465,6 +494,18 @@ export default function Timesheets() {
   );
 
   const [selectedWorkday, setSelectedWorkday] = useState<EmployeeWorkday | null>(null);
+
+  const entriesByEmployeeAndDay = useMemo(() => {
+    const map = new Map<string, TimeEntry[]>();
+    entries.forEach(entry => {
+      const dateStr = typeof entry.date === "string" ? entry.date.substring(0, 10) : format(new Date(entry.date), "yyyy-MM-dd");
+      const key = `${entry.employeeId}_${dateStr}`;
+      const list = map.get(key) || [];
+      list.push(entry);
+      map.set(key, list);
+    });
+    return map;
+  }, [entries]);
 
   const setViewingWorkdayManual = (wd: EmployeeWorkday, date: Date) => {
     setSelectedWorkday(wd);
