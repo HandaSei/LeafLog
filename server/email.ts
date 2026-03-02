@@ -2,7 +2,7 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const FROM_EMAIL = "LeafLog <onboarding@resend.dev>";
+const FROM_EMAIL = "LeafLog <noreply@leaflog.org>";
 
 function generateCode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
