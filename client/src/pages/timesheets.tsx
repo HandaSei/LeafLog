@@ -332,19 +332,21 @@ async function exportPDF(
           styles: { lineWidth: { top: isFirst ? 0.6 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [160, 180, 160] : [150, 150, 150] }
         });
 
-        if (isFirst) {
+        const breakStr = wd.totalBreakMinutes > 0 ? formatMinutes(wd.totalBreakMinutes) : "—";
+        row.push({ 
+          content: breakStr, 
+          styles: { lineWidth: { top: isFirst ? 0.6 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [160, 180, 160] : [150, 150, 150] }
+        });
+
+        if (hasUnpaid) {
+          const unpaidStr = wd.unpaidBreakMinutes > 0 ? `-${formatMinutes(wd.unpaidBreakMinutes)}` : "—";
           row.push({ 
-            content: totalBreak > 0 ? formatMinutes(totalBreak) : "—", 
-            rowSpan: sessions.length,
-            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: [160, 180, 160] }
+            content: unpaidStr, 
+            styles: { lineWidth: { top: isFirst ? 0.6 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [160, 180, 160] : [150, 150, 150] }
           });
-          if (hasUnpaid) {
-            row.push({ 
-              content: totalUnpaid > 0 ? `-${formatMinutes(totalUnpaid)}` : "—", 
-              rowSpan: sessions.length,
-              styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: [160, 180, 160] }
-            });
-          }
+        }
+
+        if (isFirst) {
           row.push({ 
             content: formatHoursDecimal(totalNet) + " h", 
             rowSpan: sessions.length,
