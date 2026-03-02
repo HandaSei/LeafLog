@@ -293,62 +293,58 @@ async function exportPDF(
     });
 
     byEmployee.forEach((sessions) => {
-      if (sessions.length === 1) {
-        const wd = sessions[0];
-        const { employee: emp, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes } = wd;
-        grandTotal += netWorkedMinutes;
-        const row: (string | number)[] = [
-          format(date, "EEE, MMM d, yyyy"),
-          emp.name,
-          emp.role || "No Role",
-          `Shift 1:  ${clockIn ? format(clockIn, "HH:mm") : "—"}  |  ${clockOut ? format(clockOut, "HH:mm") : "—"}`,
-          totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "—",
-          formatHoursDecimal(netWorkedMinutes) + " h",
-        ];
-        if (hasUnpaid) row.splice(5, 0, unpaidBreakMinutes > 0 ? `-${formatMinutes(unpaidBreakMinutes)}` : "—");
+      const totalNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
+      const totalBreak = sessions.reduce((s, w) => s + w.totalBreakMinutes, 0);
+      const totalUnpaid = sessions.reduce((s, w) => s + w.unpaidBreakMinutes, 0);
+      grandTotal += totalNet;
+
+      sessions.forEach((wd, idx) => {
+        const isFirst = idx === 0;
+        const row: any[] = [];
+        
+        if (isFirst) {
+          row.push({ content: format(date, "EEE, MMM d, yyyy"), rowSpan: sessions.length });
+          row.push({ content: wd.employee.name, rowSpan: sessions.length });
+          row.push({ content: wd.employee.role || "No Role", rowSpan: sessions.length });
+        }
+
+        const clockInStr = `Shift ${idx + 1}:  ${wd.clockIn ? format(wd.clockIn, "HH:mm") : "—"}`;
+        const clockOutStr = wd.clockOut ? format(wd.clockOut, "HH:mm") : "—";
+        row.push(clockInStr);
+        row.push(clockOutStr);
+
+        if (isFirst) {
+          row.push({ content: totalBreak > 0 ? formatMinutes(totalBreak) : "—", rowSpan: sessions.length });
+          if (hasUnpaid) {
+            row.push({ content: totalUnpaid > 0 ? `-${formatMinutes(totalUnpaid)}` : "—", rowSpan: sessions.length });
+          }
+          row.push({ content: formatHoursDecimal(totalNet) + " h", rowSpan: sessions.length });
+        }
+        
         rows.push(row);
-      } else {
-        const emp = sessions[0].employee;
-        const totalNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
-        const totalBreak = sessions.reduce((s, w) => s + w.totalBreakMinutes, 0);
-        const totalUnpaid = sessions.reduce((s, w) => s + w.unpaidBreakMinutes, 0);
-        grandTotal += totalNet;
-        const timeRanges = sessions.map((w, idx) =>
-          `Shift ${idx + 1}:  ${w.clockIn ? format(w.clockIn, "HH:mm") : "—"}  |  ${w.clockOut ? format(w.clockOut, "HH:mm") : "—"}`
-        ).join("\n");
-        const row: (string | number)[] = [
-          format(date, "EEE, MMM d, yyyy"),
-          emp.name,
-          emp.role || "No Role",
-          timeRanges,
-          totalBreak > 0 ? formatMinutes(totalBreak) : "—",
-          formatHoursDecimal(totalNet) + " h",
-        ];
-        if (hasUnpaid) row.splice(5, 0, totalUnpaid > 0 ? `-${formatMinutes(totalUnpaid)}` : "—");
-        rows.push(row);
-      }
+      });
     });
   });
 
   if (rows.length === 0) {
-    const emptyRow = ["No timesheet data for this period.", "", "", "", "", ""];
+    const emptyRow = ["No timesheet data for this period.", "", "", "", "", "", ""];
     if (hasUnpaid) emptyRow.push("");
     rows.push(emptyRow);
   }
 
   const head = hasUnpaid
-    ? [["Date", "Employee", "Role", "Shift Time", "Break", "Unpaid", "Hours"]]
-    : [["Date", "Employee", "Role", "Shift Time", "Break", "Hours"]];
+    ? [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Unpaid", "Hours"]]
+    : [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Hours"]];
 
   const foot = rows.length > 1
     ? hasUnpaid
-      ? [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
-      : [["", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      ? [["", "", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      : [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
     : undefined;
 
   const colStyles: Record<number, object> = hasUnpaid
-    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 52 }, 4: { cellWidth: 18 }, 5: { cellWidth: 18, textColor: [200, 60, 60] }, 6: { cellWidth: 22, halign: "right" } }
-    : { 0: { cellWidth: 40 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 60 }, 4: { cellWidth: 20 }, 5: { cellWidth: 24, halign: "right" } };
+    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 32 }, 4: { cellWidth: 16 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 22, halign: "right" } }
+    : { 0: { cellWidth: 40 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 36 }, 4: { cellWidth: 18 }, 5: { cellWidth: 20 }, 6: { cellWidth: 24, halign: "right" } };
 
   autoTable(doc, {
     startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
@@ -357,7 +353,6 @@ async function exportPDF(
     foot,
     headStyles: { fillColor: [139, 158, 139], textColor: 255, fontStyle: "bold" },
     footStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40], fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [252, 252, 252] },
     styles: { 
       fontSize: 9, 
       cellPadding: 3, 
@@ -366,33 +361,6 @@ async function exportPDF(
       valign: "middle"
     },
     columnStyles: colStyles,
-    didDrawCell: (data) => {
-      // Draw vertical line in "Shift Time" column if it contains " | "
-      if (data.column.index === 3 && data.cell.section === 'body') {
-        const text = data.cell.text.join('\n');
-        if (text.includes(' | ')) {
-          const lines = data.cell.text;
-          const x = data.cell.x;
-          const y = data.cell.y;
-          const w = data.cell.width;
-          const h = data.cell.height;
-          
-          // We need to find the X position of the "|" character.
-          // Since we use helvetica (monospaced-ish for digits), we can approximate or just draw it.
-          // For a more "well defined" look, let's draw a vertical line in the middle of the time area.
-          // The prefix "Shift X:  HH:mm  " is about 16-18 chars.
-          // Let's just draw it at a fixed offset if the text matches our pattern.
-          
-          doc.setDrawColor(200, 200, 200);
-          doc.setLineWidth(0.1);
-          // Draw vertical line only for the content rows
-          // Approximate center of the time part: "Shift 1:  07:00  |  08:00"
-          // The "|" is roughly at 60% of the cell width if we align it well.
-          // But a better way is to just let the text render and draw a line at a specific X.
-          // Shift Time column is index 3.
-        }
-      }
-    }
   });
 
   const safeLabel = rangeLabel.replace(/[^a-zA-Z0-9-]/g, "_");
