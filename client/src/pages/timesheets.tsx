@@ -871,34 +871,40 @@ export default function Timesheets() {
       <div className="p-4 space-y-4 flex-1 overflow-auto">
         <div className="flex flex-col md:flex-row gap-2">
           <div className="flex flex-col sm:flex-row gap-2 flex-1">
-            <Select value={selectedRole} onValueChange={setSelectedRole}>
-              <SelectTrigger className="w-full sm:w-[150px] h-9 text-sm" data-testid="select-role-filter">
-                <SelectValue placeholder="All Positions" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Positions</SelectItem>
-                {customRoles.map(role => (
-                  <SelectItem key={role.id} value={role.name}>{role.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={employeeSearch === "" ? "all" : employeeSearch}
-              onValueChange={(val) => setEmployeeSearch(val === "all" ? "" : val)}
-            >
-              <SelectTrigger className="w-full sm:w-[180px] h-9 text-sm" data-testid="select-employee-filter">
-                <SelectValue placeholder="All Employees" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Employees</SelectItem>
-                {employees
-                  .filter(e => e.status === "active")
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map(emp => (
-                    <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
+            <div className="flex flex-col gap-1.5 flex-1 sm:flex-none sm:w-[150px]">
+              <Label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground ml-1">Position / Role</Label>
+              <Select value={selectedRole} onValueChange={setSelectedRole}>
+                <SelectTrigger className="w-full h-9 text-sm" data-testid="select-role-filter">
+                  <SelectValue placeholder="All Positions" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Positions</SelectItem>
+                  {customRoles.map(role => (
+                    <SelectItem key={role.id} value={role.name}>{role.name}</SelectItem>
                   ))}
-              </SelectContent>
-            </Select>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5 flex-1 sm:flex-none sm:w-[180px]">
+              <Label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground ml-1">Employee</Label>
+              <Select
+                value={employeeSearch === "" ? "all" : employeeSearch}
+                onValueChange={(val) => setEmployeeSearch(val === "all" ? "" : val)}
+              >
+                <SelectTrigger className="w-full h-9 text-sm" data-testid="select-employee-filter">
+                  <SelectValue placeholder="All Employees" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Employees</SelectItem>
+                  {employees
+                    .filter(e => e.status === "active")
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map(emp => (
+                      <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
@@ -1094,6 +1100,9 @@ export default function Timesheets() {
                       return clockInEntry?.role || emp.role || "No Role";
                     })()}</div>
                   </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Role for this shift</div>
+                  </div>
                   <Select
                     value={dayEntries.find(e => e.type === "clock-in")?.role || emp.role || "none"}
                     onValueChange={(val) => {
@@ -1119,6 +1128,21 @@ export default function Timesheets() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {customRoles.length === 0 && (
+                    <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 text-amber-500" />
+                      No roles created yet. 
+                      <button 
+                        className="text-primary hover:underline font-medium"
+                        onClick={() => {
+                          setViewingWorkday(null);
+                          setLocation("/settings");
+                        }}
+                      >
+                        Add in Settings
+                      </button>
+                    </p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
@@ -1390,7 +1414,7 @@ export default function Timesheets() {
               <div className="space-y-4 py-4">
                 <div className="text-sm text-muted-foreground">{format(selectedDay, "EEEE, MMM d, yyyy")}</div>
                 <div className="space-y-2">
-                  <Label>Employee</Label>
+                  <Label>Employee for this timesheet</Label>
                   <Select
                     value={newTimesheetEmployeeId}
                     onValueChange={(val) => {
@@ -1435,6 +1459,21 @@ export default function Timesheets() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {customRoles.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1.5">
+                      <AlertCircle className="w-3 h-3 text-amber-500" />
+                      No roles created yet. 
+                      <button 
+                        className="text-primary hover:underline font-medium"
+                        onClick={() => {
+                          setAddingTimesheet(false);
+                          setLocation("/settings");
+                        }}
+                      >
+                        Add in Settings
+                      </button>
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Shift Time</Label>

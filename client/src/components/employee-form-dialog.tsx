@@ -250,7 +250,7 @@ export function EmployeeFormDialog({
                 name="role"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Role (optional)</FormLabel>
+                    <FormLabel>Employee Role</FormLabel>
                     <Select 
                       onValueChange={(val) => field.onChange(val === "none" ? "" : val)} 
                       value={field.value || "none"}
