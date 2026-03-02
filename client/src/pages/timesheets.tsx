@@ -343,8 +343,8 @@ async function exportPDF(
     : undefined;
 
   const colStyles: Record<number, object> = hasUnpaid
-    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 24, halign: "right" }, 4: { cellWidth: 24 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 22, halign: "right" } }
-    : { 0: { cellWidth: 40 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 27, halign: "right" }, 4: { cellWidth: 27 }, 5: { cellWidth: 20 }, 6: { cellWidth: 24, halign: "right" } };
+    ? { 0: { cellWidth: 40 }, 1: { cellWidth: 35 }, 2: { cellWidth: 25 }, 3: { cellWidth: 14 }, 4: { cellWidth: 14 }, 5: { cellWidth: 14 }, 6: { cellWidth: 14, textColor: [200, 60, 60] }, 7: { cellWidth: 18, halign: "right" } }
+    : { 0: { cellWidth: 45 }, 1: { cellWidth: 40 }, 2: { cellWidth: 30 }, 3: { cellWidth: 15 }, 4: { cellWidth: 15 }, 5: { cellWidth: 15 }, 6: { cellWidth: 20, halign: "right" } };
 
   autoTable(doc, {
     startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
@@ -355,7 +355,7 @@ async function exportPDF(
     footStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40], fontStyle: "bold" },
     styles: { 
       fontSize: 9, 
-      cellPadding: 3, 
+      cellPadding: 2, 
       lineWidth: 0.1, 
       lineColor: [200, 200, 200],
       valign: "middle"
