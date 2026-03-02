@@ -308,9 +308,10 @@ async function exportPDF(
           row.push({ content: wd.employee.role || "No Role", rowSpan: sessions.length });
         }
 
-        row.push(`Shift ${idx + 1}:`);
-        row.push(wd.clockIn ? format(wd.clockIn, "HH:mm") : "—");
-        row.push(wd.clockOut ? format(wd.clockOut, "HH:mm") : "—");
+        const clockInStr = wd.clockIn ? format(wd.clockIn, "HH:mm") : "—";
+        const clockOutStr = wd.clockOut ? format(wd.clockOut, "HH:mm") : "—";
+        row.push(clockInStr);
+        row.push(clockOutStr);
 
         if (isFirst) {
           row.push({ content: totalBreak > 0 ? formatMinutes(totalBreak) : "—", rowSpan: sessions.length });
@@ -326,24 +327,24 @@ async function exportPDF(
   });
 
   if (rows.length === 0) {
-    const emptyRow = ["No timesheet data for this period.", "", "", "", "", "", "", ""];
+    const emptyRow = ["No timesheet data for this period.", "", "", "", "", "", ""];
     if (hasUnpaid) emptyRow.push("");
     rows.push(emptyRow);
   }
 
   const head = hasUnpaid
-    ? [["Date", "Employee", "Role", "", "Clock In", "Clock Out", "Break", "Unpaid", "Hours"]]
-    : [["Date", "Employee", "Role", "", "Clock In", "Clock Out", "Break", "Hours"]];
+    ? [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Unpaid", "Hours"]]
+    : [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Hours"]];
 
   const foot = rows.length > 1
     ? hasUnpaid
-      ? [["", "", "", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
-      : [["", "", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      ? [["", "", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
+      : [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
     : undefined;
 
   const colStyles: Record<number, object> = hasUnpaid
-    ? { 0: { cellWidth: 32 }, 1: { cellWidth: 28 }, 2: { cellWidth: 24 }, 3: { cellWidth: 14, borderLeft: 0 }, 4: { cellWidth: 18, halign: "right" }, 5: { cellWidth: 18 }, 6: { cellWidth: 16 }, 7: { cellWidth: 16, textColor: [200, 60, 60] }, 8: { cellWidth: 20, halign: "right" } }
-    : { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 28 }, 3: { cellWidth: 16, borderLeft: 0 }, 4: { cellWidth: 20, halign: "right" }, 5: { cellWidth: 20 }, 6: { cellWidth: 18 }, 7: { cellWidth: 22, halign: "right" } };
+    ? { 0: { cellWidth: 36 }, 1: { cellWidth: 32 }, 2: { cellWidth: 26 }, 3: { cellWidth: 32, halign: "right" }, 4: { cellWidth: 16 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18, textColor: [200, 60, 60] }, 7: { cellWidth: 22, halign: "right" } }
+    : { 0: { cellWidth: 40 }, 1: { cellWidth: 36 }, 2: { cellWidth: 30 }, 3: { cellWidth: 36, halign: "right" }, 4: { cellWidth: 18 }, 5: { cellWidth: 20 }, 6: { cellWidth: 24, halign: "right" } };
 
   autoTable(doc, {
     startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
@@ -360,15 +361,6 @@ async function exportPDF(
       valign: "middle"
     },
     columnStyles: colStyles,
-    didParseCell: (data) => {
-      // Remove vertical line between empty header cell and "Clock In" header
-      if (data.section === 'head' && data.column.index === 3) {
-        data.cell.styles.lineWidth = { top: 0.1, right: 0, bottom: 0.1, left: 0.1 };
-      }
-      if (data.section === 'head' && data.column.index === 4) {
-        data.cell.styles.lineWidth = { top: 0.1, right: 0.1, bottom: 0.1, left: 0 };
-      }
-    }
   });
 
   const safeLabel = rangeLabel.replace(/[^a-zA-Z0-9-]/g, "_");
