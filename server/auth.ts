@@ -222,7 +222,21 @@ export function registerAuthRoutes(router: Router) {
     res.json({ user: safe });
   });
 
-  router.post("/api/auth/steepin-exit", (req, res) => {
+  router.post("/api/auth/steepin-exit", async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ message: "Manager credentials required to exit SteepIn" });
+    }
+
+    const account = await storage.getAccountByUsername(username);
+    if (!account || !(await bcrypt.compare(password, account.password))) {
+      return res.status(401).json({ message: "Invalid manager credentials" });
+    }
+
+    if (account.role !== "admin" && account.role !== "manager") {
+      return res.status(403).json({ message: "Only managers can exit SteepIn" });
+    }
+
     req.session.destroy(() => {
       res.json({ success: true });
     });

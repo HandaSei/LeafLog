@@ -137,9 +137,30 @@ export default function KioskPage() {
     actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode });
   };
 
-  const handleExitSteepIn = async () => {
-    await exitSteepIn();
-    setLocation("/login");
+  const [exitDialogOpen, setExitDialogOpen] = useState(false);
+  const [exitUsername, setExitUsername] = useState("");
+  const [exitPassword, setExitPassword] = useState("");
+
+  const exitMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/auth/steepin-exit", { 
+        username: exitUsername, 
+        password: exitPassword 
+      });
+    },
+    onSuccess: () => {
+      queryClient.clear();
+      setLocation("/login");
+      toast({ title: "SteepIn Exited", description: "Successfully logged out" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Exit Failed", description: err.message, variant: "destructive" });
+    }
+  });
+
+  const handleExitSteepIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    exitMutation.mutate();
   };
 
   if (selectedEmployee) {
@@ -164,14 +185,7 @@ export default function KioskPage() {
               return `${displayTime} [ ${format(now, "HH:mm:ss")} ]`;
             })()}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleExitSteepIn}
-            data-testid="button-exit-kiosk"
-          >
-            Exit SteepIn
-          </Button>
+          <div className="w-[70px]" /> {/* Spacer to keep time centered */}
         </header>
 
         <div className="flex-1 flex items-center justify-center p-4">
@@ -345,12 +359,60 @@ export default function KioskPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={handleExitSteepIn}
+          className="text-muted-foreground/30 hover:text-muted-foreground/50 hover:bg-transparent"
+          onClick={() => setExitDialogOpen(true)}
           data-testid="button-exit-kiosk-list"
         >
-          Exit SteepIn
+          Exit
         </Button>
       </header>
+
+      <Dialog open={exitDialogOpen} onOpenChange={setExitDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Exit SteepIn</DialogTitle>
+            <DialogDescription>
+              Manager credentials are required to deactivate kiosk mode.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleExitSteepIn} className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Username</label>
+              <Input 
+                value={exitUsername}
+                onChange={(e) => setExitUsername(e.target.value)}
+                placeholder="Manager username"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Password</label>
+              <Input 
+                type="password"
+                value={exitPassword}
+                onChange={(e) => setExitPassword(e.target.value)}
+                placeholder="Manager password"
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setExitDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={exitMutation.isPending}
+              >
+                {exitMutation.isPending ? "Exiting..." : "Exit SteepIn"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <div className="p-4 border-b">
         <div className="relative max-w-md mx-auto">
