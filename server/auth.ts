@@ -237,10 +237,9 @@ export function registerAuthRoutes(router: Router) {
       return res.status(403).json({ message: "Only managers can exit SteepIn" });
     }
 
-    // Instead of destroying session, just clear the steepin mode flag
-    (req.session as any).steepinMode = false;
-    req.session.save((err) => {
-      if (err) return res.status(500).json({ message: "Failed to save session" });
+    req.session.destroy((err) => {
+      if (err) return res.status(500).json({ message: "Failed to log out" });
+      res.clearCookie("sid");
       res.json({ success: true });
     });
   });
