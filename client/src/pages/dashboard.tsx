@@ -422,26 +422,50 @@ export default function Dashboard() {
 
   const flowRows: FlowRow[] = useMemo(() => {
     const rows: FlowRow[] = [];
-    const includedEmployeeIds = new Set<number>();
+    const entriesByEmployeeWithShifts = new Map<number, { shift: Shift | null, statuses: ClockStatus[] }[]>();
 
+    // Process scheduled shifts
     todayShifts.forEach((shift) => {
       const emp = employeeMap.get(shift.employeeId);
       if (!emp) return;
       const entries = entriesByEmployee.get(shift.employeeId) || [];
       const statuses = getClockStatusForScheduled(shift, entries, now);
-      rows.push({ employee: emp, shift, statuses });
-      includedEmployeeIds.add(emp.id);
+      
+      const existing = entriesByEmployeeWithShifts.get(emp.id) || [];
+      existing.push({ shift, statuses });
+      entriesByEmployeeWithShifts.set(emp.id, existing);
     });
 
+    // Process unscheduled activity
     entriesByEmployee.forEach((entries, employeeId) => {
-      if (includedEmployeeIds.has(employeeId)) return;
+      if (entriesByEmployeeWithShifts.has(employeeId)) return;
       const emp = employeeMap.get(employeeId);
       if (!emp || emp.status !== "active") return;
       const statuses = getClockStatusForUnscheduled(entries, now);
       if (statuses.length > 0) {
-        rows.push({ employee: emp, shift: null, statuses });
-        includedEmployeeIds.add(emp.id);
+        entriesByEmployeeWithShifts.set(employeeId, [{ shift: null, statuses }]);
       }
+    });
+
+    // Merge shifts for the same employee if they are both active/waiting
+    // Or just decide which one to show. 
+    // If the user sees two "Abla" rows, it's because there are two shifts.
+    // We should probably group shifts by employee in the display or only show the most relevant one.
+    // However, the current UI structure is one row per "FlowRow".
+    // Let's modify the grouping to keep one row per employee, but allow multiple shifts/statuses in that row.
+    
+    entriesByEmployeeWithShifts.forEach((data, empId) => {
+      const emp = employeeMap.get(empId);
+      if (!emp) return;
+      
+      // If multiple shifts exist, we want to avoid showing "Working" twice for the same clock-in.
+      // But we still want to show all shifts.
+      // The issue is that getClockStatusForScheduled returns ALL sessions for the day.
+      // So if Abla clocked in once at 08:00, and has two shifts, both rows show that 08:00 clock-in.
+      
+      data.forEach(item => {
+        rows.push({ employee: emp, shift: item.shift, statuses: item.statuses });
+      });
     });
 
     return rows;
@@ -472,10 +496,35 @@ export default function Dashboard() {
     });
   }, [flowRows]);
 
-  const flowRowsToDisplay = useMemo(() => 
-    sortedRows.filter(r => r.statuses.some(s => s.kind !== "waiting")),
-    [sortedRows]
-  );
+  const flowRowsToDisplay = useMemo(() => {
+    const filtered = sortedRows.filter(r => r.statuses.some(s => s.kind !== "waiting"));
+    
+    // De-duplicate by employee: If an employee has multiple rows (due to multiple shifts),
+    // but they are showing the same active status (e.g. "Working"), we should merge them or pick one.
+    // In the image, Abla has two shifts and both rows show "Working (01:00)".
+    
+    const seen = new Set<number>();
+    const result: FlowRow[] = [];
+    
+    for (const row of filtered) {
+      const activeStatus = row.statuses.find(s => 
+        s.kind === "on-time" || s.kind === "clocked-late" || s.kind === "working-no-schedule"
+      );
+      
+      if (activeStatus) {
+        if (seen.has(row.employee.id)) {
+          // If we already have an active row for this employee, check if this one is "better"
+          // or if we should just append the shift info to the existing one.
+          // For now, let's just avoid duplicates if the employee is already "Working".
+          continue;
+        }
+        seen.add(row.employee.id);
+      }
+      result.push(row);
+    }
+    
+    return result;
+  }, [sortedRows]);
 
   const waitingRows = useMemo(() => 
     sortedRows.filter(r => r.statuses.every(s => s.kind === "waiting")),
