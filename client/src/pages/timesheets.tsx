@@ -619,9 +619,9 @@ export default function Timesheets() {
 
   const handleSaveShiftEdit = () => {
     if (!editingShift || !/^\d{2}:\d{2}$/.test(editShiftClockIn)) return;
-    const dateStr = format(activeDay, "yyyy-MM-dd");
     const clockInEntry = editingShift.entries.find(e => e.type === "clock-in");
     const clockOutEntry = editingShift.entries.find(e => e.type === "clock-out");
+    const dateStr = clockInEntry?.date || format(activeDay, "yyyy-MM-dd");
 
     // Validation: Clock out must be after clock in
     if (editShiftClockIn && editShiftClockOut) {
@@ -636,7 +636,11 @@ export default function Timesheets() {
     }
 
     if (clockInEntry) updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockIn}:00`).toISOString() });
-    if (clockOutEntry && /^\d{2}:\d{2}$/.test(editShiftClockOut)) updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockOut}:00`).toISOString() });
+    if (clockOutEntry && /^\d{2}:\d{2}$/.test(editShiftClockOut)) {
+      updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockOut}:00`).toISOString() });
+    } else if (!clockOutEntry && /^\d{2}:\d{2}$/.test(editShiftClockOut)) {
+      addEntryMutation.mutate({ employeeId: editingShift.employee.id, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${editShiftClockOut}:00`).toISOString() });
+    }
     setEditingShift(null);
   };
 
@@ -688,7 +692,7 @@ export default function Timesheets() {
   const handleAddNewBreak = () => {
     if (!addingNewBreak || !newBreakStartTime || !newBreakEndTime) return;
     if (!/^\d{2}:\d{2}$/.test(newBreakStartTime) || !/^\d{2}:\d{2}$/.test(newBreakEndTime)) return;
-    const dateStr = format(activeDay, "yyyy-MM-dd");
+    const dateStr = addingNewBreak.entries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
     addEntryMutation.mutate(
       { employeeId: addingNewBreak.employee.id, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newBreakStartTime}:00`).toISOString() },
       {
@@ -709,7 +713,7 @@ export default function Timesheets() {
 
   const handleAddClockOut = () => {
     if (!addingClockOut || !clockOutTime || !/^\d{2}:\d{2}$/.test(clockOutTime)) return;
-    const dateStr = format(activeDay, "yyyy-MM-dd");
+    const dateStr = addingClockOut.entries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
     addEntryMutation.mutate(
       { employeeId: addingClockOut.employee.id, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${clockOutTime}:00`).toISOString() },
       {
@@ -1208,7 +1212,7 @@ export default function Timesheets() {
                 {(() => {
                   const clockInEntry = dayEntries.find(e => e.type === "clock-in");
                   const clockOutEntry = dayEntries.find(e => e.type === "clock-out");
-                  const dateStr = format(activeDay, "yyyy-MM-dd");
+                  const dateStr = clockInEntry?.date || format(activeDay, "yyyy-MM-dd");
                   return (
                     <div className="rounded-md border p-3 text-sm">
                       <div className="flex items-center justify-between mb-2">
@@ -1255,7 +1259,7 @@ export default function Timesheets() {
                   const breakStart = dayEntries.find(e => e.type === "break-start");
                   const breakEnd = dayEntries.find(e => e.type === "break-end");
                   if (!breakStart && !breakEnd) return null;
-                  const dateStr = format(activeDay, "yyyy-MM-dd");
+                  const dateStr = dayEntries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
                   return (
                     <div className="rounded-md border p-3 text-sm">
                       <div className="flex items-center justify-between mb-2">
@@ -1300,7 +1304,7 @@ export default function Timesheets() {
 
                 <Button variant="outline" size="sm" className="w-full"
                   onClick={() => {
-                    const dateStr = format(activeDay, "yyyy-MM-dd");
+                    const dateStr = dayEntries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
                     openClock(format(new Date(), "HH:mm"), (startVal) => {
                       addEntryMutation.mutate(
                         { employeeId: emp.id, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${startVal}:00`).toISOString() },
@@ -1347,7 +1351,7 @@ export default function Timesheets() {
                           disabled={deleteTimesheetMutation.isPending}
                           onClick={() => deleteTimesheetMutation.mutate({ 
                             employeeId: emp.id, 
-                            date: format(activeDay, "yyyy-MM-dd"),
+                            date: dayEntries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd"),
                             entries: dayEntries
                           })}
                           data-testid="button-delete-timesheet-confirm"
@@ -1370,7 +1374,7 @@ export default function Timesheets() {
           <DialogHeader><DialogTitle>Edit Shift Time</DialogTitle></DialogHeader>
           {editingShift && (
             <div className="space-y-4 py-2">
-              <div className="text-sm text-muted-foreground">{editingShift.employee.name} — {format(activeDay, "EEE, MMM d, yyyy")}</div>
+              <div className="text-sm text-muted-foreground">{editingShift.employee.name} — {(() => { const d = editingShift.entries.find(e => e.type === "clock-in")?.date; return d ? format(new Date(d + "T00:00:00"), "EEE, MMM d, yyyy") : format(activeDay, "EEE, MMM d, yyyy"); })()}</div>
               <div className="space-y-2">
                 <Label>Clock In / Clock Out</Label>
                 <TimeRangeInput startValue={editShiftClockIn} endValue={editShiftClockOut} onStartChange={setEditShiftClockIn} onEndChange={setEditShiftClockOut} startTestId="input-edit-shift-clock-in" endTestId="input-edit-shift-clock-out" />
