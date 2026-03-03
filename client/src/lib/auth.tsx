@@ -8,6 +8,8 @@ async function fetchBootstrap() {
   const data = await res.json();
   if (data.employees !== undefined) {
     queryClient.setQueryData(["/api/employees"], data.employees);
+    const activeEmps = data.employees.filter((e: any) => e.status === "active");
+    queryClient.setQueryData(["/api/steepin/employees"], activeEmps);
   }
   if (data.roles !== undefined) {
     queryClient.setQueryData(["/api/roles"], data.roles);
@@ -17,6 +19,11 @@ async function fetchBootstrap() {
   }
   if (data.notificationCount !== undefined) {
     queryClient.setQueryData(["/api/notifications/unread-count"], { count: data.notificationCount });
+  }
+  if (data.steepinEntries) {
+    for (const [empId, entries] of Object.entries(data.steepinEntries)) {
+      queryClient.setQueryData(["/api/steepin/entries", empId], entries);
+    }
   }
   return data.auth ?? null;
 }

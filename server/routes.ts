@@ -704,18 +704,41 @@ export async function registerRoutes(
       agencyName: account.agencyName ?? null,
       email: account.email ?? null,
     };
-    res.json({
+    const isSteepIn = req.session.steepinMode ?? false;
+    const response: any = {
       auth: {
         authenticated: true,
         user: authUser,
         employee: null,
-        steepinMode: req.session.steepinMode ?? false,
+        steepinMode: isSteepIn,
       },
       employees,
       roles,
       breakPolicy,
       notificationCount,
-    });
+    };
+    if (isSteepIn) {
+      const todayStr = format(new Date(), "yyyy-MM-dd");
+      const activeEmps = employees.filter((e: any) => e.status === "active");
+      const entryResults = await Promise.all(
+        activeEmps.map(async (emp: any) => {
+          let entries = await storage.getTimeEntriesByEmployeeAndDate(emp.id, todayStr);
+          const lastType = entries.length > 0 ? entries[entries.length - 1].type : null;
+          const hasOpenSession = lastType === "clock-in" || lastType === "break-start" || lastType === "break-end";
+          if (!hasOpenSession) {
+            const openDate = await storage.getOpenSessionDate(emp.id);
+            if (openDate && openDate !== todayStr) {
+              entries = await storage.getTimeEntriesByEmployeeAndDate(emp.id, openDate);
+            }
+          }
+          return { employeeId: emp.id, entries };
+        })
+      );
+      response.steepinEntries = Object.fromEntries(
+        entryResults.map((r) => [r.employeeId.toString(), r.entries])
+      );
+    }
+    res.json(response);
   });
 
   app.use(router);
