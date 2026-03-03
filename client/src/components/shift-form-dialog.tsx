@@ -182,16 +182,30 @@ export function ShiftFormDialog({
       form.reset();
     },
     onError: (error: Error) => {
-      if (error.message.toLowerCase().includes("overlap")) {
+      let errorMessage = error.message;
+      try {
+        // apiRequest might return "409: {"message":"..."}"
+        if (errorMessage.includes("{")) {
+          const jsonPart = errorMessage.substring(errorMessage.indexOf("{"));
+          const parsed = JSON.parse(jsonPart);
+          if (parsed.message) errorMessage = parsed.message;
+        } else if (errorMessage.includes(": ")) {
+          errorMessage = errorMessage.split(": ").slice(1).join(": ");
+        }
+      } catch (e) {
+        // fallback to original message if parsing fails
+      }
+
+      if (errorMessage.toLowerCase().includes("overlap")) {
         setShiftWarning({
           title: "Overlapping Shift",
-          description: error.message,
+          description: errorMessage,
           actions: [{ label: "OK", variant: "outline", onClick: () => setShiftWarning(null) }],
         });
       } else {
         toast({
           title: "Error",
-          description: error.message,
+          description: errorMessage,
           variant: "destructive",
         });
       }
