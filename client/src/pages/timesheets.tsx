@@ -68,9 +68,11 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
           workdays.push(finalized);
           currentWorkday = null;
         } else {
-          // Traditional behavior: new clock-in force-closes previous at same timestamp
+          // New clock-in starts while previous is still open — mark as incomplete
+          currentWorkday.status = "incomplete";
           const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
           workdays.push(finalized);
+          currentWorkday = null;
         }
       }
       
@@ -503,8 +505,9 @@ export default function Timesheets() {
 
   const deleteTimesheetMutation = useMutation({
     mutationFn: async (data: { employeeId: number; date: string; entries: TimeEntry[] }) => {
-      // Delete all entries for this day
-      await apiRequest("DELETE", `/api/steepin/entries?employeeId=${data.employeeId}&date=${data.date}`);
+      for (const entry of data.entries) {
+        await apiRequest("DELETE", `/api/steepin/entries/${entry.id}`);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
