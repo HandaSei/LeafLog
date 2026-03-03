@@ -26,7 +26,8 @@ export const pool = new pg.Pool({
   connectionTimeoutMillis: 10000,
 });
 
-// Keep Neon connection warm — ping every 4.5 minutes to prevent cold starts
+// Pre-warm Neon connection immediately on startup and keep it warm
+pool.query("SELECT 1").catch(() => {});
 if (isNeon) {
   setInterval(async () => {
     try {

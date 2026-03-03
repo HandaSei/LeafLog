@@ -1,4 +1,5 @@
 import { Switch, Route, Redirect } from "wouter";
+import { lazy, Suspense } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -10,25 +11,36 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileHeader, MobileBottomNav } from "@/components/mobile-nav";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
-import NotFound from "@/pages/not-found";
-import Dashboard from "@/pages/dashboard";
-import Schedule from "@/pages/schedule";
-import Employees from "@/pages/employees";
-import Timesheets from "@/pages/timesheets";
-import Settings from "@/pages/settings";
 import LoginPage from "@/pages/login";
 import SteepInPage from "@/pages/steepin";
 
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Schedule = lazy(() => import("@/pages/schedule"));
+const Employees = lazy(() => import("@/pages/employees"));
+const Timesheets = lazy(() => import("@/pages/timesheets"));
+const Settings = lazy(() => import("@/pages/settings"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+
+function PageFallback() {
+  return (
+    <div className="flex items-center justify-center h-full p-8">
+      <Skeleton className="w-full max-w-2xl h-[400px] rounded-md" />
+    </div>
+  );
+}
+
 function AuthenticatedRouter() {
   return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/schedule" component={Schedule} />
-      <Route path="/employees" component={Employees} />
-      <Route path="/timesheets" component={Timesheets} />
-      <Route path="/settings" component={Settings} />
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<PageFallback />}>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/schedule" component={Schedule} />
+        <Route path="/employees" component={Employees} />
+        <Route path="/timesheets" component={Timesheets} />
+        <Route path="/settings" component={Settings} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 
@@ -41,29 +53,24 @@ function AuthenticatedLayout() {
   return (
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full overflow-hidden">
-        {/* Sidebar — hidden on mobile, visible on desktop */}
         <div className="hidden md:block">
           <AppSidebar />
         </div>
 
         <div className="flex flex-col flex-1 min-w-0">
-          {/* Mobile top header */}
           <MobileHeader />
 
-          {/* Desktop top header */}
           <header className="hidden md:flex items-center justify-between gap-2 p-2 border-b sticky top-0 z-50 bg-background">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
             <ThemeToggle />
           </header>
 
-          {/* Main content — extra bottom padding on mobile for the bottom nav */}
           <main className="flex-1 overflow-hidden pb-16 md:pb-0">
             <AuthenticatedRouter />
           </main>
         </div>
       </div>
 
-      {/* Mobile bottom nav */}
       <MobileBottomNav />
     </SidebarProvider>
   );

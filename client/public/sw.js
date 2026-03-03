@@ -1,15 +1,7 @@
-const CACHE_NAME = 'leaflog-cache-v2';
-const STATIC_ASSETS = [
-  '/manifest.json',
-  '/favicon.png'
-];
+const CACHE_NAME = 'leaflog-cache-v3';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(STATIC_ASSETS))
-  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -29,22 +21,54 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
+  if (url.pathname.startsWith('/assets/') || url.pathname.match(/\.(js|css|png|jpg|svg|woff2?)$/)) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then((cache) =>
+        cache.match(event.request).then((cached) => {
+          if (cached) return cached;
+          return fetch(event.request).then((response) => {
+            if (response.ok) {
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          });
+        })
+      )
+    );
+    return;
+  }
+
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match('/'))
+      caches.open(CACHE_NAME).then((cache) =>
+        fetch(event.request)
+          .then((response) => {
+            if (response.ok) {
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          })
+          .catch(() => cache.match(event.request) || cache.match('/'))
+      )
     );
     return;
   }
 
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok && STATIC_ASSETS.includes(url.pathname)) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((response) => {
+          if (response.ok) {
+            cache.put(event.request, response.clone());
+          }
+          return response;
+        });
       })
-      .catch(() => caches.match(event.request))
+    )
   );
 });
