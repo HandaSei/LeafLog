@@ -926,9 +926,36 @@ export default function Timesheets() {
       const clockInTs = new Date(clockInTimestamp).getTime();
       const empEntries = entries.filter(e => e.employeeId === empId);
       const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
-      const hasNewerSession = allSessions.some(session =>
+
+      const openSession = allSessions.find(session =>
+        session.clockIn && !session.clockOut && session.clockIn.getTime() < clockInTs
+      );
+      const hasNewerSession = !openSession && allSessions.some(session =>
         session.clockIn && session.clockIn.getTime() > clockInTs
       );
+
+      if (openSession) {
+        const existingLabel = format(openSession.clockIn!, "HH:mm");
+        const newLabel = format(new Date(clockInTimestamp), "HH:mm");
+        setShiftWarning({
+          title: "Session Already In Progress",
+          description: `There is already an open session starting at ${existingLabel}. Adding another without a clock-out will leave both as 'Incomplete'.`,
+          actions: [
+            {
+              label: `Close at ${newLabel} & Continue`,
+              onClick: async () => {
+                await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: clockInTimestamp });
+                setShiftWarning(null);
+                await doAdd(null, null);
+              },
+            },
+            { label: "Add Anyway", variant: "outline", onClick: async () => { setShiftWarning(null); await doAdd(null, null); } },
+            { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+          ],
+        });
+        return;
+      }
+
       if (hasNewerSession) {
         setShiftWarning({
           title: "No Clock Out Time",
@@ -941,6 +968,7 @@ export default function Timesheets() {
         });
         return;
       }
+
       await doAdd(null, null);
       return;
     }
