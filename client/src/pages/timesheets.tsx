@@ -814,6 +814,80 @@ export default function Timesheets() {
     );
   };
 
+  const handleAddClockOutClick = (emp: Employee, dateStr: string, clockIn: Date | null, selectedTime: string) => {
+    if (!clockIn) return;
+    const clockOutDateTime = new Date(`${dateStr}T${selectedTime}:00`);
+    const clockOutTimestamp = clockOutDateTime.toISOString();
+    const clockInTs = clockIn.getTime();
+    const clockOutTs = clockOutDateTime.getTime();
+    const durationHours = (clockOutTs - clockInTs) / (1000 * 60 * 60);
+
+    const empEntries = entries.filter(e => e.employeeId === emp.id);
+    const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
+    const overlapSession = allSessions.find(session =>
+      session.clockIn &&
+      session.clockIn.getTime() !== clockInTs &&
+      session.clockIn.getTime() > clockInTs &&
+      session.clockIn.getTime() < clockOutTs
+    );
+
+    const doAdd = (finalTs: string, mergeSession: EmployeeWorkday | null) => {
+      addEntryMutation.mutate({ employeeId: emp.id, type: "clock-out", date: dateStr, timestamp: finalTs });
+      if (mergeSession) mergeSession.entries.forEach(e => deleteEntryMutation.mutate(e.id));
+      setShiftWarning(null);
+    };
+
+    if (overlapSession) {
+      const mergedTs = overlapSession.clockOut?.toISOString() ?? clockOutTimestamp;
+      const mergedHours = overlapSession.clockOut
+        ? (overlapSession.clockOut.getTime() - clockInTs) / (1000 * 60 * 60)
+        : durationHours;
+      const label = overlapSession.clockOut
+        ? `${format(overlapSession.clockIn!, "HH:mm")} – ${format(overlapSession.clockOut, "HH:mm")}`
+        : `${format(overlapSession.clockIn!, "HH:mm")} (still open)`;
+
+      setShiftWarning({
+        title: "Overlapping Shift Detected",
+        description: `There is already a shift from ${label}. Do you want to unite them into one session?`,
+        actions: [
+          {
+            label: "Unite Shifts",
+            onClick: () => {
+              if (mergedHours > 15) {
+                setShiftWarning({
+                  title: "Very Long Shift",
+                  description: `The combined shift would be ${mergedHours.toFixed(1)} hours. Are you sure?`,
+                  actions: [
+                    { label: "Yes, Confirm", onClick: () => doAdd(mergedTs, overlapSession) },
+                    { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+                  ],
+                });
+              } else {
+                doAdd(mergedTs, overlapSession);
+              }
+            },
+          },
+          { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+        ],
+      });
+      return;
+    }
+
+    if (durationHours > 15) {
+      setShiftWarning({
+        title: "Very Long Shift",
+        description: `This shift would be ${durationHours.toFixed(1)} hours. Are you sure?`,
+        actions: [
+          { label: "Yes, Confirm", onClick: () => doAdd(clockOutTimestamp, null) },
+          { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+        ],
+      });
+      return;
+    }
+
+    doAdd(clockOutTimestamp, null);
+  };
+
   const handleAddTimesheet = async () => {
     if (!newTimesheetEmployeeId || !newTimesheetClockIn || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)) return;
     const dateStr = format(selectedDay, "yyyy-MM-dd");
@@ -849,6 +923,24 @@ export default function Timesheets() {
     };
 
     if (!clockOutTimestamp) {
+      const clockInTs = new Date(clockInTimestamp).getTime();
+      const empEntries = entries.filter(e => e.employeeId === empId);
+      const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
+      const hasNewerSession = allSessions.some(session =>
+        session.clockIn && session.clockIn.getTime() > clockInTs
+      );
+      if (hasNewerSession) {
+        setShiftWarning({
+          title: "No Clock Out Time",
+          description: "There are already newer sessions recorded for this employee. Without a clock-out, this session will be shown as 'Incomplete'. Would you like to add a clock-out time?",
+          actions: [
+            { label: "Add Clock Out", variant: "outline", onClick: () => setShiftWarning(null) },
+            { label: "Leave as Incomplete", onClick: async () => { await doAdd(null, null); } },
+            { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+          ],
+        });
+        return;
+      }
       await doAdd(null, null);
       return;
     }
@@ -1405,7 +1497,7 @@ export default function Timesheets() {
                           {!clockOut && (
                             <Button variant="outline" size="sm" className="h-6 text-xs px-2"
                               onClick={() => openClock(clockIn ? format(clockIn, "HH:mm") : format(new Date(), "HH:mm"), (v) => {
-                                addEntryMutation.mutate({ employeeId: emp.id, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${v}:00`).toISOString() });
+                                handleAddClockOutClick(emp, dateStr, clockIn, v);
                               })}
                               data-testid="button-add-clock-out"
                             >
