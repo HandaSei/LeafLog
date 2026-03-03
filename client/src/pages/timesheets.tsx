@@ -2,7 +2,7 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   format, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isSameDay,
-  differenceInMinutes, startOfMonth, endOfMonth, addMonths, subMonths,
+  differenceInMinutes, startOfMonth, endOfMonth, addMonths, subMonths, addDays, parseISO,
 } from "date-fns";
 import { useState, useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -623,23 +623,19 @@ export default function Timesheets() {
     const clockOutEntry = editingShift.entries.find(e => e.type === "clock-out");
     const dateStr = clockInEntry?.date || format(activeDay, "yyyy-MM-dd");
 
-    // Validation: Clock out must be after clock in
-    if (editShiftClockIn && editShiftClockOut) {
-      if (editShiftClockOut <= editShiftClockIn) {
-        toast({
-          title: "Invalid Time",
-          description: "Clock out must be after clock in.",
-          variant: "destructive"
-        });
-        return;
-      }
-    }
+    // For overnight shifts, clock-out time may be earlier than clock-in time (next day)
+    // Detect this and use the next day's date for the clock-out timestamp
+    const isOvernight = /^\d{2}:\d{2}$/.test(editShiftClockOut) && editShiftClockOut < editShiftClockIn;
+    const clockOutDateStr = isOvernight ? format(addDays(parseISO(dateStr), 1), "yyyy-MM-dd") : dateStr;
+    const clockOutTimestamp = /^\d{2}:\d{2}$/.test(editShiftClockOut)
+      ? new Date(`${clockOutDateStr}T${editShiftClockOut}:00`).toISOString()
+      : null;
 
     if (clockInEntry) updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockIn}:00`).toISOString() });
-    if (clockOutEntry && /^\d{2}:\d{2}$/.test(editShiftClockOut)) {
-      updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockOut}:00`).toISOString() });
-    } else if (!clockOutEntry && /^\d{2}:\d{2}$/.test(editShiftClockOut)) {
-      addEntryMutation.mutate({ employeeId: editingShift.employee.id, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${editShiftClockOut}:00`).toISOString() });
+    if (clockOutEntry && clockOutTimestamp) {
+      updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: clockOutTimestamp });
+    } else if (!clockOutEntry && clockOutTimestamp) {
+      addEntryMutation.mutate({ employeeId: editingShift.employee.id, type: "clock-out", date: dateStr, timestamp: clockOutTimestamp });
     }
     setEditingShift(null);
   };
@@ -1230,9 +1226,11 @@ export default function Timesheets() {
                           </Button>
                           {!clockOut && (
                             <Button variant="outline" size="sm" className="h-6 text-xs px-2"
-                              onClick={() => openClock(format(new Date(), "HH:mm"), (v) => {
-                                addEntryMutation.mutate({ employeeId: emp.id, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${v}:00`).toISOString() });
-                              })}
+                              onClick={() => {
+                                setEditingShift(viewingWorkday);
+                                setEditShiftClockIn(clockIn ? format(clockIn, "HH:mm") : "");
+                                setEditShiftClockOut("");
+                              }}
                               data-testid="button-add-clock-out"
                             >
                               <Plus className="w-3 h-3 mr-1" /> Add Clock Out
@@ -1378,6 +1376,9 @@ export default function Timesheets() {
               <div className="space-y-2">
                 <Label>Clock In / Clock Out</Label>
                 <TimeRangeInput startValue={editShiftClockIn} endValue={editShiftClockOut} onStartChange={setEditShiftClockIn} onEndChange={setEditShiftClockOut} startTestId="input-edit-shift-clock-in" endTestId="input-edit-shift-clock-out" />
+                {/^\d{2}:\d{2}$/.test(editShiftClockOut) && editShiftClockOut < editShiftClockIn && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift — clock out will be saved as the next day.</p>
+                )}
               </div>
             </div>
           )}
