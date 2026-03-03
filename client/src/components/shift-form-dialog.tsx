@@ -121,6 +121,14 @@ export function ShiftFormDialog({
   }, [open, shift, defaultDate, defaultEmployeeId]);
 
   const watchedEmployeeId = form.watch("employeeId");
+  const watchedStartTime = form.watch("startTime");
+  const watchedEndTime = form.watch("endTime");
+  const isOvernightShift =
+    /^\d{2}:\d{2}$/.test(watchedStartTime) &&
+    /^\d{2}:\d{2}$/.test(watchedEndTime) &&
+    watchedEndTime < watchedStartTime;
+
+  const activeEmployees = employees.filter(e => e.status === "active");
 
   useEffect(() => {
     if (!open || isEditing) return;
@@ -214,7 +222,7 @@ export function ShiftFormDialog({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {employees.map((emp) => (
+                        {activeEmployees.map((emp) => (
                           <SelectItem
                             key={emp.id}
                             value={emp.id.toString()}
@@ -291,6 +299,12 @@ export function ShiftFormDialog({
                   </FormItem>
                 )}
               />
+              {isOvernightShift && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5 -mt-1">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  Overnight shift — ends the next day.
+                </p>
+              )}
               <div className="flex items-end gap-3">
                 <FormField
                   control={form.control}

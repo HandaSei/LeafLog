@@ -138,8 +138,32 @@ export async function registerRoutes(
     if (!partial.success) {
       return res.status(400).json({ message: partial.error.issues[0].message });
     }
+    const existing = await storage.getShift(Number(req.params.id));
+    if (!existing) return res.status(404).json({ message: "Shift not found" });
+    const emp = await storage.getEmployee(existing.employeeId);
+    if (!emp || emp.ownerAccountId !== req.session.userId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    const employeeId = partial.data.employeeId ?? existing.employeeId;
+    const date = partial.data.date ?? existing.date;
+    const startTime = partial.data.startTime ?? existing.startTime;
+    const endTime = partial.data.endTime ?? existing.endTime;
+    const toMinutes = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+    const existingShifts = await storage.getShiftsByEmployeeAndDate(employeeId, date);
+    const newStart = toMinutes(startTime);
+    const newEnd = toMinutes(endTime);
+    const newEndAdj = newEnd <= newStart ? newEnd + 1440 : newEnd;
+    const conflict = existingShifts.find((s) => {
+      if (s.id === Number(req.params.id)) return false;
+      const sStart = toMinutes(s.startTime);
+      const sEnd = toMinutes(s.endTime);
+      const sEndAdj = sEnd <= sStart ? sEnd + 1440 : sEnd;
+      return newStart < sEndAdj && newEndAdj > sStart;
+    });
+    if (conflict) {
+      return res.status(409).json({ message: `This shift overlaps with an existing shift (${conflict.startTime.slice(0,5)}–${conflict.endTime.slice(0,5)}) for this employee.` });
+    }
     const shift = await storage.updateShift(Number(req.params.id), partial.data);
-    if (!shift) return res.status(404).json({ message: "Shift not found" });
     res.json(shift);
   });
 
