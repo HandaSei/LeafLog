@@ -169,6 +169,23 @@ export default function SteepInPage() {
     }
   });
 
+  const currentShiftEntries = useMemo(() => {
+    if (!entries.length) return [];
+    
+    // Find the index of the most recent clock-in that isn't followed by a clock-out
+    // Or if they are currently clocked out, show the last shift (from last clock-in to last clock-out)
+    let lastClockInIndex = -1;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i].type === "clock-in") {
+        lastClockInIndex = i;
+        break;
+      }
+    }
+
+    if (lastClockInIndex === -1) return [];
+    return entries.slice(lastClockInIndex);
+  }, [entries]);
+
   const currentStatus = useMemo(() => {
     if (!entries.length) return "not-started";
     const last = entries[entries.length - 1];
@@ -305,11 +322,11 @@ export default function SteepInPage() {
               </Button>
             </div>
 
-            {entries.length > 0 && (
+            {currentShiftEntries.length > 0 && (
               <Card className="p-4">
-                <h3 className="text-xs font-semibold text-muted-foreground mb-2">Today's Activity</h3>
+                <h3 className="text-xs font-semibold text-muted-foreground mb-2">Current Shift</h3>
                 <div className="space-y-1.5">
-                  {entries.map((entry) => {
+                  {currentShiftEntries.map((entry) => {
                     const typeLabels: Record<string, { label: string; color: string }> = {
                       "clock-in": { label: "Clock In", color: "#10B981" },
                       "clock-out": { label: "Clock Out", color: "#EF4444" },
@@ -324,7 +341,7 @@ export default function SteepInPage() {
                           <span>{info.label}</span>
                         </div>
                         <span className="text-muted-foreground font-mono">
-                          {format(new Date(entry.timestamp), "HH:mm:ss")}
+                          {format(new Date(entry.timestamp), "HH:mm")}
                         </span>
                       </div>
                     );
