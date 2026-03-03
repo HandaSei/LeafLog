@@ -23,6 +23,7 @@ interface BreakInfo {
   currentBreakMinutes: number;
   totalBreakMinutes: number;
   breakCount: number;
+  hasUnfinishedBreak: boolean;
 }
 
 interface NoBreakWarning {
@@ -42,14 +43,13 @@ type ClockStatus =
 
 function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
   const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const breakStarts: Date[] = [];
-  const breakEnds: Date[] = [];
   const clockOuts = entries.filter(e => e.type === 'clock-out').map(e => new Date(e.timestamp));
   const lastClockOut = clockOuts.length > 0 ? new Date(Math.max(...clockOuts.map(d => d.getTime()))) : null;
 
   let activeBreakStart: Date | null = null;
   let totalBreakMinutes = 0;
   let breakCount = 0;
+  let hasUnfinishedBreak = false;
 
   for (const entry of sorted) {
     const ts = new Date(entry.timestamp);
@@ -62,13 +62,16 @@ function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
         activeBreakStart = null;
       }
     } else if (entry.type === 'clock-out') {
-      // If we clock out while on a break, that break is "unfinished" and doesn't count
-      activeBreakStart = null;
+      if (activeBreakStart !== null) {
+        // Break was started but never closed before clock-out — unfinished, doesn't count
+        hasUnfinishedBreak = true;
+        activeBreakStart = null;
+      }
     }
   }
 
   const onBreak = activeBreakStart !== null && (!lastClockOut || activeBreakStart > lastClockOut);
-  
+
   let currentBreakMinutes = 0;
   if (onBreak && activeBreakStart) {
     currentBreakMinutes = differenceInMinutes(now, activeBreakStart);
@@ -79,11 +82,12 @@ function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
     currentBreakMinutes,
     totalBreakMinutes: totalBreakMinutes + currentBreakMinutes,
     breakCount: breakCount + (onBreak ? 1 : 0),
+    hasUnfinishedBreak,
   };
 }
 
 function getNoBreakWarning(entries: TimeEntry[], endTime: Date, breakInfo: BreakInfo): NoBreakWarning | null {
-  if (breakInfo.breakCount > 0) return null;
+  if (breakInfo.breakCount > 0 || breakInfo.hasUnfinishedBreak) return null;
 
   const clockIns = entries.filter((e) => e.type === "clock-in");
   if (clockIns.length === 0) return null;
@@ -196,6 +200,15 @@ function BreakBadge({ breakInfo, hasWarning, isDone }: { breakInfo: BreakInfo; h
       <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30" data-testid="badge-on-break">
         <Coffee className="w-3 h-3 text-blue-600" />
         <span className="text-[10px] font-medium text-blue-700 dark:text-blue-400">On break · {breakInfo.currentBreakMinutes}min</span>
+      </div>
+    );
+  }
+
+  if (breakInfo.hasUnfinishedBreak) {
+    return (
+      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30" data-testid="badge-unfinished-break">
+        <Coffee className="w-3 h-3 text-amber-600" />
+        <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400">Unfinished break</span>
       </div>
     );
   }

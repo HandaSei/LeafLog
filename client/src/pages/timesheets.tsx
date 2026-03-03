@@ -35,6 +35,7 @@ interface EmployeeWorkday {
   totalBreakMinutes: number;
   unpaidBreakMinutes: number;
   netWorkedMinutes: number;
+  hasUnfinishedBreak: boolean;
   status: "working" | "on-break" | "completed" | "incomplete";
 }
 
@@ -42,7 +43,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
   const sorted = [...dayEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   const workdays: EmployeeWorkday[] = [];
-  let currentWorkday: Partial<EmployeeWorkday> & { lastClockIn: Date | null; lastBreakStart: Date | null; onBreak: boolean } | null = null;
+  let currentWorkday: Partial<EmployeeWorkday> & { lastClockIn: Date | null; lastBreakStart: Date | null; onBreak: boolean; hasUnfinishedBreak: boolean } | null = null;
 
   for (let i = 0; i < sorted.length; i++) {
     const entry = sorted[i];
@@ -63,6 +64,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
         clockOut: null,
         totalWorkedMinutes: 0,
         totalBreakMinutes: 0,
+        hasUnfinishedBreak: false,
         status: "working",
         lastClockIn: ts,
         lastBreakStart: null,
@@ -82,6 +84,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
         } else if (currentWorkday.lastBreakStart) {
           // Break was never ended — mark as unfinished and don't count as break time.
           // We also don't count the gap from break-start to clock-out as worked time.
+          currentWorkday.hasUnfinishedBreak = true;
           currentWorkday.lastBreakStart = null;
           currentWorkday.onBreak = false;
         }
@@ -139,6 +142,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
     totalBreakMinutes: 0,
     unpaidBreakMinutes: 0,
     netWorkedMinutes: 0,
+    hasUnfinishedBreak: false,
     status: "completed"
   }];
 }
@@ -158,6 +162,7 @@ function finalizeWorkday(emp: Employee, wd: any, paidBreakMinutes?: number | nul
     totalBreakMinutes: wd.totalBreakMinutes,
     unpaidBreakMinutes,
     netWorkedMinutes,
+    hasUnfinishedBreak: wd.hasUnfinishedBreak ?? false,
     status: wd.status
   };
 }
@@ -1103,7 +1108,10 @@ export default function Timesheets() {
                         </span>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] font-medium text-muted-foreground">{wd.status === "incomplete" ? "—" : `${formatHoursDecimal(wd.netWorkedMinutes)}h`}</span>
-                          {wd.totalBreakMinutes > 0 && (
+                          {wd.hasUnfinishedBreak && (
+                            <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">Unfinished break</span>
+                          )}
+                          {!wd.hasUnfinishedBreak && wd.totalBreakMinutes > 0 && (
                             <span className="text-[10px] text-muted-foreground">
                               (Break {formatMinutes(wd.totalBreakMinutes)}
                               {wd.unpaidBreakMinutes > 0 && <span className="text-red-500 ml-0.5">-{formatMinutes(wd.unpaidBreakMinutes)}</span>})
@@ -1439,7 +1447,7 @@ export default function Timesheets() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Timesheet Details</DialogTitle></DialogHeader>
           {viewingWorkday && (() => {
-            const { employee: emp, entries: dayEntries, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, status } = viewingWorkday;
+            const { employee: emp, entries: dayEntries, clockIn, clockOut, netWorkedMinutes, totalBreakMinutes, unpaidBreakMinutes, hasUnfinishedBreak, status } = viewingWorkday;
             const sc = statusConfig[status];
             return (
               <div className="space-y-4">
@@ -1516,7 +1524,9 @@ export default function Timesheets() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Break</div>
-                    <div className="font-medium">{totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "No break"}</div>
+                    <div className={`font-medium flex items-center gap-1.5 ${hasUnfinishedBreak ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                      {hasUnfinishedBreak ? "Unfinished break" : totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "No break"}
+                    </div>
                     {unpaidBreakMinutes > 0 && (
                       <div className="text-[11px] text-red-500">-{formatMinutes(unpaidBreakMinutes)} deducted</div>
                     )}
