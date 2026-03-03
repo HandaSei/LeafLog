@@ -80,9 +80,10 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
           currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastClockIn);
           currentWorkday.lastClockIn = null;
         } else if (currentWorkday.lastBreakStart) {
-          // Break was never ended — count break-start to clock-out as worked time
-          currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastBreakStart);
+          // Break was never ended — mark as unfinished and don't count as break time.
+          // We also don't count the gap from break-start to clock-out as worked time.
           currentWorkday.lastBreakStart = null;
+          currentWorkday.onBreak = false;
         }
         currentWorkday.status = "completed";
         const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
@@ -1577,6 +1578,9 @@ export default function Timesheets() {
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Break Time</span>
                         <div className="flex items-center gap-1">
+                          {breakStart && !breakEnd && (
+                            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium mr-1" data-testid="status-unfinished-break">Unfinished</span>
+                          )}
                           <Button variant="ghost" size="icon" className="h-6 w-6"
                             onClick={() => {
                               setEditingBreak({ start: breakStart || null, end: breakEnd || null });

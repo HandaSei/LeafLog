@@ -41,28 +41,44 @@ type ClockStatus =
   | { kind: "done-no-schedule"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null };
 
 function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
-  const breakStarts = entries.filter((e) => e.type === "break-start").map((e) => new Date(e.timestamp));
-  const breakEnds = entries.filter((e) => e.type === "break-end").map((e) => new Date(e.timestamp));
+  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const breakStarts: Date[] = [];
+  const breakEnds: Date[] = [];
+  const clockOuts = entries.filter(e => e.type === 'clock-out').map(e => new Date(e.timestamp));
+  const lastClockOut = clockOuts.length > 0 ? new Date(Math.max(...clockOuts.map(d => d.getTime()))) : null;
 
-  const onBreak = breakStarts.length > breakEnds.length;
+  let activeBreakStart: Date | null = null;
   let totalBreakMinutes = 0;
+  let breakCount = 0;
 
-  for (let i = 0; i < breakEnds.length; i++) {
-    if (i < breakStarts.length) {
-      totalBreakMinutes += differenceInMinutes(breakEnds[i], breakStarts[i]);
+  for (const entry of sorted) {
+    const ts = new Date(entry.timestamp);
+    if (entry.type === 'break-start') {
+      activeBreakStart = ts;
+    } else if (entry.type === 'break-end') {
+      if (activeBreakStart) {
+        totalBreakMinutes += differenceInMinutes(ts, activeBreakStart);
+        breakCount++;
+        activeBreakStart = null;
+      }
+    } else if (entry.type === 'clock-out') {
+      // If we clock out while on a break, that break is "unfinished" and doesn't count
+      activeBreakStart = null;
     }
   }
 
+  const onBreak = activeBreakStart !== null && (!lastClockOut || activeBreakStart > lastClockOut);
+  
   let currentBreakMinutes = 0;
-  if (onBreak && breakStarts.length > 0) {
-    currentBreakMinutes = differenceInMinutes(now, breakStarts[breakStarts.length - 1]);
+  if (onBreak && activeBreakStart) {
+    currentBreakMinutes = differenceInMinutes(now, activeBreakStart);
   }
 
   return {
     onBreak,
     currentBreakMinutes,
     totalBreakMinutes: totalBreakMinutes + currentBreakMinutes,
-    breakCount: breakStarts.length,
+    breakCount: breakCount + (onBreak ? 1 : 0),
   };
 }
 
