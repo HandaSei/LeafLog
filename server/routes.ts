@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { storage, pool } from "./storage";
 import { insertEmployeeSchema, insertShiftSchema, breakPolicySchema } from "@shared/schema";
 import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./auth";
-import { format } from "date-fns";
+import { format, subDays, addDays, parseISO } from "date-fns";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -129,6 +129,33 @@ export async function registerRoutes(
     if (conflict) {
       return res.status(409).json({ message: `This shift overlaps with an existing shift (${conflict.startTime.slice(0,5)}–${conflict.endTime.slice(0,5)}) for this employee.` });
     }
+    // Previous-day check: does an overnight shift from D-1 extend into D and overlap with this shift?
+    const prevDateStr = format(subDays(parseISO(parsed.data.date), 1), "yyyy-MM-dd");
+    const prevShifts = await storage.getShiftsByEmployeeAndDate(parsed.data.employeeId, prevDateStr);
+    const prevConflict = prevShifts.find((s) => {
+      const sStart = toMinutes(s.startTime);
+      const sEnd = toMinutes(s.endTime);
+      if (sEnd > sStart) return false; // not overnight
+      // overnight portion on date D covers [0, sEnd]
+      return newStart < sEnd;
+    });
+    if (prevConflict) {
+      return res.status(409).json({ message: `This shift overlaps with an overnight shift from the previous day (${prevConflict.startTime.slice(0,5)}–${prevConflict.endTime.slice(0,5)}) for this employee.` });
+    }
+    // Next-day check: only needed when new shift is itself overnight
+    if (newEnd <= newStart) {
+      const nextDateStr = format(addDays(parseISO(parsed.data.date), 1), "yyyy-MM-dd");
+      const nextShifts = await storage.getShiftsByEmployeeAndDate(parsed.data.employeeId, nextDateStr);
+      const nextConflict = nextShifts.find((s) => {
+        if (excludeId && s.id === excludeId) return false;
+        const sStart = toMinutes(s.startTime);
+        // our overnight tail on D+1 covers [0, newEnd]
+        return newEnd > sStart;
+      });
+      if (nextConflict) {
+        return res.status(409).json({ message: `This overnight shift overlaps with an existing shift on the next day (${nextConflict.startTime.slice(0,5)}–${nextConflict.endTime.slice(0,5)}) for this employee.` });
+      }
+    }
     const shift = await storage.createShift(parsed.data);
     res.status(201).json(shift);
   });
@@ -162,6 +189,32 @@ export async function registerRoutes(
     });
     if (conflict) {
       return res.status(409).json({ message: `This shift overlaps with an existing shift (${conflict.startTime.slice(0,5)}–${conflict.endTime.slice(0,5)}) for this employee.` });
+    }
+    // Previous-day check: does an overnight shift from D-1 extend into D and overlap?
+    const prevDateStr2 = format(subDays(parseISO(date), 1), "yyyy-MM-dd");
+    const prevShifts2 = await storage.getShiftsByEmployeeAndDate(employeeId, prevDateStr2);
+    const prevConflict2 = prevShifts2.find((s) => {
+      if (s.id === Number(req.params.id)) return false;
+      const sStart = toMinutes(s.startTime);
+      const sEnd = toMinutes(s.endTime);
+      if (sEnd > sStart) return false;
+      return newStart < sEnd;
+    });
+    if (prevConflict2) {
+      return res.status(409).json({ message: `This shift overlaps with an overnight shift from the previous day (${prevConflict2.startTime.slice(0,5)}–${prevConflict2.endTime.slice(0,5)}) for this employee.` });
+    }
+    // Next-day check: only when this shift is itself overnight
+    if (newEnd <= newStart) {
+      const nextDateStr2 = format(addDays(parseISO(date), 1), "yyyy-MM-dd");
+      const nextShifts2 = await storage.getShiftsByEmployeeAndDate(employeeId, nextDateStr2);
+      const nextConflict2 = nextShifts2.find((s) => {
+        if (s.id === Number(req.params.id)) return false;
+        const sStart = toMinutes(s.startTime);
+        return newEnd > sStart;
+      });
+      if (nextConflict2) {
+        return res.status(409).json({ message: `This overnight shift overlaps with an existing shift on the next day (${nextConflict2.startTime.slice(0,5)}–${nextConflict2.endTime.slice(0,5)}) for this employee.` });
+      }
     }
     const shift = await storage.updateShift(Number(req.params.id), partial.data);
     res.json(shift);
