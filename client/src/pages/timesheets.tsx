@@ -719,17 +719,6 @@ export default function Timesheets() {
               }
             },
           },
-          {
-            label: "Keep Separate",
-            variant: "outline",
-            onClick: () => {
-              if (durationHours > 15) {
-                showLongShiftWarning(() => doSave(clockOutTimestamp, null));
-              } else {
-                doSave(clockOutTimestamp, null);
-              }
-            },
-          },
           { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
         ],
       });
@@ -829,18 +818,103 @@ export default function Timesheets() {
     if (!newTimesheetEmployeeId || !newTimesheetClockIn || !/^\d{2}:\d{2}$/.test(newTimesheetClockIn)) return;
     const dateStr = format(selectedDay, "yyyy-MM-dd");
     const empId = Number(newTimesheetEmployeeId);
+    const emp = employees.find(e => e.id === empId);
+    if (!emp) return;
     const roleToSave = newTimesheetRole || undefined;
-    await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockIn}:00`).toISOString(), role: roleToSave });
-    if (newTimesheetBreakStart && newTimesheetBreakEnd && /^\d{2}:\d{2}$/.test(newTimesheetBreakStart) && /^\d{2}:\d{2}$/.test(newTimesheetBreakEnd)) {
-      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakStart}:00`).toISOString() });
-      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakEnd}:00`).toISOString() });
+
+    const hasClockOut = !!(newTimesheetClockOut && /^\d{2}:\d{2}$/.test(newTimesheetClockOut));
+    const isOvernight = hasClockOut && newTimesheetClockOut < newTimesheetClockIn;
+    const clockOutDateStr = isOvernight ? format(addDays(parseISO(dateStr), 1), "yyyy-MM-dd") : dateStr;
+    const clockInTimestamp = new Date(`${dateStr}T${newTimesheetClockIn}:00`).toISOString();
+    const clockOutTimestamp = hasClockOut
+      ? new Date(`${clockOutDateStr}T${newTimesheetClockOut}:00`).toISOString()
+      : null;
+
+    const doAdd = async (finalClockOutTs: string | null, mergeSession: EmployeeWorkday | null) => {
+      await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: clockInTimestamp, role: roleToSave });
+      if (newTimesheetBreakStart && newTimesheetBreakEnd && /^\d{2}:\d{2}$/.test(newTimesheetBreakStart) && /^\d{2}:\d{2}$/.test(newTimesheetBreakEnd)) {
+        await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakStart}:00`).toISOString() });
+        await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakEnd}:00`).toISOString() });
+      }
+      if (finalClockOutTs) {
+        await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: finalClockOutTs });
+      }
+      if (mergeSession) {
+        mergeSession.entries.forEach(e => deleteEntryMutation.mutate(e.id));
+      }
+      toast({ title: "Success", description: "Timesheet added" });
+      setAddingTimesheet(false);
+      setShiftWarning(null);
+      resetAddTimesheetForm();
+    };
+
+    if (!clockOutTimestamp) {
+      await doAdd(null, null);
+      return;
     }
-    if (newTimesheetClockOut && /^\d{2}:\d{2}$/.test(newTimesheetClockOut)) {
-      await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetClockOut}:00`).toISOString() });
+
+    const clockInTs = new Date(clockInTimestamp).getTime();
+    const clockOutTs = new Date(clockOutTimestamp).getTime();
+    const durationHours = (clockOutTs - clockInTs) / (1000 * 60 * 60);
+
+    const empEntries = entries.filter(e => e.employeeId === empId);
+    const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
+    const overlapSession = allSessions.find(session =>
+      session.clockIn &&
+      session.clockIn.getTime() > clockInTs &&
+      session.clockIn.getTime() < clockOutTs
+    );
+
+    if (overlapSession) {
+      const mergedClockOutTs = overlapSession.clockOut && overlapSession.clockOut.getTime() > clockOutTs
+        ? overlapSession.clockOut.toISOString()
+        : clockOutTimestamp;
+      const mergedEndTs = overlapSession.clockOut ? Math.max(overlapSession.clockOut.getTime(), clockOutTs) : clockOutTs;
+      const mergedDurationHours = (mergedEndTs - clockInTs) / (1000 * 60 * 60);
+      const overlapLabel = overlapSession.clockOut
+        ? `${format(overlapSession.clockIn!, "HH:mm")} – ${format(overlapSession.clockOut, "HH:mm")}`
+        : `${format(overlapSession.clockIn!, "HH:mm")} (still open)`;
+
+      setShiftWarning({
+        title: "Overlapping Shift Detected",
+        description: `There is already a shift from ${overlapLabel}. Do you want to unite them into one session?`,
+        actions: [
+          {
+            label: "Unite Shifts",
+            onClick: async () => {
+              if (mergedDurationHours > 15) {
+                setShiftWarning({
+                  title: "Very Long Shift",
+                  description: `The combined shift would be ${mergedDurationHours.toFixed(1)} hours. Are you sure this is correct?`,
+                  actions: [
+                    { label: "Yes, Confirm", onClick: async () => { await doAdd(mergedClockOutTs, overlapSession); } },
+                    { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+                  ],
+                });
+              } else {
+                await doAdd(mergedClockOutTs, overlapSession);
+              }
+            },
+          },
+          { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+        ],
+      });
+      return;
     }
-    toast({ title: "Success", description: "Timesheet added" });
-    setAddingTimesheet(false);
-    resetAddTimesheetForm();
+
+    if (durationHours > 15) {
+      setShiftWarning({
+        title: "Very Long Shift",
+        description: `This shift would be ${durationHours.toFixed(1)} hours. Are you sure this is correct?`,
+        actions: [
+          { label: "Yes, Confirm", onClick: async () => { await doAdd(clockOutTimestamp, null); } },
+          { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+        ],
+      });
+      return;
+    }
+
+    await doAdd(clockOutTimestamp, null);
   };
 
   const handleExportPDF = async () => {
@@ -1330,11 +1404,9 @@ export default function Timesheets() {
                           </Button>
                           {!clockOut && (
                             <Button variant="outline" size="sm" className="h-6 text-xs px-2"
-                              onClick={() => {
-                                setEditingShift(viewingWorkday);
-                                setEditShiftClockIn(clockIn ? format(clockIn, "HH:mm") : "");
-                                setEditShiftClockOut("");
-                              }}
+                              onClick={() => openClock(clockIn ? format(clockIn, "HH:mm") : format(new Date(), "HH:mm"), (v) => {
+                                addEntryMutation.mutate({ employeeId: emp.id, type: "clock-out", date: dateStr, timestamp: new Date(`${dateStr}T${v}:00`).toISOString() });
+                              })}
                               data-testid="button-add-clock-out"
                             >
                               <Plus className="w-3 h-3 mr-1" /> Add Clock Out
@@ -1649,7 +1721,10 @@ export default function Timesheets() {
                 <div className="space-y-2">
                   <Label>Shift Time</Label>
                   <TimeRangeInput startValue={newTimesheetClockIn} endValue={newTimesheetClockOut} onStartChange={setNewTimesheetClockIn} onEndChange={setNewTimesheetClockOut} startTestId="input-timesheet-clock-in" endTestId="input-timesheet-clock-out" />
-                  <p className="text-xs text-muted-foreground">Clock out is optional</p>
+                  {/^\d{2}:\d{2}$/.test(newTimesheetClockOut) && newTimesheetClockOut < newTimesheetClockIn
+                    ? <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift — clock out will be saved as the next day.</p>
+                    : <p className="text-xs text-muted-foreground">Clock out is optional</p>
+                  }
                 </div>
                 <div className="space-y-2">
                   <Label>Break <span className="text-muted-foreground font-normal">(optional)</span></Label>
