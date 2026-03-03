@@ -50,30 +50,10 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
     
     if (entry.type === "clock-in") {
       if (currentWorkday && !currentWorkday.clockOut) {
-        // Auto-close previous session if it's too long or a new one is starting soon
-        let autoClose = false;
-        const hoursElapsed = differenceInMinutes(ts, currentWorkday.lastClockIn!) / 60;
-        
-        if (hoursElapsed >= 24) {
-          autoClose = true;
-        } else if (hoursElapsed >= 15) {
-          // Check if this new clock-in is within 1 hour of the previous session "running"
-          // In this logic, if we are at 15h+ and a new clock-in happens, we close the old one.
-          autoClose = true;
-        }
-
-        if (autoClose) {
-          currentWorkday.status = "incomplete";
-          const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
-          workdays.push(finalized);
-          currentWorkday = null;
-        } else {
-          // New clock-in starts while previous is still open — mark as incomplete
-          currentWorkday.status = "incomplete";
-          const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
-          workdays.push(finalized);
-          currentWorkday = null;
-        }
+        // New clock-in while previous session is still open — finalize it as incomplete
+        currentWorkday.status = "incomplete";
+        workdays.push(finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes));
+        currentWorkday = null;
       }
       
       currentWorkday = {
@@ -99,6 +79,10 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
         if (currentWorkday.lastClockIn) {
           currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastClockIn);
           currentWorkday.lastClockIn = null;
+        } else if (currentWorkday.lastBreakStart) {
+          // Break was never ended — count break-start to clock-out as worked time
+          currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastBreakStart);
+          currentWorkday.lastBreakStart = null;
         }
         currentWorkday.status = "completed";
         const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
@@ -819,7 +803,9 @@ export default function Timesheets() {
 
   const handleAddClockOutClick = (emp: Employee, dateStr: string, clockIn: Date | null, selectedTime: string) => {
     if (!clockIn) return;
-    const clockOutDateTime = new Date(`${dateStr}T${selectedTime}:00`);
+    const isOvernight = selectedTime < format(clockIn, "HH:mm");
+    const clockOutDateStr = isOvernight ? format(addDays(parseISO(dateStr), 1), "yyyy-MM-dd") : dateStr;
+    const clockOutDateTime = new Date(`${clockOutDateStr}T${selectedTime}:00`);
     const clockOutTimestamp = clockOutDateTime.toISOString();
     const clockInTs = clockIn.getTime();
     const clockOutTs = clockOutDateTime.getTime();
@@ -932,7 +918,7 @@ export default function Timesheets() {
 
       const openSession = allSessions.find(session =>
         session.clockIn &&
-        !session.clockOut &&
+        (session.status === "working" || session.status === "on-break") &&
         session.clockIn.getTime() < clockInTs &&
         format(session.clockIn, "yyyy-MM-dd") === dateStr
       );
