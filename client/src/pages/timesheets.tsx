@@ -928,7 +928,10 @@ export default function Timesheets() {
       const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
 
       const openSession = allSessions.find(session =>
-        session.clockIn && !session.clockOut && session.clockIn.getTime() < clockInTs
+        session.clockIn &&
+        !session.clockOut &&
+        session.clockIn.getTime() < clockInTs &&
+        format(session.clockIn, "yyyy-MM-dd") === dateStr
       );
       const hasNewerSession = !openSession && allSessions.some(session =>
         session.clockIn && session.clockIn.getTime() > clockInTs
