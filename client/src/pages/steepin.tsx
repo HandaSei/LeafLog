@@ -19,8 +19,54 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info,
+  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info, Delete,
 } from "lucide-react";
+
+function PinPad({ value, onChange, maxLength = 6 }: { value: string; onChange: (v: string) => void; maxLength?: number }) {
+  const press = (d: string) => { if (value.length < maxLength) onChange(value + d); };
+  const back = () => onChange(value.slice(0, -1));
+  return (
+    <div className="flex flex-col items-center gap-5 py-2 select-none">
+      <div className="flex gap-3">
+        {Array.from({ length: maxLength }, (_, i) => (
+          <div
+            key={i}
+            className={`w-3.5 h-3.5 rounded-full border-2 transition-colors duration-150 ${
+              i < value.length ? "bg-foreground border-foreground" : "border-muted-foreground/40"
+            }`}
+          />
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-2.5">
+        {["1","2","3","4","5","6","7","8","9"].map((d) => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => press(d)}
+            className="w-16 h-14 rounded-xl border bg-background text-xl font-semibold hover:bg-muted active:scale-95 transition-all shadow-sm"
+          >
+            {d}
+          </button>
+        ))}
+        <div />
+        <button
+          type="button"
+          onClick={() => press("0")}
+          className="w-16 h-14 rounded-xl border bg-background text-xl font-semibold hover:bg-muted active:scale-95 transition-all shadow-sm"
+        >
+          0
+        </button>
+        <button
+          type="button"
+          onClick={back}
+          className="w-16 h-14 rounded-xl border bg-background hover:bg-muted active:scale-95 transition-all shadow-sm flex items-center justify-center"
+        >
+          <Delete className="w-5 h-5" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 interface BreakPolicy {
   paidBreakMinutes: number | null;
@@ -320,32 +366,9 @@ export default function SteepInPage() {
                 )}
               </div>
             )}
-            <form onSubmit={submitPasscode} className="space-y-4" autoComplete="off" data-form-type="other">
-              <input type="text" name="trap_usr" tabIndex={-1} autoComplete="username" className="sr-only" aria-hidden="true" />
-              <input type="password" name="trap_pw" tabIndex={-1} autoComplete="current-password" className="sr-only" aria-hidden="true" />
-              <div className="flex justify-center">
-                <Input
-                  type="password"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={6}
-                  name={`pin_${Date.now()}`}
-                  id={`pin_${Date.now()}`}
-                  value={passcode}
-                  onChange={(e) => setPasscode(e.target.value.replace(/\D/g, ""))}
-                  className="w-40 text-center text-2xl tracking-[0.5em] h-12"
-                  autoFocus
-                  required
-                  autoComplete="new-password"
-                  data-lpignore="true"
-                  data-1p-ignore=""
-                  data-bwignore=""
-                  data-form-type="other"
-                  onFocus={(e) => { e.target.removeAttribute("readonly"); }}
-                  readOnly
-                />
-              </div>
-              <div className="flex justify-end gap-3">
+            <form onSubmit={submitPasscode} className="space-y-2">
+              <PinPad value={passcode} onChange={setPasscode} maxLength={6} />
+              <div className="flex justify-end gap-3 pt-2">
                 <Button
                   type="button"
                   variant="ghost"
