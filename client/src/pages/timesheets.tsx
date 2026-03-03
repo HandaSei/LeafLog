@@ -447,6 +447,11 @@ export default function Timesheets() {
   const [editingBreak, setEditingBreak] = useState<{ start: TimeEntry | null, end: TimeEntry | null } | null>(null);
   const [editBreakStart, setEditBreakStart] = useState<string>("");
   const [editBreakEnd, setEditBreakEnd] = useState<string>("");
+  const [shiftWarning, setShiftWarning] = useState<{
+    title: string;
+    description: string;
+    actions: { label: string; variant?: "default" | "destructive" | "outline"; onClick: () => void }[];
+  } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportSelectedEmployeeIds, setExportSelectedEmployeeIds] = useState<number[]>([]);
@@ -483,6 +488,14 @@ export default function Timesheets() {
     mutationFn: async (data: { employeeId: number; type: string; date: string; timestamp: string; role?: string }) => {
       const res = await apiRequest("POST", "/api/steepin/entries", data);
       return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }),
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteEntryMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/steepin/entries/${id}`);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }),
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -623,21 +636,112 @@ export default function Timesheets() {
     const clockOutEntry = editingShift.entries.find(e => e.type === "clock-out");
     const dateStr = clockInEntry?.date || format(activeDay, "yyyy-MM-dd");
 
-    // For overnight shifts, clock-out time may be earlier than clock-in time (next day)
-    // Detect this and use the next day's date for the clock-out timestamp
     const isOvernight = /^\d{2}:\d{2}$/.test(editShiftClockOut) && editShiftClockOut < editShiftClockIn;
     const clockOutDateStr = isOvernight ? format(addDays(parseISO(dateStr), 1), "yyyy-MM-dd") : dateStr;
     const clockOutTimestamp = /^\d{2}:\d{2}$/.test(editShiftClockOut)
       ? new Date(`${clockOutDateStr}T${editShiftClockOut}:00`).toISOString()
       : null;
 
-    if (clockInEntry) updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockIn}:00`).toISOString() });
-    if (clockOutEntry && clockOutTimestamp) {
-      updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: clockOutTimestamp });
-    } else if (!clockOutEntry && clockOutTimestamp) {
-      addEntryMutation.mutate({ employeeId: editingShift.employee.id, type: "clock-out", date: dateStr, timestamp: clockOutTimestamp });
+    const doSave = (finalClockOutTs: string | null, mergeSession: EmployeeWorkday | null) => {
+      if (clockInEntry) {
+        updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockIn}:00`).toISOString() });
+      }
+      if (finalClockOutTs) {
+        if (clockOutEntry) {
+          updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: finalClockOutTs });
+        } else {
+          addEntryMutation.mutate({ employeeId: editingShift!.employee.id, type: "clock-out", date: dateStr, timestamp: finalClockOutTs });
+        }
+      }
+      if (mergeSession) {
+        mergeSession.entries.forEach(e => deleteEntryMutation.mutate(e.id));
+      }
+      setEditingShift(null);
+      setShiftWarning(null);
+    };
+
+    if (!clockOutTimestamp) {
+      doSave(null, null);
+      return;
     }
-    setEditingShift(null);
+
+    const clockInTs = editingShift.clockIn!.getTime();
+    const clockOutTs = new Date(clockOutTimestamp).getTime();
+    const durationHours = (clockOutTs - clockInTs) / (1000 * 60 * 60);
+
+    const empEntries = entries.filter(e => e.employeeId === editingShift.employee.id);
+    const allSessions = processEntriesForEmployee(editingShift.employee, empEntries, paidBreakMinutes);
+    const overlapSession = allSessions.find(session =>
+      session.clockIn &&
+      session.clockIn.getTime() !== clockInTs &&
+      session.clockIn.getTime() > clockInTs &&
+      session.clockIn.getTime() < clockOutTs
+    );
+
+    const showLongShiftWarning = (onConfirm: () => void) => {
+      setShiftWarning({
+        title: "Very Long Shift",
+        description: `This shift would be ${durationHours.toFixed(1)} hours. Are you sure this is correct?`,
+        actions: [
+          { label: "Yes, Confirm", onClick: onConfirm },
+          { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+        ],
+      });
+    };
+
+    if (overlapSession) {
+      const mergedClockOutTs = overlapSession.clockOut?.toISOString() ?? clockOutTimestamp;
+      const mergedDurationHours = overlapSession.clockOut
+        ? (overlapSession.clockOut.getTime() - clockInTs) / (1000 * 60 * 60)
+        : durationHours;
+      const overlapLabel = overlapSession.clockOut
+        ? `${format(overlapSession.clockIn!, "HH:mm")} – ${format(overlapSession.clockOut, "HH:mm")}`
+        : `${format(overlapSession.clockIn!, "HH:mm")} (still open)`;
+
+      setShiftWarning({
+        title: "Overlapping Shift Detected",
+        description: `There is already a shift from ${overlapLabel} on the same day. Do you want to unite them into one session?`,
+        actions: [
+          {
+            label: "Unite Shifts",
+            onClick: () => {
+              if (mergedDurationHours > 15) {
+                setShiftWarning({
+                  title: "Very Long Shift",
+                  description: `The combined shift would be ${mergedDurationHours.toFixed(1)} hours. Are you sure this is correct?`,
+                  actions: [
+                    { label: "Yes, Confirm", onClick: () => doSave(mergedClockOutTs, overlapSession) },
+                    { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+                  ],
+                });
+              } else {
+                doSave(mergedClockOutTs, overlapSession);
+              }
+            },
+          },
+          {
+            label: "Keep Separate",
+            variant: "outline",
+            onClick: () => {
+              if (durationHours > 15) {
+                showLongShiftWarning(() => doSave(clockOutTimestamp, null));
+              } else {
+                doSave(clockOutTimestamp, null);
+              }
+            },
+          },
+          { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
+        ],
+      });
+      return;
+    }
+
+    if (durationHours > 15) {
+      showLongShiftWarning(() => doSave(clockOutTimestamp, null));
+      return;
+    }
+
+    doSave(clockOutTimestamp, null);
   };
 
   const handleSaveBreakEdit = () => {
@@ -1416,6 +1520,28 @@ export default function Timesheets() {
             >
               Save
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Shift Warning / Confirmation Dialog */}
+      <Dialog open={!!shiftWarning} onOpenChange={(open) => { if (!open) setShiftWarning(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{shiftWarning?.title}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-1">{shiftWarning?.description}</p>
+          <div className="flex flex-col gap-2 pt-2">
+            {shiftWarning?.actions.map((action, i) => (
+              <Button
+                key={i}
+                variant={action.variant || "default"}
+                onClick={action.onClick}
+                data-testid={`button-shift-warning-action-${i}`}
+              >
+                {action.label}
+              </Button>
+            ))}
           </div>
         </DialogContent>
       </Dialog>
