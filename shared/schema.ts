@@ -13,12 +13,27 @@ export const accounts = pgTable("accounts", {
   agencyName: text("agency_name"),
   paidBreakMinutes: integer("paid_break_minutes"),
   maxBreakMinutes: integer("max_break_minutes"),
+  notifyLate: boolean("notify_late").default(true),
+  notifyEarlyClockOut: boolean("notify_early_clock_out").default(true),
+  notifyNotes: boolean("notify_notes").default(true),
+  notifyApprovals: boolean("notify_approvals").default(true),
+  lateThresholdMinutes: integer("late_threshold_minutes").default(15),
+  earlyClockOutThresholdMinutes: integer("early_clock_out_threshold_minutes").default(15),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const breakPolicySchema = z.object({
   paidBreakMinutes: z.coerce.number().int().min(0).max(480).nullable(),
   maxBreakMinutes: z.coerce.number().int().min(0).max(480).nullable(),
+});
+
+export const notificationSettingsSchema = z.object({
+  notifyLate: z.boolean(),
+  notifyEarlyClockOut: z.boolean(),
+  notifyNotes: z.boolean(),
+  notifyApprovals: z.boolean(),
+  lateThresholdMinutes: z.coerce.number().int().min(1).max(120),
+  earlyClockOutThresholdMinutes: z.coerce.number().int().min(1).max(120),
 });
 
 export const employees = pgTable("employees", {
@@ -65,6 +80,31 @@ export const timeEntries = pgTable("time_entries", {
   timestamp: timestamp("timestamp").notNull().defaultNow(),
   date: date("entry_date").notNull(),
   role: text("role"),
+  notes: text("notes"),
+});
+
+export const approvalRequests = pgTable("approval_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  employeeId: integer("employee_id").notNull().references(() => employees.id, { onDelete: "cascade" }),
+  ownerAccountId: integer("owner_account_id").notNull(),
+  type: text("type").notNull(),
+  status: text("status").notNull().default("pending"),
+  requestData: text("request_data"),
+  managerResponse: text("manager_response"),
+  entryDate: date("entry_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+});
+
+export const notifications = pgTable("notifications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  accountId: integer("account_id").notNull(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  data: text("data"),
+  read: boolean("read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const customRoles = pgTable("custom_roles", {
@@ -176,3 +216,5 @@ export type InsertShift = z.infer<typeof insertShiftSchema>;
 export type AccessCode = typeof accessCodes.$inferSelect;
 export type TimeEntry = typeof timeEntries.$inferSelect;
 export type CustomRole = typeof customRoles.$inferSelect;
+export type ApprovalRequest = typeof approvalRequests.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;

@@ -3,9 +3,9 @@ import { createServer, type Server } from "http";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { storage, pool } from "./storage";
-import { insertEmployeeSchema, insertShiftSchema, breakPolicySchema } from "@shared/schema";
+import { insertEmployeeSchema, insertShiftSchema, breakPolicySchema, notificationSettingsSchema } from "@shared/schema";
 import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./auth";
-import { format, subDays, addDays, parseISO } from "date-fns";
+import { format, subDays, addDays, parseISO, differenceInMinutes } from "date-fns";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -269,7 +269,7 @@ export async function registerRoutes(
   });
 
   router.post("/api/steepin/action", async (req, res) => {
-    const { employeeId, type, passcode } = req.body;
+    const { employeeId, type, passcode, notes, reClockAction, skipReClockCheck } = req.body;
     if (!employeeId || !type || !passcode) {
       return res.status(400).json({ message: "Employee ID, action type, and passcode are required" });
     }
@@ -286,7 +286,136 @@ export async function registerRoutes(
       const openDate = await storage.getOpenSessionDate(Number(employeeId));
       if (openDate) date = openDate;
     }
-    const entry = await storage.createTimeEntry(Number(employeeId), type, date);
+
+    if (type === "clock-in" && !skipReClockCheck) {
+      const lastClockOut = await storage.getLastClockOutForEmployee(Number(employeeId));
+      if (lastClockOut) {
+        const minutesSince = differenceInMinutes(new Date(), new Date(lastClockOut.timestamp));
+        if (minutesSince < 35) {
+          const todayStr = format(new Date(), "yyyy-MM-dd");
+          const shiftsToday = await storage.getShiftsByEmployeeAndDate(Number(employeeId), todayStr);
+          const now = new Date();
+          const nowMinutes = now.getHours() * 60 + now.getMinutes();
+          const hasNearbyShift = shiftsToday.some((s) => {
+            const [h, m] = s.startTime.split(":").map(Number);
+            return Math.abs(h * 60 + m - nowMinutes) <= 30;
+          });
+
+          if (!hasNearbyShift && !reClockAction) {
+            return res.status(200).json({
+              reClockDetected: true,
+              lastClockOutTime: lastClockOut.timestamp,
+              lastClockOutId: lastClockOut.id,
+              lastClockOutDate: lastClockOut.date,
+              minutesSince,
+            });
+          }
+
+          if (reClockAction && reClockAction !== "new-shift") {
+            await storage.deleteTimeEntry(lastClockOut.id);
+            const clockOutDate = lastClockOut.date;
+
+            if (reClockAction === "break") {
+              await storage.createTimeEntryManual(Number(employeeId), "break-start", clockOutDate, new Date(lastClockOut.timestamp));
+              await storage.createTimeEntryManual(Number(employeeId), "break-end", clockOutDate, new Date());
+            }
+
+            if (emp.ownerAccountId) {
+              const approval = await storage.createApprovalRequest({
+                employeeId: Number(employeeId),
+                ownerAccountId: emp.ownerAccountId,
+                type: "gap-classification",
+                requestData: JSON.stringify({
+                  action: reClockAction,
+                  gapStartTime: lastClockOut.timestamp,
+                  gapEndTime: new Date().toISOString(),
+                  minutesGap: minutesSince,
+                }),
+                entryDate: clockOutDate,
+              });
+
+              const settings = await storage.getNotificationSettings(emp.ownerAccountId);
+              if (settings.notifyApprovals) {
+                await storage.createNotification({
+                  accountId: emp.ownerAccountId,
+                  type: "approval-needed",
+                  title: "Gap Time Approval Needed",
+                  message: `${emp.name} re-clocked in after ${minutesSince} min and requested "${reClockAction === 'break' ? 'count as break' : 'count as working time'}".`,
+                  data: JSON.stringify({ approvalId: approval.id, employeeId: emp.id }),
+                });
+              }
+            }
+
+            return res.status(201).json({ reClockHandled: true, action: reClockAction });
+          }
+        }
+      }
+    }
+
+    const entry = await storage.createTimeEntry(Number(employeeId), type, date, notes || null);
+
+    if (notes && notes.trim() && emp.ownerAccountId) {
+      const settings = await storage.getNotificationSettings(emp.ownerAccountId);
+      if (settings.notifyNotes) {
+        const actionLabel = type === "clock-in" ? "clocked in" : type === "clock-out" ? "clocked out" : type === "break-start" ? "started break" : "ended break";
+        await storage.createNotification({
+          accountId: emp.ownerAccountId,
+          type: "employee-note",
+          title: "Employee Note",
+          message: `${emp.name} ${actionLabel} with note: "${notes.trim()}"`,
+          data: JSON.stringify({ employeeId: emp.id, entryId: entry.id, entryDate: date }),
+        });
+      }
+    }
+
+    if (emp.ownerAccountId) {
+      const settings = await storage.getNotificationSettings(emp.ownerAccountId);
+      if (type === "clock-in" && settings.notifyLate) {
+        const todayStr = format(new Date(), "yyyy-MM-dd");
+        const shiftsToday = await storage.getShiftsByEmployeeAndDate(Number(employeeId), todayStr);
+        if (shiftsToday.length > 0) {
+          const now = new Date();
+          const nowMinutes = now.getHours() * 60 + now.getMinutes();
+          for (const shift of shiftsToday) {
+            const [h, m] = shift.startTime.split(":").map(Number);
+            const shiftStartMinutes = h * 60 + m;
+            if (nowMinutes > shiftStartMinutes + settings.lateThresholdMinutes) {
+              await storage.createNotification({
+                accountId: emp.ownerAccountId,
+                type: "employee-late",
+                title: "Late Clock-In",
+                message: `${emp.name} clocked in ${nowMinutes - shiftStartMinutes} minutes after their scheduled shift start (${shift.startTime.slice(0, 5)}).`,
+                data: JSON.stringify({ employeeId: emp.id, shiftId: shift.id }),
+              });
+              break;
+            }
+          }
+        }
+      }
+
+      if (type === "clock-out" && settings.notifyEarlyClockOut) {
+        const shiftsOnDate = await storage.getShiftsByEmployeeAndDate(Number(employeeId), date);
+        if (shiftsOnDate.length > 0) {
+          const now = new Date();
+          const nowMinutes = now.getHours() * 60 + now.getMinutes();
+          for (const shift of shiftsOnDate) {
+            const [h, m] = shift.endTime.split(":").map(Number);
+            const shiftEndMinutes = h * 60 + m;
+            if (shiftEndMinutes > nowMinutes + settings.earlyClockOutThresholdMinutes) {
+              await storage.createNotification({
+                accountId: emp.ownerAccountId,
+                type: "early-clock-out",
+                title: "Early Clock-Out",
+                message: `${emp.name} clocked out ${shiftEndMinutes - nowMinutes} minutes before their scheduled shift end (${shift.endTime.slice(0, 5)}).`,
+                data: JSON.stringify({ employeeId: emp.id, shiftId: shift.id }),
+              });
+              break;
+            }
+          }
+        }
+      }
+    }
+
     res.status(201).json(entry);
   });
 
@@ -455,6 +584,100 @@ export async function registerRoutes(
     await storage.updateBreakPolicy(req.session.userId!, parsed.data.paidBreakMinutes ?? null, parsed.data.maxBreakMinutes ?? null);
     const policy = await storage.getBreakPolicy(req.session.userId!);
     res.json(policy);
+  });
+
+  // === NOTIFICATION SETTINGS ===
+  router.get("/api/settings/notifications", requireAuth, async (req, res) => {
+    const settings = await storage.getNotificationSettings(req.session.userId!);
+    res.json(settings);
+  });
+
+  router.patch("/api/settings/notifications", requireRole("admin", "manager"), async (req, res) => {
+    const parsed = notificationSettingsSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+    await storage.updateNotificationSettings(req.session.userId!, parsed.data);
+    const settings = await storage.getNotificationSettings(req.session.userId!);
+    res.json(settings);
+  });
+
+  // === NOTIFICATIONS ===
+  router.get("/api/notifications", requireAuth, async (req, res) => {
+    const notifs = await storage.getNotificationsByAccount(req.session.userId!);
+    res.json(notifs);
+  });
+
+  router.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
+    const count = await storage.getUnreadNotificationCount(req.session.userId!);
+    res.json({ count });
+  });
+
+  router.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    await storage.markNotificationRead(Number(req.params.id), req.session.userId!);
+    res.json({ success: true });
+  });
+
+  router.patch("/api/notifications/read-all", requireAuth, async (req, res) => {
+    await storage.markAllNotificationsRead(req.session.userId!);
+    res.json({ success: true });
+  });
+
+  // === APPROVAL REQUESTS ===
+  router.get("/api/approval-requests", requireAuth, async (req, res) => {
+    const status = req.query.status as string | undefined;
+    const requests = await storage.getApprovalRequestsByOwner(req.session.userId!, status);
+    res.json(requests);
+  });
+
+  router.get("/api/approval-requests/by-employee", requireAuth, async (req, res) => {
+    const employeeId = Number(req.query.employeeId);
+    const entryDate = req.query.entryDate as string;
+    if (!employeeId || !entryDate) {
+      return res.status(400).json({ message: "employeeId and entryDate are required" });
+    }
+    const employee = await storage.getEmployee(employeeId);
+    if (!employee || employee.ownerAccountId !== req.session.userId) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+    const requests = await storage.getApprovalRequestsByEmployeeAndDate(employeeId, entryDate);
+    res.json(requests);
+  });
+
+  router.patch("/api/approval-requests/:id", requireRole("admin", "manager"), async (req, res) => {
+    const { status, managerResponse } = req.body;
+    if (!status || !["approved", "rejected"].includes(status)) {
+      return res.status(400).json({ message: "Status must be 'approved' or 'rejected'" });
+    }
+
+    const updated = await storage.updateApprovalRequest(Number(req.params.id), {
+      status,
+      managerResponse: managerResponse || null,
+      resolvedAt: new Date(),
+    }, req.session.userId!);
+
+    if (!updated) return res.status(404).json({ message: "Approval request not found" });
+
+    if (status === "rejected" && updated.type === "gap-classification") {
+      const data = JSON.parse(updated.requestData || "{}");
+      if (data.action === "break") {
+        const entries = await storage.getTimeEntriesByEmployeeAndDate(updated.employeeId, updated.entryDate!);
+        const gapStart = new Date(data.gapStartTime);
+        const gapEnd = new Date(data.gapEndTime);
+        for (const entry of entries) {
+          const ts = new Date(entry.timestamp);
+          if (entry.type === "break-start" && Math.abs(ts.getTime() - gapStart.getTime()) < 60000) {
+            await storage.deleteTimeEntry(entry.id);
+          }
+          if (entry.type === "break-end" && Math.abs(ts.getTime() - gapEnd.getTime()) < 60000) {
+            await storage.deleteTimeEntry(entry.id);
+          }
+        }
+        await storage.createTimeEntryManual(updated.employeeId, "clock-out", updated.entryDate!, gapStart);
+      } else if (data.action === "working") {
+        await storage.createTimeEntryManual(updated.employeeId, "clock-out", updated.entryDate!, new Date(data.gapStartTime));
+      }
+    }
+
+    res.json(updated);
   });
 
   app.use(router);

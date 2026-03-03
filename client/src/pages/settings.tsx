@@ -12,7 +12,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings2, Plus, Pencil, Trash2, Check, X, Palette, Coffee, Save, TriangleAlert, ChevronDown, ChevronRight, User } from "lucide-react";
+import { Settings2, Plus, Pencil, Trash2, Check, X, Palette, Coffee, Save, TriangleAlert, ChevronDown, ChevronRight, User, Bell } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +51,14 @@ export default function SettingsPage() {
   const [paidBreakInput, setPaidBreakInput] = useState<string>("");
   const [maxBreakInput, setMaxBreakInput] = useState<string>("");
   const [showDangerZone, setShowDangerZone] = useState(false);
+  const [notifSettings, setNotifSettings] = useState<{
+    notifyLate: boolean;
+    notifyEarlyClockOut: boolean;
+    notifyNotes: boolean;
+    notifyApprovals: boolean;
+    lateThresholdMinutes: number;
+    earlyClockOutThresholdMinutes: number;
+  } | null>(null);
 
   const { data: roles = [], isLoading } = useQuery<CustomRole[]>({
     queryKey: ["/api/roles"],
@@ -62,6 +71,27 @@ export default function SettingsPage() {
       if (maxBreakInput === "" && data.maxBreakMinutes !== null) setMaxBreakInput(String(data.maxBreakMinutes));
       return data;
     },
+  });
+
+  const { isLoading: notifLoading } = useQuery<any>({
+    queryKey: ["/api/settings/notifications"],
+    select: (data: any) => {
+      if (!notifSettings) setNotifSettings(data);
+      return data;
+    },
+  });
+
+  const updateNotifMutation = useMutation({
+    mutationFn: async (data: Partial<typeof notifSettings>) => {
+      const res = await apiRequest("PATCH", "/api/settings/notifications", data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/notifications"] });
+      setNotifSettings(data);
+      toast({ title: "Notification settings saved" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const updatePolicyMutation = useMutation({
@@ -274,6 +304,119 @@ export default function SettingsPage() {
                     <Save className="w-3.5 h-3.5 mr-1.5" />
                     {updatePolicyMutation.isPending ? "Saving..." : "Save Policy"}
                   </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Bell className="w-4 h-4 text-blue-600" />
+                <div>
+                  <CardTitle className="text-base">Notifications</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Configure which alerts you receive
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {notifLoading || !notifSettings ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-sm">Late clock-in alerts</Label>
+                        <p className="text-[11px] text-muted-foreground">Notify when employees clock in late</p>
+                      </div>
+                      <Switch
+                        checked={notifSettings.notifyLate}
+                        onCheckedChange={(v) => {
+                          setNotifSettings({ ...notifSettings, notifyLate: v });
+                          updateNotifMutation.mutate({ notifyLate: v });
+                        }}
+                        data-testid="switch-notify-late"
+                      />
+                    </div>
+                    {notifSettings.notifyLate && (
+                      <div className="pl-4 border-l-2 border-muted">
+                        <Label className="text-xs text-muted-foreground">Threshold (minutes)</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="120"
+                          value={notifSettings.lateThresholdMinutes}
+                          onChange={(e) => setNotifSettings({ ...notifSettings, lateThresholdMinutes: Number(e.target.value) })}
+                          onBlur={() => updateNotifMutation.mutate({ lateThresholdMinutes: notifSettings.lateThresholdMinutes })}
+                          className="h-8 w-24 mt-1"
+                          data-testid="input-late-threshold"
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-sm">Early clock-out alerts</Label>
+                        <p className="text-[11px] text-muted-foreground">Notify when employees leave early</p>
+                      </div>
+                      <Switch
+                        checked={notifSettings.notifyEarlyClockOut}
+                        onCheckedChange={(v) => {
+                          setNotifSettings({ ...notifSettings, notifyEarlyClockOut: v });
+                          updateNotifMutation.mutate({ notifyEarlyClockOut: v });
+                        }}
+                        data-testid="switch-notify-early"
+                      />
+                    </div>
+                    {notifSettings.notifyEarlyClockOut && (
+                      <div className="pl-4 border-l-2 border-muted">
+                        <Label className="text-xs text-muted-foreground">Threshold (minutes)</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="120"
+                          value={notifSettings.earlyClockOutThresholdMinutes}
+                          onChange={(e) => setNotifSettings({ ...notifSettings, earlyClockOutThresholdMinutes: Number(e.target.value) })}
+                          onBlur={() => updateNotifMutation.mutate({ earlyClockOutThresholdMinutes: notifSettings.earlyClockOutThresholdMinutes })}
+                          className="h-8 w-24 mt-1"
+                          data-testid="input-early-threshold"
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-sm">Employee notes</Label>
+                        <p className="text-[11px] text-muted-foreground">Notify when employees add notes</p>
+                      </div>
+                      <Switch
+                        checked={notifSettings.notifyNotes}
+                        onCheckedChange={(v) => {
+                          setNotifSettings({ ...notifSettings, notifyNotes: v });
+                          updateNotifMutation.mutate({ notifyNotes: v });
+                        }}
+                        data-testid="switch-notify-notes"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-sm">Approval requests</Label>
+                        <p className="text-[11px] text-muted-foreground">Notify when employees request gap-time approval</p>
+                      </div>
+                      <Switch
+                        checked={notifSettings.notifyApprovals}
+                        onCheckedChange={(v) => {
+                          setNotifSettings({ ...notifSettings, notifyApprovals: v });
+                          updateNotifMutation.mutate({ notifyApprovals: v });
+                        }}
+                        data-testid="switch-notify-approvals"
+                      />
+                    </div>
+                  </div>
                 </>
               )}
             </CardContent>

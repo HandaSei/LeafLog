@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { AccessCodeDialog } from "./access-code-dialog";
 import { FeedbackDialog } from "./feedback-dialog";
 import { FeedbackPanelDialog } from "./feedback-panel-dialog";
+import { NotificationBell } from "./notification-bell";
 import logoImage from "@assets/m3MJU_1771476103365.png";
 
 export function AppSidebar() {
@@ -55,14 +56,17 @@ export function AppSidebar() {
     <>
       <Sidebar>
         <SidebarHeader className="p-4">
-          <div className="flex items-center gap-3">
-            <img
-              src={logoImage}
-              alt="LeafLog"
-              className="w-9 h-9 rounded-md object-cover"
-              data-testid="img-sidebar-logo"
-            />
-            <h1 className="text-sm font-semibold tracking-tight">LeafLog</h1>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <img
+                src={logoImage}
+                alt="LeafLog"
+                className="w-9 h-9 rounded-md object-cover"
+                data-testid="img-sidebar-logo"
+              />
+              <h1 className="text-sm font-semibold tracking-tight">LeafLog</h1>
+            </div>
+            {(isAdmin || isManager) && <NotificationBell />}
           </div>
         </SidebarHeader>
         <SidebarContent>

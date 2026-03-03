@@ -32,14 +32,16 @@ A web-based employee shift management application for scheduling, tracking, and 
 
 ### Actual database schema (what really exists)
 ```
-accounts:     id, username, password, role, employee_id, agency_name, created_at, email, paid_break_minutes, max_break_minutes
+accounts:     id, username, password, role, employee_id, agency_name, created_at, email, paid_break_minutes, max_break_minutes, notify_late, notify_early_clock_out, notify_notes, notify_approvals, late_threshold_minutes, early_clock_out_threshold_minutes
 employees:    id, name, role, color, passcode, status, owner_account_id, is_active
 shifts:       id, employee_id, date, start_time, end_time, color, notes, role
 access_codes: id, code, employee_id, created_by, created_at, expires_at, used
-time_entries: id, employee_id, entry_date, clock_in, clock_out, break_start, break_end, status, role
+time_entries: id, employee_id, entry_date, clock_in, clock_out, break_start, break_end, status, role, notes
 custom_roles: id, account_id, name, color
 feedback:     id, account_id, message, created_at
 email_verifications: id, email, code, type, account_data (JSONB), account_id, expires_at, used, created_at
+approval_requests: id, employee_id, owner_account_id, type, status, request_data, manager_response, entry_date, created_at, resolved_at
+notifications: id, account_id, type, title, message, data, read, created_at
 session:      managed by connect-pg-simple (auto-created)
 ```
 
@@ -119,9 +121,22 @@ session:      managed by connect-pg-simple (auto-created)
 
 ### SteepIn/SteepIn
 - `GET /api/steepin/employees` - List active employees (filtered by session owner if logged in)
-- `POST /api/steepin/action` - Record clock-in/out/break-start/break-end (requires passcode)
+- `POST /api/steepin/action` - Record clock-in/out/break-start/break-end (requires passcode). Supports notes, re-clock detection, gap-time classification
 - `GET /api/steepin/entries/:employeeId` - Get today's time entries
 - `GET /api/steepin/entries` - Get time entries (filtered by owner)
+
+### Notifications
+- `GET /api/notifications` - Get notifications for current account
+- `GET /api/notifications/unread-count` - Get unread notification count
+- `PATCH /api/notifications/:id/read` - Mark notification as read
+- `PATCH /api/notifications/read-all` - Mark all notifications as read
+- `GET /api/settings/notifications` - Get notification preferences
+- `PATCH /api/settings/notifications` - Update notification preferences
+
+### Approval Requests
+- `GET /api/approval-requests` - Get approval requests for manager
+- `GET /api/approval-requests/by-employee` - Get approvals by employee and date
+- `PATCH /api/approval-requests/:id` - Approve or reject a request
 
 ## Key Features
 - Dashboard with stats, today's/tomorrow's schedule, unscheduled employees
@@ -133,6 +148,11 @@ session:      managed by connect-pg-simple (auto-created)
 - Access code generation for employee onboarding
 - SteepIn steepin for clock-in/out and break tracking
 - Settings page with custom role management (up to 6 roles per account)
+- Notification system: bell icon in sidebar, late/early/note/approval alerts with customizable thresholds
+- Employee notes on SteepIn actions (optional text notes on clock-in/out/break)
+- Short-break re-clock detection: when employee clocks in within 35 minutes, option to classify gap as break/working time
+- Manager approval workflow: approve/reject gap-time classification requests from timesheets
+- Remove clock-out: managers can reopen a shift by removing the last clock-out entry
 - Dark/light theme toggle
 - Responsive sidebar with mobile bottom nav
 - TimeInput/TimeRangeInput components for compact time entry (24h format)

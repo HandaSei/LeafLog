@@ -3,10 +3,12 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
   employees, shifts, accounts, accessCodes, timeEntries, customRoles, feedback, emailVerifications,
+  approvalRequests, notifications,
   type Employee, type InsertEmployee,
   type Shift, type InsertShift,
   type Account, type InsertAccount,
   type AccessCode, type TimeEntry, type CustomRole, type Feedback, type EmailVerification,
+  type ApprovalRequest, type Notification,
 } from "@shared/schema";
 
 let connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
@@ -51,8 +53,8 @@ export interface IStorage {
   markAccessCodeUsed(id: number): Promise<void>;
   expireAccessCodesForEmployee(employeeId: number): Promise<void>;
 
-  createTimeEntry(employeeId: number, type: string, date: string): Promise<TimeEntry>;
-  createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null): Promise<TimeEntry>;
+  createTimeEntry(employeeId: number, type: string, date: string, notes?: string | null): Promise<TimeEntry>;
+  createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null, notes?: string | null): Promise<TimeEntry>;
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
   getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
@@ -85,6 +87,22 @@ export interface IStorage {
   updateAccountPassword(id: number, passwordHash: string): Promise<void>;
   updateAccountEmail(id: number, email: string): Promise<void>;
   updateAccount(id: number, data: Partial<Account>): Promise<Account | undefined>;
+
+  createApprovalRequest(data: { employeeId: number; ownerAccountId: number; type: string; requestData?: string; entryDate?: string }): Promise<ApprovalRequest>;
+  getApprovalRequestsByOwner(ownerAccountId: number, status?: string): Promise<ApprovalRequest[]>;
+  getApprovalRequestsByEmployeeAndDate(employeeId: number, entryDate: string): Promise<ApprovalRequest[]>;
+  updateApprovalRequest(id: number, data: Partial<ApprovalRequest>, ownerAccountId?: number): Promise<ApprovalRequest | undefined>;
+
+  createNotification(data: { accountId: number; type: string; title: string; message: string; data?: string }): Promise<Notification>;
+  getNotificationsByAccount(accountId: number, limit?: number): Promise<Notification[]>;
+  getUnreadNotificationCount(accountId: number): Promise<number>;
+  markNotificationRead(id: number, accountId: number): Promise<void>;
+  markAllNotificationsRead(accountId: number): Promise<void>;
+
+  getNotificationSettings(accountId: number): Promise<{ notifyLate: boolean; notifyEarlyClockOut: boolean; notifyNotes: boolean; notifyApprovals: boolean; lateThresholdMinutes: number; earlyClockOutThresholdMinutes: number }>;
+  updateNotificationSettings(accountId: number, settings: { notifyLate?: boolean; notifyEarlyClockOut?: boolean; notifyNotes?: boolean; notifyApprovals?: boolean; lateThresholdMinutes?: number; earlyClockOutThresholdMinutes?: number }): Promise<void>;
+
+  getLastClockOutForEmployee(employeeId: number): Promise<TimeEntry | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -236,30 +254,32 @@ export class DatabaseStorage implements IStorage {
       ));
   }
 
-  async createTimeEntry(employeeId: number, type: string, date: string): Promise<TimeEntry> {
+  async createTimeEntry(employeeId: number, type: string, date: string, notes?: string | null): Promise<TimeEntry> {
     const [entry] = await db.insert(timeEntries).values({
       employeeId,
       type,
       date,
       timestamp: new Date(),
+      ...(notes ? { notes } : {}),
     }).returning();
     return entry;
   }
 
-  async createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null): Promise<TimeEntry> {
+  async createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null, notes?: string | null): Promise<TimeEntry> {
     const [entry] = await db.insert(timeEntries).values({
       employeeId,
       type,
       date,
       timestamp,
       ...(role ? { role } : {}),
+      ...(notes ? { notes } : {}),
     }).returning();
     return entry;
   }
 
   async getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]> {
     const result = await pool.query(
-      "SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
+      "SELECT id, employee_id, type, timestamp, entry_date::text, role, notes FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
       [employeeId, date]
     );
     return result.rows.map((row: any) => ({
@@ -269,6 +289,7 @@ export class DatabaseStorage implements IStorage {
       timestamp: row.timestamp,
       date: row.entry_date,
       role: row.role ?? null,
+      notes: row.notes ?? null,
     }));
   }
 
@@ -278,7 +299,7 @@ export class DatabaseStorage implements IStorage {
       if (empIds.length === 0) return [];
       const placeholders = empIds.map((_, i) => `$${i + 2}`).join(',');
       const result = await pool.query(
-        `SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries WHERE entry_date = $1 AND employee_id IN (${placeholders}) ORDER BY timestamp`,
+        `SELECT id, employee_id, type, timestamp, entry_date::text, role, notes FROM time_entries WHERE entry_date = $1 AND employee_id IN (${placeholders}) ORDER BY timestamp`,
         [date, ...empIds]
       );
       return result.rows.map((row: any) => ({
@@ -288,10 +309,11 @@ export class DatabaseStorage implements IStorage {
         timestamp: row.timestamp,
         date: row.entry_date,
         role: row.role ?? null,
+        notes: row.notes ?? null,
       }));
     }
     const result = await pool.query(
-      "SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
+      "SELECT id, employee_id, type, timestamp, entry_date::text, role, notes FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
       [date]
     );
     return result.rows.map((row: any) => ({
@@ -301,6 +323,7 @@ export class DatabaseStorage implements IStorage {
       timestamp: row.timestamp,
       date: row.entry_date,
       role: row.role ?? null,
+      notes: row.notes ?? null,
     }));
   }
 
@@ -310,7 +333,7 @@ export class DatabaseStorage implements IStorage {
       if (empIds.length === 0) return [];
       const placeholders = empIds.map((_, i) => `$${i + 1}`).join(',');
       const result = await pool.query(
-        `SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries WHERE employee_id IN (${placeholders}) ORDER BY timestamp`,
+        `SELECT id, employee_id, type, timestamp, entry_date::text, role, notes FROM time_entries WHERE employee_id IN (${placeholders}) ORDER BY timestamp`,
         [...empIds]
       );
       return result.rows.map((row: any) => ({
@@ -320,9 +343,10 @@ export class DatabaseStorage implements IStorage {
         timestamp: row.timestamp,
         date: row.entry_date,
         role: row.role ?? null,
+        notes: row.notes ?? null,
       }));
     }
-    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries ORDER BY timestamp");
+    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text, role, notes FROM time_entries ORDER BY timestamp");
     return result.rows.map((row: any) => ({
       id: row.id,
       employeeId: row.employee_id,
@@ -330,6 +354,7 @@ export class DatabaseStorage implements IStorage {
       timestamp: row.timestamp,
       date: row.entry_date,
       role: row.role ?? null,
+      notes: row.notes ?? null,
     }));
   }
 
@@ -362,7 +387,7 @@ export class DatabaseStorage implements IStorage {
     // For each employee, find the date of their recent open session (clock-in within 24h without subsequent clock-out)
     // then return all entries for that date
     const result = await pool.query(
-      `SELECT t.id, t.employee_id, t.type, t.timestamp, t.entry_date::text, t.role
+      `SELECT t.id, t.employee_id, t.type, t.timestamp, t.entry_date::text, t.role, t.notes
        FROM time_entries t
        WHERE t.employee_id IN (${placeholders})
          AND t.entry_date = (
@@ -390,6 +415,7 @@ export class DatabaseStorage implements IStorage {
       timestamp: row.timestamp,
       date: row.entry_date,
       role: row.role ?? null,
+      notes: row.notes ?? null,
     }));
   }
 
@@ -533,6 +559,132 @@ export class DatabaseStorage implements IStorage {
       username: r.username ?? "Deleted Account",
       email: r.email ?? null,
     }));
+  }
+
+  async createApprovalRequest(data: { employeeId: number; ownerAccountId: number; type: string; requestData?: string; entryDate?: string }): Promise<ApprovalRequest> {
+    const res = await pool.query(
+      `INSERT INTO approval_requests (employee_id, owner_account_id, type, request_data, entry_date)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [data.employeeId, data.ownerAccountId, data.type, data.requestData || null, data.entryDate || null]
+    );
+    const r = res.rows[0];
+    return { id: r.id, employeeId: r.employee_id, ownerAccountId: r.owner_account_id, type: r.type, status: r.status, requestData: r.request_data, managerResponse: r.manager_response, entryDate: r.entry_date, createdAt: r.created_at, resolvedAt: r.resolved_at };
+  }
+
+  async getApprovalRequestsByOwner(ownerAccountId: number, status?: string): Promise<ApprovalRequest[]> {
+    let query = "SELECT * FROM approval_requests WHERE owner_account_id = $1";
+    const params: any[] = [ownerAccountId];
+    if (status) {
+      query += " AND status = $2";
+      params.push(status);
+    }
+    query += " ORDER BY created_at DESC";
+    const res = await pool.query(query, params);
+    return res.rows.map((r: any) => ({ id: r.id, employeeId: r.employee_id, ownerAccountId: r.owner_account_id, type: r.type, status: r.status, requestData: r.request_data, managerResponse: r.manager_response, entryDate: r.entry_date, createdAt: r.created_at, resolvedAt: r.resolved_at }));
+  }
+
+  async getApprovalRequestsByEmployeeAndDate(employeeId: number, entryDate: string): Promise<ApprovalRequest[]> {
+    const res = await pool.query(
+      "SELECT * FROM approval_requests WHERE employee_id = $1 AND entry_date = $2 ORDER BY created_at DESC",
+      [employeeId, entryDate]
+    );
+    return res.rows.map((r: any) => ({ id: r.id, employeeId: r.employee_id, ownerAccountId: r.owner_account_id, type: r.type, status: r.status, requestData: r.request_data, managerResponse: r.manager_response, entryDate: r.entry_date, createdAt: r.created_at, resolvedAt: r.resolved_at }));
+  }
+
+  async updateApprovalRequest(id: number, data: Partial<ApprovalRequest>, ownerAccountId?: number): Promise<ApprovalRequest | undefined> {
+    const sets: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (data.status !== undefined) { sets.push(`status = $${idx++}`); params.push(data.status); }
+    if (data.managerResponse !== undefined) { sets.push(`manager_response = $${idx++}`); params.push(data.managerResponse); }
+    if (data.resolvedAt !== undefined) { sets.push(`resolved_at = $${idx++}`); params.push(data.resolvedAt); }
+    if (sets.length === 0) return undefined;
+    params.push(id);
+    let whereClause = `WHERE id = $${idx++}`;
+    if (ownerAccountId !== undefined) {
+      params.push(ownerAccountId);
+      whereClause += ` AND owner_account_id = $${idx}`;
+    }
+    const res = await pool.query(`UPDATE approval_requests SET ${sets.join(', ')} ${whereClause} RETURNING *`, params);
+    if (res.rows.length === 0) return undefined;
+    const r = res.rows[0];
+    return { id: r.id, employeeId: r.employee_id, ownerAccountId: r.owner_account_id, type: r.type, status: r.status, requestData: r.request_data, managerResponse: r.manager_response, entryDate: r.entry_date, createdAt: r.created_at, resolvedAt: r.resolved_at };
+  }
+
+  async createNotification(data: { accountId: number; type: string; title: string; message: string; data?: string }): Promise<Notification> {
+    const res = await pool.query(
+      `INSERT INTO notifications (account_id, type, title, message, data)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [data.accountId, data.type, data.title, data.message, data.data || null]
+    );
+    const r = res.rows[0];
+    return { id: r.id, accountId: r.account_id, type: r.type, title: r.title, message: r.message, data: r.data, read: r.read, createdAt: r.created_at };
+  }
+
+  async getNotificationsByAccount(accountId: number, limit: number = 50): Promise<Notification[]> {
+    const res = await pool.query(
+      "SELECT * FROM notifications WHERE account_id = $1 ORDER BY created_at DESC LIMIT $2",
+      [accountId, limit]
+    );
+    return res.rows.map((r: any) => ({ id: r.id, accountId: r.account_id, type: r.type, title: r.title, message: r.message, data: r.data, read: r.read, createdAt: r.created_at }));
+  }
+
+  async getUnreadNotificationCount(accountId: number): Promise<number> {
+    const res = await pool.query(
+      "SELECT COUNT(*) FROM notifications WHERE account_id = $1 AND read = false",
+      [accountId]
+    );
+    return parseInt(res.rows[0].count, 10);
+  }
+
+  async markNotificationRead(id: number, accountId: number): Promise<void> {
+    await pool.query("UPDATE notifications SET read = true WHERE id = $1 AND account_id = $2", [id, accountId]);
+  }
+
+  async markAllNotificationsRead(accountId: number): Promise<void> {
+    await pool.query("UPDATE notifications SET read = true WHERE account_id = $1 AND read = false", [accountId]);
+  }
+
+  async getNotificationSettings(accountId: number): Promise<{ notifyLate: boolean; notifyEarlyClockOut: boolean; notifyNotes: boolean; notifyApprovals: boolean; lateThresholdMinutes: number; earlyClockOutThresholdMinutes: number }> {
+    const res = await pool.query(
+      "SELECT notify_late, notify_early_clock_out, notify_notes, notify_approvals, late_threshold_minutes, early_clock_out_threshold_minutes FROM accounts WHERE id = $1",
+      [accountId]
+    );
+    const r = res.rows[0];
+    if (!r) return { notifyLate: true, notifyEarlyClockOut: true, notifyNotes: true, notifyApprovals: true, lateThresholdMinutes: 15, earlyClockOutThresholdMinutes: 15 };
+    return {
+      notifyLate: r.notify_late ?? true,
+      notifyEarlyClockOut: r.notify_early_clock_out ?? true,
+      notifyNotes: r.notify_notes ?? true,
+      notifyApprovals: r.notify_approvals ?? true,
+      lateThresholdMinutes: r.late_threshold_minutes ?? 15,
+      earlyClockOutThresholdMinutes: r.early_clock_out_threshold_minutes ?? 15,
+    };
+  }
+
+  async updateNotificationSettings(accountId: number, settings: { notifyLate?: boolean; notifyEarlyClockOut?: boolean; notifyNotes?: boolean; notifyApprovals?: boolean; lateThresholdMinutes?: number; earlyClockOutThresholdMinutes?: number }): Promise<void> {
+    const sets: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (settings.notifyLate !== undefined) { sets.push(`notify_late = $${idx++}`); params.push(settings.notifyLate); }
+    if (settings.notifyEarlyClockOut !== undefined) { sets.push(`notify_early_clock_out = $${idx++}`); params.push(settings.notifyEarlyClockOut); }
+    if (settings.notifyNotes !== undefined) { sets.push(`notify_notes = $${idx++}`); params.push(settings.notifyNotes); }
+    if (settings.notifyApprovals !== undefined) { sets.push(`notify_approvals = $${idx++}`); params.push(settings.notifyApprovals); }
+    if (settings.lateThresholdMinutes !== undefined) { sets.push(`late_threshold_minutes = $${idx++}`); params.push(settings.lateThresholdMinutes); }
+    if (settings.earlyClockOutThresholdMinutes !== undefined) { sets.push(`early_clock_out_threshold_minutes = $${idx++}`); params.push(settings.earlyClockOutThresholdMinutes); }
+    if (sets.length === 0) return;
+    params.push(accountId);
+    await pool.query(`UPDATE accounts SET ${sets.join(', ')} WHERE id = $${idx}`, params);
+  }
+
+  async getLastClockOutForEmployee(employeeId: number): Promise<TimeEntry | null> {
+    const res = await pool.query(
+      "SELECT id, employee_id, type, timestamp, entry_date::text, role, notes FROM time_entries WHERE employee_id = $1 AND type = 'clock-out' ORDER BY timestamp DESC LIMIT 1",
+      [employeeId]
+    );
+    if (res.rows.length === 0) return null;
+    const r = res.rows[0];
+    return { id: r.id, employeeId: r.employee_id, type: r.type, timestamp: r.timestamp, date: r.entry_date, role: r.role ?? null, notes: r.notes ?? null };
   }
 }
 

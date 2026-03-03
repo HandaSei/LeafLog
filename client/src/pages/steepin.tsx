@@ -18,8 +18,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info, Delete,
+  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info, Delete, StickyNote,
 } from "lucide-react";
 
 function PinPad({ value, onChange, maxLength = 6 }: { value: string; onChange: (v: string) => void; maxLength?: number }) {
@@ -90,6 +91,10 @@ export default function SteepInPage() {
   const [exitDialogOpen, setExitDialogOpen] = useState(false);
   const [exitUsername, setExitUsername] = useState("");
   const [exitPassword, setExitPassword] = useState("");
+  const [noteText, setNoteText] = useState("");
+  const [reClockData, setReClockData] = useState<{ lastClockOutTime: string; lastClockOutId: number; lastClockOutDate: string; minutesSince: number } | null>(null);
+  const [reClockDialogOpen, setReClockDialogOpen] = useState(false);
+  const [reClockPasscode, setReClockPasscode] = useState("");
   const { toast } = useToast();
 
   const user = authState?.user;
@@ -126,11 +131,29 @@ export default function SteepInPage() {
   }, [authLoading, isActive, setLocation]);
 
   const actionMutation = useMutation({
-    mutationFn: async ({ employeeId, type, passcode }: { employeeId: number; type: ActionType; passcode: string }) => {
-      const res = await apiRequest("POST", "/api/steepin/action", { employeeId, type, passcode });
+    mutationFn: async ({ employeeId, type, passcode, notes, reClockAction, skipReClockCheck }: { employeeId: number; type: ActionType; passcode: string; notes?: string; reClockAction?: string; skipReClockCheck?: boolean }) => {
+      const res = await apiRequest("POST", "/api/steepin/action", { employeeId, type, passcode, notes: notes || undefined, reClockAction, skipReClockCheck });
       return res.json();
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (data, variables) => {
+      if (data.reClockDetected) {
+        setReClockData(data);
+        setReClockPasscode(variables.passcode);
+        setPasscodeDialogOpen(false);
+        setPasscode("");
+        setReClockDialogOpen(true);
+        return;
+      }
+      if (data.reClockHandled) {
+        queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
+        toast({ title: "Shift Resumed", description: `Gap handled as "${data.action === 'break' ? 'break' : 'working time'}" — awaiting manager approval.` });
+        setReClockDialogOpen(false);
+        setReClockData(null);
+        setReClockPasscode("");
+        setNoteText("");
+        setPendingAction(null);
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
       const labels: Record<ActionType, string> = {
         "clock-in": "Clocked In",
@@ -142,6 +165,7 @@ export default function SteepInPage() {
       setPasscode("");
       setPasscodeDialogOpen(false);
       setPendingAction(null);
+      setNoteText("");
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -231,7 +255,19 @@ export default function SteepInPage() {
   const submitPasscode = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmployee || !pendingAction || passcode.length < 4 || passcode.length > 6) return;
-    actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode });
+    actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode, notes: noteText.trim() || undefined });
+  };
+
+  const handleReClockChoice = (action: "new-shift" | "break" | "working") => {
+    if (!selectedEmployee || !reClockData) return;
+    if (action === "new-shift") {
+      actionMutation.mutate({ employeeId: selectedEmployee.id, type: "clock-in", passcode: reClockPasscode, skipReClockCheck: true, notes: noteText.trim() || undefined });
+      setReClockDialogOpen(false);
+      setReClockData(null);
+      setReClockPasscode("");
+    } else {
+      actionMutation.mutate({ employeeId: selectedEmployee.id, type: "clock-in", passcode: reClockPasscode, reClockAction: action });
+    }
   };
 
   const handleExitSteepIn = async (e: React.FormEvent) => {
@@ -385,11 +421,25 @@ export default function SteepInPage() {
             )}
             <form onSubmit={submitPasscode} className="space-y-2">
               <PinPad value={passcode} onChange={setPasscode} maxLength={6} />
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <StickyNote className="w-3 h-3" />
+                  <span>Add a note (optional)</span>
+                </div>
+                <Textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="e.g. covering for Alex, running late..."
+                  className="h-16 text-xs resize-none"
+                  maxLength={200}
+                  data-testid="input-steepin-note"
+                />
+              </div>
               <div className="flex justify-end gap-3 pt-2">
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => setPasscodeDialogOpen(false)}
+                  onClick={() => { setPasscodeDialogOpen(false); setNoteText(""); }}
                   disabled={actionMutation.isPending}
                 >
                   Cancel
@@ -402,6 +452,55 @@ export default function SteepInPage() {
                 </Button>
               </div>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={reClockDialogOpen} onOpenChange={(open) => {
+          if (!open) {
+            setReClockDialogOpen(false);
+            setReClockData(null);
+            setReClockPasscode("");
+          }
+        }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Welcome Back</DialogTitle>
+              <DialogDescription>
+                You clocked out {reClockData?.minutesSince} minutes ago. What would you like to do?
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2.5 py-2">
+              <Button
+                variant="outline"
+                className="w-full h-auto py-3 flex flex-col items-start gap-1"
+                onClick={() => handleReClockChoice("new-shift")}
+                disabled={actionMutation.isPending}
+                data-testid="button-reclock-new-shift"
+              >
+                <span className="font-semibold text-sm">Start a New Shift</span>
+                <span className="text-[11px] text-muted-foreground font-normal">Begin a fresh shift (default)</span>
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full h-auto py-3 flex flex-col items-start gap-1"
+                onClick={() => handleReClockChoice("break")}
+                disabled={actionMutation.isPending}
+                data-testid="button-reclock-break"
+              >
+                <span className="font-semibold text-sm">I Was on a Break</span>
+                <span className="text-[11px] text-muted-foreground font-normal">Count the gap as break time and continue your shift (needs manager approval)</span>
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full h-auto py-3 flex flex-col items-start gap-1"
+                onClick={() => handleReClockChoice("working")}
+                disabled={actionMutation.isPending}
+                data-testid="button-reclock-working"
+              >
+                <span className="font-semibold text-sm">I Was Still Working</span>
+                <span className="text-[11px] text-muted-foreground font-normal">Count the gap as working time (needs manager approval)</span>
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

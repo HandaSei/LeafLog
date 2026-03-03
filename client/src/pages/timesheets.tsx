@@ -7,7 +7,7 @@ import {
 import { useState, useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, Calendar, CalendarDays, Check, AlertCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, Calendar, CalendarDays, Check, AlertCircle, StickyNote, Trash2, Clock as ClockIcon, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { TimeInput, TimeRangeInput, ClockPickerDialog } from "@/components/time-input";
 import { DateInput } from "@/components/date-input";
-import type { Employee, TimeEntry, CustomRole } from "@shared/schema";
+import type { Employee, TimeEntry, CustomRole, ApprovalRequest } from "@shared/schema";
 
 interface EmployeeWorkday {
   employee: Employee;
@@ -454,6 +454,20 @@ export default function Timesheets() {
   const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({ queryKey: ["/api/steepin/entries"] });
   const { data: breakPolicy } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({ queryKey: ["/api/settings/break-policy"] });
   const paidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
+  const { data: approvalRequests = [] } = useQuery<ApprovalRequest[]>({ queryKey: ["/api/approval-requests"] });
+
+  const approvalMutation = useMutation({
+    mutationFn: async ({ id, status, managerResponse }: { id: number; status: string; managerResponse?: string }) => {
+      const res = await apiRequest("PATCH", `/api/approval-requests/${id}`, { status, managerResponse });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/approval-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+      toast({ title: "Success", description: "Approval request updated" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
 
   const updateEntryMutation = useMutation({
     mutationFn: async (data: { id: number; timestamp: string; role?: string }) => {
@@ -1094,6 +1108,18 @@ export default function Timesheets() {
                               {wd.unpaidBreakMinutes > 0 && <span className="text-red-500 ml-0.5">-{formatMinutes(wd.unpaidBreakMinutes)}</span>})
                             </span>
                           )}
+                          {(() => {
+                            const entryDate = wd.entries.find(e => e.type === "clock-in")?.date;
+                            if (!entryDate) return null;
+                            const hasPending = approvalRequests.some(ar => ar.employeeId === wd.employee.id && ar.entryDate === entryDate && ar.status === "pending");
+                            const hasNotes = wd.entries.some(e => e.notes);
+                            return (
+                              <>
+                                {hasPending && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Pending approval" />}
+                                {hasNotes && <StickyNote className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -1584,6 +1610,96 @@ export default function Timesheets() {
                           <div className="font-medium font-mono">{breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm") : "—"}</div>
                         </div>
                       </div>
+                    </div>
+                  );
+                })()}
+
+                {clockOut && (() => {
+                  const clockOutEntry = dayEntries.filter(e => e.type === "clock-out").pop();
+                  if (!clockOutEntry) return null;
+                  return (
+                    <div className="flex justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                        onClick={() => {
+                          deleteEntryMutation.mutate(clockOutEntry.id);
+                        }}
+                        disabled={deleteEntryMutation.isPending}
+                        data-testid="button-remove-clock-out"
+                      >
+                        <Trash2 className="w-3 h-3 mr-1" /> Remove Clock Out
+                      </Button>
+                    </div>
+                  );
+                })()}
+
+                {dayEntries.some(e => e.notes) && (
+                  <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <StickyNote className="w-3.5 h-3.5 text-blue-500" />
+                      <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">Notes</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {dayEntries.filter(e => e.notes).map(e => {
+                        const typeLabel = e.type === "clock-in" ? "Clock In" : e.type === "clock-out" ? "Clock Out" : e.type === "break-start" ? "Break Start" : "Break End";
+                        return (
+                          <div key={e.id} className="text-xs" data-testid={`note-entry-${e.id}`}>
+                            <span className="font-medium text-blue-600 dark:text-blue-400">{typeLabel}:</span>{" "}
+                            <span className="text-muted-foreground">{e.notes}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {(() => {
+                  const dateStr = dayEntries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
+                  const pendingApprovals = approvalRequests.filter(
+                    ar => ar.employeeId === emp.id && ar.entryDate === dateStr && ar.status === "pending"
+                  );
+                  if (pendingApprovals.length === 0) return null;
+                  return (
+                    <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-3 space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                        <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">Pending Approvals</span>
+                      </div>
+                      {pendingApprovals.map(ar => {
+                        const data = JSON.parse(ar.requestData || "{}");
+                        const label = data.action === "break" ? "Count gap as break time" : "Count gap as working time";
+                        return (
+                          <div key={ar.id} className="space-y-2" data-testid={`approval-request-${ar.id}`}>
+                            <p className="text-xs text-muted-foreground">
+                              {emp.name} requested: <strong>{label}</strong>
+                              {data.minutesGap ? ` (${data.minutesGap} min gap)` : ""}
+                            </p>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs flex-1"
+                                onClick={() => approvalMutation.mutate({ id: ar.id, status: "approved" })}
+                                disabled={approvalMutation.isPending}
+                                data-testid={`button-approve-${ar.id}`}
+                              >
+                                <Check className="w-3 h-3 mr-1" /> Approve
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs flex-1"
+                                onClick={() => approvalMutation.mutate({ id: ar.id, status: "rejected" })}
+                                disabled={approvalMutation.isPending}
+                                data-testid={`button-reject-${ar.id}`}
+                              >
+                                Reject
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })()}
