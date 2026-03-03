@@ -182,18 +182,14 @@ export function ShiftFormDialog({
       form.reset();
     },
     onError: (error: Error) => {
+      // apiRequest throws "STATUS: {json body}" — extract just the message value
       let errorMessage = error.message;
-      try {
-        // apiRequest might return "409: {"message":"..."}"
-        if (errorMessage.includes("{")) {
-          const jsonPart = errorMessage.substring(errorMessage.indexOf("{"));
-          const parsed = JSON.parse(jsonPart);
-          if (parsed.message) errorMessage = parsed.message;
-        } else if (errorMessage.includes(": ")) {
-          errorMessage = errorMessage.split(": ").slice(1).join(": ");
-        }
-      } catch (e) {
-        // fallback to original message if parsing fails
+      const msgMatch = error.message.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (msgMatch) {
+        errorMessage = msgMatch[1];
+      } else {
+        // fallback: strip leading "NNN: " status prefix
+        errorMessage = error.message.replace(/^\d+:\s*/, "");
       }
 
       if (errorMessage.toLowerCase().includes("overlap")) {

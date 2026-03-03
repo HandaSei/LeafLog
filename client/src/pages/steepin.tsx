@@ -320,7 +320,7 @@ export default function SteepInPage() {
                 )}
               </div>
             )}
-            <form onSubmit={submitPasscode} className="space-y-4">
+            <form onSubmit={submitPasscode} className="space-y-4" autoComplete="off">
               <div className="flex justify-center">
                 <Input
                   type="password"
@@ -328,10 +328,14 @@ export default function SteepInPage() {
                   pattern="[0-9]*"
                   maxLength={6}
                   value={passcode}
-                  onChange={(e) => setPasscode(e.target.value)}
+                  onChange={(e) => setPasscode(e.target.value.replace(/\D/g, ""))}
                   className="w-40 text-center text-2xl tracking-[0.5em] h-12"
                   autoFocus
                   required
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-1p-ignore=""
+                  data-form-type="other"
                 />
               </div>
               <div className="flex justify-end gap-3">
@@ -388,24 +392,32 @@ export default function SteepInPage() {
               Manager credentials are required to deactivate SteepIn mode.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleExitSteepIn} className="space-y-4">
+          <form onSubmit={handleExitSteepIn} className="space-y-4" autoComplete="off">
             <div className="space-y-2">
               <label className="text-sm font-medium">Username</label>
-              <Input 
+              <Input
                 value={exitUsername}
                 onChange={(e) => setExitUsername(e.target.value)}
                 placeholder="Manager username"
                 required
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore=""
+                data-form-type="other"
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Password</label>
-              <Input 
+              <Input
                 type="password"
                 value={exitPassword}
                 onChange={(e) => setExitPassword(e.target.value)}
                 placeholder="Manager password"
                 required
+                autoComplete="new-password"
+                data-lpignore="true"
+                data-1p-ignore=""
+                data-form-type="other"
               />
             </div>
             <div className="flex justify-end gap-3 pt-2">
