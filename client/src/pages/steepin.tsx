@@ -320,13 +320,17 @@ export default function SteepInPage() {
                 )}
               </div>
             )}
-            <form onSubmit={submitPasscode} className="space-y-4" autoComplete="off">
+            <form onSubmit={submitPasscode} className="space-y-4" autoComplete="off" data-form-type="other">
+              <input type="text" name="trap_usr" tabIndex={-1} autoComplete="username" className="sr-only" aria-hidden="true" />
+              <input type="password" name="trap_pw" tabIndex={-1} autoComplete="current-password" className="sr-only" aria-hidden="true" />
               <div className="flex justify-center">
                 <Input
                   type="password"
                   inputMode="numeric"
                   pattern="[0-9]*"
                   maxLength={6}
+                  name={`pin_${Date.now()}`}
+                  id={`pin_${Date.now()}`}
                   value={passcode}
                   onChange={(e) => setPasscode(e.target.value.replace(/\D/g, ""))}
                   className="w-40 text-center text-2xl tracking-[0.5em] h-12"
@@ -335,7 +339,10 @@ export default function SteepInPage() {
                   autoComplete="new-password"
                   data-lpignore="true"
                   data-1p-ignore=""
+                  data-bwignore=""
                   data-form-type="other"
+                  onFocus={(e) => { e.target.removeAttribute("readonly"); }}
+                  readOnly
                 />
               </div>
               <div className="flex justify-end gap-3">
@@ -392,10 +399,13 @@ export default function SteepInPage() {
               Manager credentials are required to deactivate SteepIn mode.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleExitSteepIn} className="space-y-4" autoComplete="off">
+          <form onSubmit={handleExitSteepIn} className="space-y-4" autoComplete="off" data-form-type="other">
+            <input type="text" name="trap_usr2" tabIndex={-1} autoComplete="username" className="sr-only" aria-hidden="true" />
+            <input type="password" name="trap_pw2" tabIndex={-1} autoComplete="current-password" className="sr-only" aria-hidden="true" />
             <div className="space-y-2">
               <label className="text-sm font-medium">Username</label>
               <Input
+                name={`mgr_id_${Date.now()}`}
                 value={exitUsername}
                 onChange={(e) => setExitUsername(e.target.value)}
                 placeholder="Manager username"
@@ -403,13 +413,17 @@ export default function SteepInPage() {
                 autoComplete="off"
                 data-lpignore="true"
                 data-1p-ignore=""
+                data-bwignore=""
                 data-form-type="other"
+                onFocus={(e) => { e.target.removeAttribute("readonly"); }}
+                readOnly
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Password</label>
               <Input
                 type="password"
+                name={`mgr_key_${Date.now()}`}
                 value={exitPassword}
                 onChange={(e) => setExitPassword(e.target.value)}
                 placeholder="Manager password"
@@ -417,7 +431,10 @@ export default function SteepInPage() {
                 autoComplete="new-password"
                 data-lpignore="true"
                 data-1p-ignore=""
+                data-bwignore=""
                 data-form-type="other"
+                onFocus={(e) => { e.target.removeAttribute("readonly"); }}
+                readOnly
               />
             </div>
             <div className="flex justify-end gap-3 pt-2">
