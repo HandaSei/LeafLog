@@ -1587,6 +1587,19 @@ export default function Timesheets() {
                           >
                             <Edit2 className="w-3 h-3" />
                           </Button>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive"
+                            onClick={() => {
+                              if (confirm("Are you sure you want to delete this entire break session?")) {
+                                if (breakStart) deleteEntryMutation.mutate(breakStart.id);
+                                if (breakEnd) deleteEntryMutation.mutate(breakEnd.id);
+                                setSelectedWorkday(null);
+                                toast({ title: "Success", description: "Break deleted" });
+                              }
+                            }}
+                            data-testid="button-delete-break-time"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
                           {!breakEnd && (
                             <Button variant="outline" size="sm" className="h-6 text-xs px-2"
                               onClick={() => openClock(format(new Date(), "HH:mm"), (v) => {
