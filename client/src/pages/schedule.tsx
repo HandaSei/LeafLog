@@ -422,7 +422,7 @@ function ShiftCard({ shift, employee, customRoles = [], showEmployee = true, onE
         <div className="flex items-start justify-between gap-1">
           <div className="flex-1 min-w-0">
             <div className="text-[10px] opacity-90">
-              {formatTime(shift.startTime)} – {formatTime(shift.endTime)}{isOvernight && <span className="opacity-70"> +1</span>}
+              {formatTime(shift.startTime)} – {formatTime(shift.endTime)}
             </div>
             <div className="text-[10px] font-bold opacity-80">{duration}{shift.role && ` • ${shift.role}`}</div>
             {showEmployee && employee && (
