@@ -2,6 +2,25 @@ import { createContext, useContext, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 
+async function fetchBootstrap() {
+  const res = await fetch("/api/bootstrap", { credentials: "include" });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (data.employees !== undefined) {
+    queryClient.setQueryData(["/api/employees"], data.employees);
+  }
+  if (data.roles !== undefined) {
+    queryClient.setQueryData(["/api/roles"], data.roles);
+  }
+  if (data.breakPolicy !== undefined) {
+    queryClient.setQueryData(["/api/settings/break-policy"], data.breakPolicy);
+  }
+  if (data.notificationCount !== undefined) {
+    queryClient.setQueryData(["/api/notifications/unread-count"], { count: data.notificationCount });
+  }
+  return data.auth ?? null;
+}
+
 interface AuthUser {
   id: number;
   username: string;
@@ -44,11 +63,12 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { data: authState, isLoading } = useQuery<AuthState>({
+  const { data: authState, isLoading } = useQuery<AuthState | null>({
     queryKey: ["/api/auth/me"],
-    queryFn: getQueryFn({ on401: "returnNull" }),
+    queryFn: fetchBootstrap,
     staleTime: 0,
     retry: false,
+    refetchOnWindowFocus: false,
   });
 
   const loginMutation = useMutation({

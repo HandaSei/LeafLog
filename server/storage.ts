@@ -21,7 +21,19 @@ const isNeon = connectionString?.includes("neon.tech");
 export const pool = new pg.Pool({
   connectionString,
   ssl: isNeon ? { rejectUnauthorized: false } : undefined,
+  max: 5,
+  idleTimeoutMillis: 300000,
+  connectionTimeoutMillis: 10000,
 });
+
+// Keep Neon connection warm — ping every 4.5 minutes to prevent cold starts
+if (isNeon) {
+  setInterval(async () => {
+    try {
+      await pool.query("SELECT 1");
+    } catch (_) {}
+  }, 4.5 * 60 * 1000);
+}
 const db = drizzle(pool);
 
 export interface IStorage {

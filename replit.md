@@ -64,7 +64,7 @@ session:      managed by connect-pg-simple (auto-created)
 ## Project Structure
 - `client/src/pages/` - Dashboard, Schedule, Timesheets, Employees, Login, SteepIn (steepin), Settings
 - `client/src/components/` - AppSidebar, ShiftFormDialog, EmployeeFormDialog, EmployeeAvatar, AccessCodeDialog, ThemeProvider/Toggle, TimeInput/TimeRangeInput (custom analog clock picker), DateInput (custom calendar picker), MobileNav
-- `client/src/lib/auth.tsx` - AuthProvider context with login/logout/register hooks
+- `client/src/lib/auth.tsx` - AuthProvider context with login/logout/register hooks. Uses `/api/bootstrap` instead of `/api/auth/me` to pre-populate query cache for employees/roles/breakPolicy/notificationCount on startup
 - `client/src/lib/constants.ts` - Colors, departments, roles, utility functions
 - `server/auth.ts` - Session setup, auth routes, SteepIn routes, access code generation
 - `server/email.ts` - Resend API email service for verification codes (registration, recovery, employee upgrade)

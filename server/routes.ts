@@ -680,6 +680,44 @@ export async function registerRoutes(
     res.json(updated);
   });
 
+  // === BOOTSTRAP — batches all startup data into one round-trip ===
+  router.get("/api/bootstrap", async (req, res) => {
+    if (!req.session.userId) {
+      return res.json({ auth: { authenticated: false } });
+    }
+    const accountId = req.session.userId;
+    const [account, employees, roles, breakPolicy, notificationCount] = await Promise.all([
+      storage.getAccount(accountId),
+      storage.getEmployees(accountId),
+      storage.getCustomRoles(accountId),
+      storage.getBreakPolicy(accountId),
+      storage.getUnreadNotificationCount(accountId),
+    ]);
+    if (!account) {
+      return res.json({ auth: { authenticated: false } });
+    }
+    const authUser = {
+      id: account.id,
+      username: account.username,
+      role: account.role,
+      employeeId: account.employeeId ?? null,
+      agencyName: account.agencyName ?? null,
+      email: account.email ?? null,
+    };
+    res.json({
+      auth: {
+        authenticated: true,
+        user: authUser,
+        employee: null,
+        steepinMode: req.session.steepinMode ?? false,
+      },
+      employees,
+      roles,
+      breakPolicy,
+      notificationCount,
+    });
+  });
+
   app.use(router);
 
   return httpServer;
