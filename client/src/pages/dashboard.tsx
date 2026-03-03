@@ -375,6 +375,11 @@ export default function Dashboard() {
     refetchInterval: 30000,
   });
 
+  const { data: openSessionEntries = [] } = useQuery<TimeEntry[]>({
+    queryKey: ["/api/steepin/open-sessions"],
+    refetchInterval: 30000,
+  });
+
   const isLoading = shiftsLoading || employeesLoading || entriesLoading;
 
   const employeeMap = useMemo(() => {
@@ -390,8 +395,23 @@ export default function Dashboard() {
       list.push(e);
       map.set(e.employeeId, list);
     });
+    // Merge open sessions from previous days for employees with no active today session
+    const openByEmp = new Map<number, TimeEntry[]>();
+    openSessionEntries.forEach((e) => {
+      const list = openByEmp.get(e.employeeId) || [];
+      list.push(e);
+      openByEmp.set(e.employeeId, list);
+    });
+    openByEmp.forEach((entries, empId) => {
+      const todayEmpEntries = map.get(empId) || [];
+      const lastType = todayEmpEntries.length > 0 ? todayEmpEntries[todayEmpEntries.length - 1].type : null;
+      const hasActiveToday = lastType === "clock-in" || lastType === "break-start" || lastType === "break-end";
+      if (!hasActiveToday) {
+        map.set(empId, entries);
+      }
+    });
     return map;
-  }, [todayEntries]);
+  }, [todayEntries, openSessionEntries]);
 
   const todayShifts = useMemo(() =>
     shifts.filter((s) => s.date === todayStr),

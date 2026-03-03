@@ -56,6 +56,8 @@ export interface IStorage {
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
   getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
+  getOpenSessionDate(employeeId: number): Promise<string | null>;
+  getOpenSessionEntries(ownerAccountId: number): Promise<TimeEntry[]>;
   updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
   deleteTimeEntry(id: number): Promise<void>;
   deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void>;
@@ -321,6 +323,66 @@ export class DatabaseStorage implements IStorage {
       }));
     }
     const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text, role FROM time_entries ORDER BY timestamp");
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      type: row.type,
+      timestamp: row.timestamp,
+      date: row.entry_date,
+      role: row.role ?? null,
+    }));
+  }
+
+  async getOpenSessionDate(employeeId: number): Promise<string | null> {
+    // Find the most recent clock-in within 24h that has no subsequent clock-out on the same date
+    const result = await pool.query(
+      `SELECT entry_date::text as date
+       FROM time_entries
+       WHERE employee_id = $1
+         AND type = 'clock-in'
+         AND timestamp > NOW() - INTERVAL '24 hours'
+         AND NOT EXISTS (
+           SELECT 1 FROM time_entries t2
+           WHERE t2.employee_id = $1
+             AND t2.entry_date = time_entries.entry_date
+             AND t2.type = 'clock-out'
+             AND t2.timestamp > time_entries.timestamp
+         )
+       ORDER BY entry_date DESC, timestamp DESC
+       LIMIT 1`,
+      [employeeId]
+    );
+    return result.rows.length > 0 ? result.rows[0].date : null;
+  }
+
+  async getOpenSessionEntries(ownerAccountId: number): Promise<TimeEntry[]> {
+    const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
+    if (empIds.length === 0) return [];
+    const placeholders = empIds.map((_, i) => `$${i + 1}`).join(',');
+    // For each employee, find the date of their recent open session (clock-in within 24h without subsequent clock-out)
+    // then return all entries for that date
+    const result = await pool.query(
+      `SELECT t.id, t.employee_id, t.type, t.timestamp, t.entry_date::text, t.role
+       FROM time_entries t
+       WHERE t.employee_id IN (${placeholders})
+         AND t.entry_date = (
+           SELECT t2.entry_date FROM time_entries t2
+           WHERE t2.employee_id = t.employee_id
+             AND t2.type = 'clock-in'
+             AND t2.timestamp > NOW() - INTERVAL '24 hours'
+             AND NOT EXISTS (
+               SELECT 1 FROM time_entries t3
+               WHERE t3.employee_id = t.employee_id
+                 AND t3.entry_date = t2.entry_date
+                 AND t3.type = 'clock-out'
+                 AND t3.timestamp > t2.timestamp
+             )
+           ORDER BY t2.entry_date DESC, t2.timestamp DESC
+           LIMIT 1
+         )
+       ORDER BY t.timestamp`,
+      [...empIds]
+    );
     return result.rows.map((row: any) => ({
       id: row.id,
       employeeId: row.employee_id,

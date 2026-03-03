@@ -157,7 +157,21 @@ export async function registerRoutes(
 
   router.get("/api/steepin/entries/:employeeId", async (req, res) => {
     const todayStr = format(new Date(), "yyyy-MM-dd");
-    const entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), todayStr);
+    let entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), todayStr);
+    const lastType = entries.length > 0 ? entries[entries.length - 1].type : null;
+    const hasOpenSession = lastType === "clock-in" || lastType === "break-start" || lastType === "break-end";
+    if (!hasOpenSession) {
+      const openDate = await storage.getOpenSessionDate(Number(req.params.employeeId));
+      if (openDate && openDate !== todayStr) {
+        entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), openDate);
+      }
+    }
+    res.json(entries);
+  });
+
+  router.get("/api/steepin/open-sessions", requireAuth, async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    const entries = await storage.getOpenSessionEntries(ownerAccountId);
     res.json(entries);
   });
 
@@ -190,7 +204,11 @@ export async function registerRoutes(
       return res.status(401).json({ message: "Invalid passcode" });
     }
 
-    const date = format(new Date(), "yyyy-MM-dd");
+    let date = format(new Date(), "yyyy-MM-dd");
+    if (type !== "clock-in") {
+      const openDate = await storage.getOpenSessionDate(Number(employeeId));
+      if (openDate) date = openDate;
+    }
     const entry = await storage.createTimeEntry(Number(employeeId), type, date);
     res.status(201).json(entry);
   });

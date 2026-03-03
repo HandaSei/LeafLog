@@ -35,7 +35,7 @@ interface EmployeeWorkday {
   totalBreakMinutes: number;
   unpaidBreakMinutes: number;
   netWorkedMinutes: number;
-  status: "working" | "on-break" | "completed";
+  status: "working" | "on-break" | "completed" | "incomplete";
 }
 
 function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidBreakMinutes?: number | null): EmployeeWorkday[] {
@@ -63,6 +63,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
         }
 
         if (autoClose) {
+          currentWorkday.status = "incomplete";
           const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
           workdays.push(finalized);
           currentWorkday = null;
@@ -125,11 +126,12 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
 
   // Handle open session
   if (currentWorkday) {
-    const hoursElapsed = differenceInMinutes(new Date(), currentWorkday.lastClockIn!) / 60;
+    const lastClockInRef = currentWorkday.lastClockIn || currentWorkday.clockIn;
+    const hoursElapsed = lastClockInRef ? differenceInMinutes(new Date(), lastClockInRef) / 60 : 25;
     
     if (hoursElapsed >= 24) {
-      // Mark as finished but without a clock-out (unfinished)
-      currentWorkday.status = "completed"; 
+      // Session was never closed — mark as incomplete, don't calculate worked time
+      currentWorkday.status = "incomplete";
     } else {
       if (currentWorkday.lastClockIn) {
         currentWorkday.totalWorkedMinutes! += differenceInMinutes(new Date(), currentWorkday.lastClockIn);
@@ -554,6 +556,7 @@ export default function Timesheets() {
     working: { label: "Working", color: "#10B981" },
     "on-break": { label: "On Break", color: "#F59E0B" },
     completed: { label: "Completed", color: "#3B82F6" },
+    incomplete: { label: "Incomplete", color: "#EF4444" },
   };
 
   const handleEditEntry = (entry: TimeEntry) => {
@@ -791,10 +794,10 @@ export default function Timesheets() {
                       <div className="w-1.5 h-1.5 rounded-full mb-1" style={{ backgroundColor: sc.color }} />
                       <div className="flex flex-col items-center">
                         <span className="text-xs font-bold whitespace-nowrap">
-                          {wd.clockIn ? format(wd.clockIn, "HH:mm") : "--:--"} - {wd.clockOut ? format(wd.clockOut, "HH:mm") : ""}
+                          {wd.clockIn ? format(wd.clockIn, "HH:mm") : "--:--"} - {wd.clockOut ? format(wd.clockOut, "HH:mm") : "—"}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-medium text-muted-foreground">{formatHoursDecimal(wd.netWorkedMinutes)}h</span>
+                          <span className="text-[10px] font-medium text-muted-foreground">{wd.status === "incomplete" ? "—" : `${formatHoursDecimal(wd.netWorkedMinutes)}h`}</span>
                           {wd.totalBreakMinutes > 0 && (
                             <span className="text-[10px] text-muted-foreground">
                               (Break {formatMinutes(wd.totalBreakMinutes)}
@@ -1188,7 +1191,11 @@ export default function Timesheets() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Worked</div>
-                    <div className="font-medium">{formatMinutes(netWorkedMinutes)} ({formatHoursDecimal(netWorkedMinutes)} h)</div>
+                    {status === "incomplete" ? (
+                      <div className="font-medium text-muted-foreground">— (no clock-out)</div>
+                    ) : (
+                      <div className="font-medium">{formatMinutes(netWorkedMinutes)} ({formatHoursDecimal(netWorkedMinutes)} h)</div>
+                    )}
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Break</div>
