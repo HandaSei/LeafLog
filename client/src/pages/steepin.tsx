@@ -112,7 +112,7 @@ export default function SteepInPage() {
     staleTime: Infinity,
   });
 
-  const { data: entries = [] } = useQuery<TimeEntry[]>({
+  const { data: entries = [], isLoading: entriesLoading, isFetching: entriesFetching } = useQuery<TimeEntry[]>({
     queryKey: ["/api/steepin/entries", selectedEmployee?.id?.toString() || ""],
     queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: isActive && !!selectedEmployee,
@@ -311,52 +311,61 @@ export default function SteepInPage() {
               <h1 className="text-2xl font-bold tracking-tight text-primary">SteepIn</h1>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Button
-                size="lg"
-                className="h-20 flex flex-col gap-1 text-sm"
-                style={{ backgroundColor: "#10B981" }}
-                disabled={currentStatus === "clock-in" || currentStatus === "break-start" || actionMutation.isPending}
-                onClick={() => handleAction("clock-in")}
-                data-testid="button-clock-in"
-              >
-                <LogIn className="w-6 h-6" />
-                Clock In
-              </Button>
-              <Button
-                size="lg"
-                className="h-20 flex flex-col gap-1 text-sm"
-                style={{ backgroundColor: "#EF4444" }}
-                disabled={(currentStatus !== "clock-in" && currentStatus !== "break-end") || actionMutation.isPending}
-                onClick={() => handleAction("clock-out")}
-                data-testid="button-clock-out"
-              >
-                <LogOut className="w-6 h-6" />
-                Clock Out
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="h-20 flex flex-col gap-1 text-sm"
-                disabled={(currentStatus !== "clock-in" && currentStatus !== "break-end") || actionMutation.isPending}
-                onClick={() => handleAction("break-start")}
-                data-testid="button-break-start"
-              >
-                <Coffee className="w-6 h-6" />
-                Start Break
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="h-20 flex flex-col gap-1 text-sm"
-                disabled={currentStatus !== "break-start" || actionMutation.isPending}
-                onClick={() => handleAction("break-end")}
-                data-testid="button-break-end"
-              >
-                <Timer className="w-6 h-6" />
-                End Break
-              </Button>
-            </div>
+            {(entriesLoading || entriesFetching) ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Skeleton className="h-20 rounded-md" />
+                <Skeleton className="h-20 rounded-md" />
+                <Skeleton className="h-20 rounded-md" />
+                <Skeleton className="h-20 rounded-md" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  size="lg"
+                  className="h-20 flex flex-col gap-1 text-sm"
+                  style={{ backgroundColor: "#10B981" }}
+                  disabled={currentStatus === "clock-in" || currentStatus === "break-start" || actionMutation.isPending}
+                  onClick={() => handleAction("clock-in")}
+                  data-testid="button-clock-in"
+                >
+                  <LogIn className="w-6 h-6" />
+                  Clock In
+                </Button>
+                <Button
+                  size="lg"
+                  className="h-20 flex flex-col gap-1 text-sm"
+                  style={{ backgroundColor: "#EF4444" }}
+                  disabled={(currentStatus !== "clock-in" && currentStatus !== "break-end") || actionMutation.isPending}
+                  onClick={() => handleAction("clock-out")}
+                  data-testid="button-clock-out"
+                >
+                  <LogOut className="w-6 h-6" />
+                  Clock Out
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="h-20 flex flex-col gap-1 text-sm"
+                  disabled={(currentStatus !== "clock-in" && currentStatus !== "break-end") || actionMutation.isPending}
+                  onClick={() => handleAction("break-start")}
+                  data-testid="button-break-start"
+                >
+                  <Coffee className="w-6 h-6" />
+                  Start Break
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="h-20 flex flex-col gap-1 text-sm"
+                  disabled={currentStatus !== "break-start" || actionMutation.isPending}
+                  onClick={() => handleAction("break-end")}
+                  data-testid="button-break-end"
+                >
+                  <Timer className="w-6 h-6" />
+                  End Break
+                </Button>
+              </div>
+            )}
 
             {currentShiftEntries.length > 0 && (
               <Card className="p-4">
