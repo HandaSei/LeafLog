@@ -422,50 +422,77 @@ export default function Dashboard() {
 
   const flowRows: FlowRow[] = useMemo(() => {
     const rows: FlowRow[] = [];
-    const entriesByEmployeeWithShifts = new Map<number, { shift: Shift | null, statuses: ClockStatus[] }[]>();
+    const processedEmployeeIds = new Set<number>();
 
-    // Process scheduled shifts
+    // Group today's shifts by employee
+    const shiftsByEmployee = new Map<number, Shift[]>();
     todayShifts.forEach((shift) => {
-      const emp = employeeMap.get(shift.employeeId);
-      if (!emp) return;
-      const entries = entriesByEmployee.get(shift.employeeId) || [];
-      const statuses = getClockStatusForScheduled(shift, entries, now);
-      
-      const existing = entriesByEmployeeWithShifts.get(emp.id) || [];
-      existing.push({ shift, statuses });
-      entriesByEmployeeWithShifts.set(emp.id, existing);
+      const list = shiftsByEmployee.get(shift.employeeId) || [];
+      list.push(shift);
+      shiftsByEmployee.set(shift.employeeId, list);
     });
 
-    // Process unscheduled activity
+    const toMinutes = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+    // For each employee with shifts today, emit ONE row with the best matching shift
+    shiftsByEmployee.forEach((empShifts, employeeId) => {
+      const emp = employeeMap.get(employeeId);
+      if (!emp) return;
+      processedEmployeeIds.add(employeeId);
+
+      const entries = entriesByEmployee.get(employeeId) || [];
+
+      // Pick the most relevant shift:
+      // 1. If employee is currently clocked in, pick the shift closest to their clock-in time
+      // 2. Otherwise, pick the shift that is current or soonest upcoming
+      const lastClockIn = [...entries].reverse().find(e => e.type === "clock-in");
+      const lastClockOut = [...entries].reverse().find(e => e.type === "clock-out");
+      const isActive = lastClockIn && (!lastClockOut || new Date(lastClockIn.timestamp) > new Date(lastClockOut.timestamp));
+
+      let bestShift: Shift;
+      if (empShifts.length === 1) {
+        bestShift = empShifts[0];
+      } else if (isActive && lastClockIn) {
+        // Pick the shift whose startTime is closest to (but not after) the clock-in time
+        const clockInMinutes = new Date(lastClockIn.timestamp).getHours() * 60 + new Date(lastClockIn.timestamp).getMinutes();
+        bestShift = empShifts.reduce((best, s) => {
+          const sStart = toMinutes(s.startTime);
+          const bestStart = toMinutes(best.startTime);
+          // Prefer shift that started closest before or at the clock-in time
+          const sDiff = Math.abs(sStart - clockInMinutes);
+          const bestDiff = Math.abs(bestStart - clockInMinutes);
+          return sDiff < bestDiff ? s : best;
+        });
+      } else {
+        // Pick the shift that is current or next upcoming; if all past, pick the last one
+        const current = empShifts.find(s => toMinutes(s.startTime) <= nowMinutes && nowMinutes < toMinutes(s.endTime));
+        if (current) {
+          bestShift = current;
+        } else {
+          const upcoming = empShifts
+            .filter(s => toMinutes(s.startTime) > nowMinutes)
+            .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime))[0];
+          bestShift = upcoming || empShifts[empShifts.length - 1];
+        }
+      }
+
+      const statuses = getClockStatusForScheduled(bestShift, entries, now);
+      rows.push({ employee: emp, shift: bestShift, statuses });
+    });
+
+    // Process employees with time entries but no shifts today
     entriesByEmployee.forEach((entries, employeeId) => {
-      if (entriesByEmployeeWithShifts.has(employeeId)) return;
+      if (processedEmployeeIds.has(employeeId)) return;
       const emp = employeeMap.get(employeeId);
       if (!emp || emp.status !== "active") return;
       const statuses = getClockStatusForUnscheduled(entries, now);
       if (statuses.length > 0) {
-        entriesByEmployeeWithShifts.set(employeeId, [{ shift: null, statuses }]);
+        rows.push({ employee: emp, shift: null, statuses });
       }
-    });
-
-    // Merge shifts for the same employee if they are both active/waiting
-    // Or just decide which one to show. 
-    // If the user sees two "Abla" rows, it's because there are two shifts.
-    // We should probably group shifts by employee in the display or only show the most relevant one.
-    // However, the current UI structure is one row per "FlowRow".
-    // Let's modify the grouping to keep one row per employee, but allow multiple shifts/statuses in that row.
-    
-    entriesByEmployeeWithShifts.forEach((data, empId) => {
-      const emp = employeeMap.get(empId);
-      if (!emp) return;
-      
-      // If multiple shifts exist, we want to avoid showing "Working" twice for the same clock-in.
-      // But we still want to show all shifts.
-      // The issue is that getClockStatusForScheduled returns ALL sessions for the day.
-      // So if Abla clocked in once at 08:00, and has two shifts, both rows show that 08:00 clock-in.
-      
-      data.forEach(item => {
-        rows.push({ employee: emp, shift: item.shift, statuses: item.statuses });
-      });
     });
 
     return rows;
@@ -496,35 +523,10 @@ export default function Dashboard() {
     });
   }, [flowRows]);
 
-  const flowRowsToDisplay = useMemo(() => {
-    const filtered = sortedRows.filter(r => r.statuses.some(s => s.kind !== "waiting"));
-    
-    // De-duplicate by employee: If an employee has multiple rows (due to multiple shifts),
-    // but they are showing the same active status (e.g. "Working"), we should merge them or pick one.
-    // In the image, Abla has two shifts and both rows show "Working (01:00)".
-    
-    const seen = new Set<number>();
-    const result: FlowRow[] = [];
-    
-    for (const row of filtered) {
-      const activeStatus = row.statuses.find(s => 
-        s.kind === "on-time" || s.kind === "clocked-late" || s.kind === "working-no-schedule"
-      );
-      
-      if (activeStatus) {
-        if (seen.has(row.employee.id)) {
-          // If we already have an active row for this employee, check if this one is "better"
-          // or if we should just append the shift info to the existing one.
-          // For now, let's just avoid duplicates if the employee is already "Working".
-          continue;
-        }
-        seen.add(row.employee.id);
-      }
-      result.push(row);
-    }
-    
-    return result;
-  }, [sortedRows]);
+  const flowRowsToDisplay = useMemo(() => 
+    sortedRows.filter(r => r.statuses.some(s => s.kind !== "waiting")),
+    [sortedRows]
+  );
 
   const waitingRows = useMemo(() => 
     sortedRows.filter(r => r.statuses.every(s => s.kind === "waiting")),
