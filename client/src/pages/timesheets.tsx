@@ -1111,10 +1111,7 @@ export default function Timesheets() {
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] font-medium text-muted-foreground">{wd.status === "incomplete" ? "—" : `${formatHoursDecimal(wd.netWorkedMinutes)}h`}</span>
                           {wd.hasUnfinishedBreak && (
-                            <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded" data-testid="status-unfinished-break">Unfinished break</span>
-                          )}
-                          {!wd.hasUnfinishedBreak && wd.totalBreakMinutes === 0 && wd.netWorkedMinutes >= 360 && (
-                            <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded" data-testid="status-no-break-warning">No break taken</span>
+                            <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">Unfinished break</span>
                           )}
                           {!wd.hasUnfinishedBreak && wd.totalBreakMinutes > 0 && (
                             <span className="text-[10px] text-muted-foreground">
@@ -1538,8 +1535,8 @@ export default function Timesheets() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Break</div>
-                    <div className={`font-medium flex items-center gap-1.5 ${(hasUnfinishedBreak || (totalBreakMinutes === 0 && netWorkedMinutes >= 360)) ? "text-amber-600 dark:text-amber-400" : ""}`}>
-                      {hasUnfinishedBreak ? "Unfinished break" : (totalBreakMinutes === 0 && netWorkedMinutes >= 360) ? "No break taken" : totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "No break"}
+                    <div className={`font-medium flex items-center gap-1.5 ${hasUnfinishedBreak ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                      {hasUnfinishedBreak ? "Unfinished break" : totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "No break"}
                     </div>
                     {unpaidBreakMinutes > 0 && (
                       <div className="text-[11px] text-red-500">-{formatMinutes(unpaidBreakMinutes)} deducted</div>
