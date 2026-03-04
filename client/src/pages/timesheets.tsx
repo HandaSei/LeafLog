@@ -1113,6 +1113,9 @@ export default function Timesheets() {
                           {wd.hasUnfinishedBreak && (
                             <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">Unfinished break</span>
                           )}
+                          {!wd.hasUnfinishedBreak && wd.status === "completed" && wd.totalBreakMinutes === 0 && wd.netWorkedMinutes >= 375 && (
+                            <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">No break</span>
+                          )}
                           {!wd.hasUnfinishedBreak && wd.totalBreakMinutes > 0 && (
                             <span className="text-[10px] text-muted-foreground">
                               (Break {formatMinutes(wd.totalBreakMinutes)}
@@ -1535,9 +1538,20 @@ export default function Timesheets() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Break</div>
-                    <div className={`font-medium flex items-center gap-1.5 ${hasUnfinishedBreak ? "text-amber-600 dark:text-amber-400" : ""}`}>
-                      {hasUnfinishedBreak ? "Unfinished break" : totalBreakMinutes > 0 ? formatMinutes(totalBreakMinutes) : "No break"}
-                    </div>
+                    {(() => {
+                      const noBreakWarning = !hasUnfinishedBreak && status === "completed" && totalBreakMinutes === 0 && netWorkedMinutes >= 375;
+                      return (
+                        <div className={`font-medium flex items-center gap-1.5 ${hasUnfinishedBreak || noBreakWarning ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                          {hasUnfinishedBreak
+                            ? "Unfinished break"
+                            : totalBreakMinutes > 0
+                              ? formatMinutes(totalBreakMinutes)
+                              : noBreakWarning
+                                ? `No break · ${formatHoursDecimal(netWorkedMinutes)}h worked`
+                                : "No break"}
+                        </div>
+                      );
+                    })()}
                     {unpaidBreakMinutes > 0 && (
                       <div className="text-[11px] text-red-500">-{formatMinutes(unpaidBreakMinutes)} deducted</div>
                     )}
