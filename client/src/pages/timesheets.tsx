@@ -451,6 +451,7 @@ export default function Timesheets() {
   const [exportStartDate, setExportStartDate] = useState(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
   const [exportEndDate, setExportEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [csvImporterOpen, setCsvImporterOpen] = useState(false);
+  const [reopenGapDialog, setReopenGapDialog] = useState<{ clockOutEntry: TimeEntry; gapMinutes: number; employeeId: number; clockOutDate: string } | null>(null);
   const { toast } = useToast();
 
   const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
@@ -506,6 +507,26 @@ export default function Timesheets() {
       await apiRequest("DELETE", `/api/steepin/entries/${id}`);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }),
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const reopenShiftMutation = useMutation({
+    mutationFn: async ({ clockOutEntryId, employeeId, clockOutDate, clockOutTimestamp, gapOption }: {
+      clockOutEntryId: number; employeeId: number; clockOutDate: string; clockOutTimestamp: string; gapOption: "break" | "unpaid-break" | "worked";
+    }) => {
+      if (gapOption === "break" || gapOption === "unpaid-break") {
+        await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-start", date: clockOutDate, timestamp: clockOutTimestamp });
+        const nowIso = new Date().toISOString();
+        const nowDate = format(new Date(), "yyyy-MM-dd");
+        await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-end", date: nowDate, timestamp: nowIso });
+      }
+      await apiRequest("DELETE", `/api/steepin/entries/${clockOutEntryId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+      setReopenGapDialog(null);
+      toast({ title: "Shift reopened", description: "The clock-out has been removed and the shift is now in progress." });
+    },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
@@ -1688,12 +1709,22 @@ export default function Timesheets() {
                         size="sm"
                         className="h-7 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
                         onClick={() => {
-                          deleteEntryMutation.mutate(clockOutEntry.id);
+                          const gapMinutes = differenceInMinutes(new Date(), new Date(clockOutEntry.timestamp));
+                          if (gapMinutes > 10) {
+                            setReopenGapDialog({
+                              clockOutEntry,
+                              gapMinutes,
+                              employeeId: emp.id,
+                              clockOutDate: clockOutEntry.date as string,
+                            });
+                          } else {
+                            deleteEntryMutation.mutate(clockOutEntry.id);
+                          }
                         }}
-                        disabled={deleteEntryMutation.isPending}
-                        data-testid="button-remove-clock-out"
+                        disabled={deleteEntryMutation.isPending || reopenShiftMutation.isPending}
+                        data-testid="button-reopen-shift"
                       >
-                        <Trash2 className="w-3 h-3 mr-1" /> Remove Clock Out
+                        <Trash2 className="w-3 h-3 mr-1" /> Reopen Shift
                       </Button>
                     </div>
                   );
@@ -2043,6 +2074,70 @@ export default function Timesheets() {
         onClose={() => setCsvImporterOpen(false)}
         employees={employees}
       />
+
+      {/* Reopen Shift — Gap Time Dialog */}
+      <Dialog open={!!reopenGapDialog} onOpenChange={(open) => { if (!open) setReopenGapDialog(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reopen Shift</DialogTitle>
+          </DialogHeader>
+          {reopenGapDialog && (() => {
+            const { clockOutEntry, gapMinutes, employeeId, clockOutDate } = reopenGapDialog;
+            const gapHours = Math.floor(gapMinutes / 60);
+            const gapMins = gapMinutes % 60;
+            const gapLabel = gapHours > 0 ? `${gapHours}h ${gapMins}m` : `${gapMins}m`;
+            return (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">{gapLabel}</span> passed since the shift was closed.
+                  How should this time be counted?
+                </p>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    className="justify-start h-auto py-3 px-4"
+                    disabled={reopenShiftMutation.isPending}
+                    onClick={() => reopenShiftMutation.mutate({ clockOutEntryId: clockOutEntry.id, employeeId, clockOutDate, clockOutTimestamp: clockOutEntry.timestamp as string, gapOption: "break" })}
+                    data-testid="button-reopen-as-break"
+                  >
+                    <div className="text-left">
+                      <div className="font-medium text-sm">Add as Break</div>
+                      <div className="text-xs text-muted-foreground">The {gapLabel} gap is logged as a break</div>
+                    </div>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="justify-start h-auto py-3 px-4"
+                    disabled={reopenShiftMutation.isPending}
+                    onClick={() => reopenShiftMutation.mutate({ clockOutEntryId: clockOutEntry.id, employeeId, clockOutDate, clockOutTimestamp: clockOutEntry.timestamp as string, gapOption: "unpaid-break" })}
+                    data-testid="button-reopen-as-unpaid-break"
+                  >
+                    <div className="text-left">
+                      <div className="font-medium text-sm">Add as Unpaid Break</div>
+                      <div className="text-xs text-muted-foreground">Logged as a break, fully deducted from pay</div>
+                    </div>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="justify-start h-auto py-3 px-4"
+                    disabled={reopenShiftMutation.isPending}
+                    onClick={() => reopenShiftMutation.mutate({ clockOutEntryId: clockOutEntry.id, employeeId, clockOutDate, clockOutTimestamp: clockOutEntry.timestamp as string, gapOption: "worked" })}
+                    data-testid="button-reopen-as-worked"
+                  >
+                    <div className="text-left">
+                      <div className="font-medium text-sm">Count as Paid Time</div>
+                      <div className="text-xs text-muted-foreground">The {gapLabel} gap counts as worked time</div>
+                    </div>
+                  </Button>
+                </div>
+                <Button variant="ghost" size="sm" className="w-full" onClick={() => setReopenGapDialog(null)} disabled={reopenShiftMutation.isPending}>
+                  Cancel
+                </Button>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
