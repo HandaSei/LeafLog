@@ -1734,8 +1734,6 @@ export default function Timesheets() {
                 })()}
 
                 {clockOut && (() => {
-                  const clockOutEntry = dayEntries.filter(e => e.type === "clock-out").pop();
-                  if (!clockOutEntry) return null;
                   // Only show for the last completed session AND only if the employee has no open session
                   const allEmpEntries = entries.filter(e => e.employeeId === emp.id);
                   const allSessions = processEntriesForEmployee(emp, allEmpEntries, paidBreakMinutes);
@@ -1755,16 +1753,24 @@ export default function Timesheets() {
                         size="sm"
                         className="h-7 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
                         onClick={() => {
-                          const gapMinutes = differenceInMinutes(new Date(), new Date(clockOutEntry.timestamp));
+                          // Always read the freshest entries at click time — avoids stale closure issues
+                          const freshEntries = (viewingWorkday?.entries ?? dayEntries);
+                          const freshClockOut = [...freshEntries]
+                            .filter(e => e.type === "clock-out")
+                            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                            .pop();
+                          if (!freshClockOut) return;
+                          // Gap = time between the clock-out TIME they recorded and right now
+                          const gapMinutes = differenceInMinutes(new Date(), new Date(freshClockOut.timestamp));
                           if (gapMinutes > 10) {
                             setReopenGapDialog({
-                              clockOutEntry,
+                              clockOutEntry: freshClockOut,
                               gapMinutes,
                               employeeId: emp.id,
-                              clockOutDate: clockOutEntry.date as string,
+                              clockOutDate: freshClockOut.date as string,
                             });
                           } else {
-                            deleteEntryMutation.mutate(clockOutEntry.id);
+                            deleteEntryMutation.mutate(freshClockOut.id);
                           }
                         }}
                         disabled={deleteEntryMutation.isPending || reopenShiftMutation.isPending}
@@ -2133,10 +2139,12 @@ export default function Timesheets() {
             const gapHours = Math.floor(gapMinutes / 60);
             const gapMins = gapMinutes % 60;
             const gapLabel = gapHours > 0 ? `${gapHours}h ${gapMins}m` : `${gapMins}m`;
+            const clockOutTime = format(new Date(clockOutEntry.timestamp), "HH:mm");
+            const nowTime = format(new Date(), "HH:mm");
             return (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">{gapLabel}</span> passed since the shift was closed.
+                  The shift closed at <span className="font-medium text-foreground">{clockOutTime}</span> and it is now <span className="font-medium text-foreground">{nowTime}</span> — a gap of <span className="font-medium text-foreground">{gapLabel}</span>.
                   How should this time be counted?
                 </p>
                 <div className="flex flex-col gap-2">
