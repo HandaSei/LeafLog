@@ -470,10 +470,29 @@ export async function registerRoutes(
   // === CSV IMPORT ===
   router.post("/api/timesheets/import-csv", requireRole("admin", "manager"), async (req, res) => {
     const ownerAccountId = req.session.userId!;
-    const { rows } = req.body;
+    const { rows, timezoneOffset = 0 } = req.body;
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ message: "No rows provided" });
     }
+
+    // timezoneOffset = new Date().getTimezoneOffset() from the browser
+    // For UTC+1 (Italy) this is -60. To convert local time → UTC: add the offset.
+    const tzOffsetMs = timezoneOffset * 60000;
+
+    const makeTimestamp = (dateStr: string, timeStr: string): Date => {
+      const ts = new Date(`${dateStr}T${timeStr}:00Z`);
+      ts.setTime(ts.getTime() + tzOffsetMs);
+      return ts;
+    };
+
+    // For cross-midnight shifts: determine if a time falls after midnight
+    // relative to the clock-in time. If the shift crosses midnight (clockOut < clockIn),
+    // then any time T < clockIn that falls in the after-midnight portion uses the next calendar day.
+    const resolveCalendarDate = (time: string, clockIn: string, shiftDate: string, isCrossMidnight: boolean): string => {
+      if (!isCrossMidnight) return shiftDate;
+      // In a cross-midnight shift, times < clockIn are on the next calendar day
+      return time < clockIn ? format(addDays(parseISO(shiftDate), 1), "yyyy-MM-dd") : shiftDate;
+    };
 
     const existingEmployees = await storage.getEmployees(ownerAccountId);
     const empByName = new Map<string, number>();
@@ -506,32 +525,41 @@ export async function registerRoutes(
       if (!employeeName || !date || !clockIn) continue;
 
       const employeeId = await getOrCreateEmployee(String(employeeName).trim());
+      const isCrossMidnight = clockOut ? clockOut < clockIn : false;
 
-      // Check if this employee already has entries on this date — skip if so
+      // Duplicate check: look for an existing clock-in within 1 minute of this one
+      const clockInTs = makeTimestamp(date, clockIn);
       const existing = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
-      if (existing.length > 0) { skipped++; continue; }
+      const alreadyExists = existing.some(e =>
+        e.type === "clock-in" &&
+        Math.abs(new Date(e.timestamp).getTime() - clockInTs.getTime()) < 60000
+      );
+      if (alreadyExists) { skipped++; continue; }
 
-      // Clock in
-      await storage.createTimeEntryManual(employeeId, "clock-in", date, new Date(`${date}T${clockIn}:00`), role || null, notes || null);
+      // Clock in — all entries for this shift share the same entry_date (date)
+      await storage.createTimeEntryManual(employeeId, "clock-in", date, clockInTs, role || null, notes || null);
 
       // Break entries — support multiple breaks per shift
       if (Array.isArray(breaks)) {
         for (const brk of breaks) {
           if (!brk.start || !brk.end) continue;
-          // Break start/end dates: break can cross midnight relative to the shift date
-          const bStartDate = date;
-          const bEndDate = brk.end < brk.start ? format(addDays(parseISO(date), 1), "yyyy-MM-dd") : date;
-          await storage.createTimeEntryManual(employeeId, "break-start", bStartDate, new Date(`${bStartDate}T${brk.start}:00`), null, null, brk.isUnpaid === true);
-          await storage.createTimeEntryManual(employeeId, "break-end", bEndDate, new Date(`${bEndDate}T${brk.end}:00`));
+          const bStartCalendar = resolveCalendarDate(brk.start, clockIn, date, isCrossMidnight);
+          const bEndCalendar = brk.end < brk.start
+            ? format(addDays(parseISO(bStartCalendar), 1), "yyyy-MM-dd")
+            : bStartCalendar;
+          const bStartTs = makeTimestamp(bStartCalendar, brk.start);
+          const bEndTs = makeTimestamp(bEndCalendar, brk.end);
+          // entry_date = shift date for all entries
+          await storage.createTimeEntryManual(employeeId, "break-start", date, bStartTs, null, null, brk.isUnpaid === true);
+          await storage.createTimeEntryManual(employeeId, "break-end", date, bEndTs);
         }
       }
 
-      // Clock out
+      // Clock out — entry_date stays as shift date, timestamp uses next day if needed
       if (clockOut) {
-        const clockOutDate = clockOut < clockIn
-          ? format(addDays(parseISO(date), 1), "yyyy-MM-dd")
-          : date;
-        await storage.createTimeEntryManual(employeeId, "clock-out", clockOutDate, new Date(`${clockOutDate}T${clockOut}:00`), role || null);
+        const clockOutCalendar = resolveCalendarDate(clockOut, clockIn, date, isCrossMidnight);
+        const clockOutTs = makeTimestamp(clockOutCalendar, clockOut);
+        await storage.createTimeEntryManual(employeeId, "clock-out", date, clockOutTs, role || null);
       }
 
       created++;

@@ -378,7 +378,10 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
   const handleImport = async () => {
     setImporting(true);
     try {
-      const res = await apiRequest("POST", "/api/timesheets/import-csv", { rows: parsedRows });
+      const res = await apiRequest("POST", "/api/timesheets/import-csv", {
+        rows: parsedRows,
+        timezoneOffset: new Date().getTimezoneOffset(),
+      });
       const data = await res.json();
       setImportResult(data);
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
