@@ -502,7 +502,7 @@ export async function registerRoutes(
     };
 
     for (const row of rows) {
-      const { employeeName, date, clockIn, clockOut, breakStart, breakEnd, breakMinutes, role } = row;
+      const { employeeName, date, clockIn, clockOut, breaks, role, notes } = row;
       if (!employeeName || !date || !clockIn) continue;
 
       const employeeId = await getOrCreateEmployee(String(employeeName).trim());
@@ -512,21 +512,18 @@ export async function registerRoutes(
       if (existing.length > 0) { skipped++; continue; }
 
       // Clock in
-      await storage.createTimeEntryManual(employeeId, "clock-in", date, new Date(`${date}T${clockIn}:00`), role || null);
+      await storage.createTimeEntryManual(employeeId, "clock-in", date, new Date(`${date}T${clockIn}:00`), role || null, notes || null);
 
-      // Break entries
-      if (breakStart && breakEnd) {
-        await storage.createTimeEntryManual(employeeId, "break-start", date, new Date(`${date}T${breakStart}:00`));
-        await storage.createTimeEntryManual(employeeId, "break-end", date, new Date(`${date}T${breakEnd}:00`));
-      } else if (breakMinutes && clockOut) {
-        // Estimate break in the middle of the shift
-        const cinMs = new Date(`${date}T${clockIn}:00`).getTime();
-        const coutMs = new Date(`${date}T${clockOut}:00`).getTime();
-        const midMs = cinMs + (coutMs - cinMs) / 2;
-        const bStartMs = midMs - (breakMinutes * 60000) / 2;
-        const bEndMs = bStartMs + breakMinutes * 60000;
-        await storage.createTimeEntryManual(employeeId, "break-start", date, new Date(bStartMs));
-        await storage.createTimeEntryManual(employeeId, "break-end", date, new Date(bEndMs));
+      // Break entries — support multiple breaks per shift
+      if (Array.isArray(breaks)) {
+        for (const brk of breaks) {
+          if (!brk.start || !brk.end) continue;
+          // Break start/end dates: break can cross midnight relative to the shift date
+          const bStartDate = date;
+          const bEndDate = brk.end < brk.start ? format(addDays(parseISO(date), 1), "yyyy-MM-dd") : date;
+          await storage.createTimeEntryManual(employeeId, "break-start", bStartDate, new Date(`${bStartDate}T${brk.start}:00`), null, null, brk.isUnpaid === true);
+          await storage.createTimeEntryManual(employeeId, "break-end", bEndDate, new Date(`${bEndDate}T${brk.end}:00`));
+        }
       }
 
       // Clock out

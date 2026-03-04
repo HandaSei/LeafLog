@@ -67,7 +67,7 @@ export interface IStorage {
   expireAccessCodesForEmployee(employeeId: number): Promise<void>;
 
   createTimeEntry(employeeId: number, type: string, date: string, notes?: string | null): Promise<TimeEntry>;
-  createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null, notes?: string | null): Promise<TimeEntry>;
+  createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null, notes?: string | null, isUnpaid?: boolean): Promise<TimeEntry>;
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
   getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
