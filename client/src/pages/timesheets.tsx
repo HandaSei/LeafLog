@@ -7,7 +7,7 @@ import {
 import { useState, useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, Calendar, CalendarDays, Check, AlertCircle, StickyNote, Trash2, Clock as ClockIcon, AlertTriangle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, FileUp, Calendar, CalendarDays, Check, AlertCircle, StickyNote, Trash2, Clock as ClockIcon, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { TimeInput, TimeRangeInput, ClockPickerDialog } from "@/components/time-input";
 import { DateInput } from "@/components/date-input";
+import CsvImporter from "@/components/csv-importer";
 import type { Employee, TimeEntry, CustomRole, ApprovalRequest } from "@shared/schema";
 
 interface EmployeeWorkday {
@@ -449,6 +450,7 @@ export default function Timesheets() {
   const [exportSelectedEmployeeIds, setExportSelectedEmployeeIds] = useState<number[]>([]);
   const [exportStartDate, setExportStartDate] = useState(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
   const [exportEndDate, setExportEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [csvImporterOpen, setCsvImporterOpen] = useState(false);
   const { toast } = useToast();
 
   const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
@@ -1204,6 +1206,15 @@ export default function Timesheets() {
               data-testid="button-export-pdf"
             >
               <FileDown className="w-3.5 h-3.5" /> Export PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => setCsvImporterOpen(true)}
+              data-testid="button-import-csv"
+            >
+              <FileUp className="w-3.5 h-3.5" /> Import CSV
             </Button>
           </div>
 
@@ -2000,6 +2011,12 @@ export default function Timesheets() {
           )}
         </DialogContent>
       </Dialog>
+
+      <CsvImporter
+        open={csvImporterOpen}
+        onClose={() => setCsvImporterOpen(false)}
+        employees={employees}
+      />
     </div>
   );
 }

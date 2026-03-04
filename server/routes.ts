@@ -460,13 +460,84 @@ export async function registerRoutes(
   });
 
   router.delete("/api/steepin/entries/:id", requireRole("admin", "manager"), async (req, res) => {
-    // Note: The existing storage doesn't have a single entry delete yet, 
-    // but the user wants to delete timesheets (sessions).
-    // For now, the existing delete handles the whole day.
-    // To support deleting just one session, we'd need a storage.deleteTimeEntry(id).
-    // Let's add it.
     await storage.deleteTimeEntry(Number(req.params.id));
     res.status(204).send();
+  });
+
+  // === CSV IMPORT ===
+  router.post("/api/timesheets/import-csv", requireRole("admin", "manager"), async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: "No rows provided" });
+    }
+
+    const existingEmployees = await storage.getEmployees(ownerAccountId);
+    const empByName = new Map<string, number>();
+    existingEmployees.forEach(e => empByName.set(e.name.toLowerCase(), e.id));
+
+    const newEmployeeNames: string[] = [];
+    let created = 0;
+    let skipped = 0;
+
+    const getOrCreateEmployee = async (name: string): Promise<number> => {
+      const key = name.toLowerCase();
+      if (empByName.has(key)) return empByName.get(key)!;
+      const emp = await storage.createEmployee({
+        name,
+        email: "",
+        phone: "",
+        role: "",
+        department: "",
+        color: "#3B82F6",
+        status: "active",
+        ownerAccountId,
+      });
+      empByName.set(key, emp.id);
+      newEmployeeNames.push(emp.name);
+      return emp.id;
+    };
+
+    for (const row of rows) {
+      const { employeeName, date, clockIn, clockOut, breakStart, breakEnd, breakMinutes, role } = row;
+      if (!employeeName || !date || !clockIn) continue;
+
+      const employeeId = await getOrCreateEmployee(String(employeeName).trim());
+
+      // Check if this employee already has entries on this date — skip if so
+      const existing = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
+      if (existing.length > 0) { skipped++; continue; }
+
+      // Clock in
+      await storage.createTimeEntryManual(employeeId, "clock-in", date, new Date(`${date}T${clockIn}:00`), role || null);
+
+      // Break entries
+      if (breakStart && breakEnd) {
+        await storage.createTimeEntryManual(employeeId, "break-start", date, new Date(`${date}T${breakStart}:00`));
+        await storage.createTimeEntryManual(employeeId, "break-end", date, new Date(`${date}T${breakEnd}:00`));
+      } else if (breakMinutes && clockOut) {
+        // Estimate break in the middle of the shift
+        const cinMs = new Date(`${date}T${clockIn}:00`).getTime();
+        const coutMs = new Date(`${date}T${clockOut}:00`).getTime();
+        const midMs = cinMs + (coutMs - cinMs) / 2;
+        const bStartMs = midMs - (breakMinutes * 60000) / 2;
+        const bEndMs = bStartMs + breakMinutes * 60000;
+        await storage.createTimeEntryManual(employeeId, "break-start", date, new Date(bStartMs));
+        await storage.createTimeEntryManual(employeeId, "break-end", date, new Date(bEndMs));
+      }
+
+      // Clock out
+      if (clockOut) {
+        const clockOutDate = clockOut < clockIn
+          ? format(addDays(parseISO(date), 1), "yyyy-MM-dd")
+          : date;
+        await storage.createTimeEntryManual(employeeId, "clock-out", clockOutDate, new Date(`${clockOutDate}T${clockOut}:00`), role || null);
+      }
+
+      created++;
+    }
+
+    res.json({ created, skipped, newEmployees: newEmployeeNames });
   });
 
   // === CUSTOM ROLES ===
