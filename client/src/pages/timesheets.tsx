@@ -1669,9 +1669,11 @@ export default function Timesheets() {
                 {clockOut && (() => {
                   const clockOutEntry = dayEntries.filter(e => e.type === "clock-out").pop();
                   if (!clockOutEntry) return null;
-                  // Only show for the globally last completed session across ALL dates for this employee
+                  // Only show for the last completed session AND only if the employee has no open session
                   const allEmpEntries = entries.filter(e => e.employeeId === emp.id);
                   const allSessions = processEntriesForEmployee(emp, allEmpEntries, paidBreakMinutes);
+                  const hasOpenSession = allSessions.some(s => s.status === "in-progress");
+                  if (hasOpenSession) return null;
                   const lastCompleted = allSessions
                     .filter(s => s.status === "completed" && s.clockOut)
                     .reduce<EmployeeWorkday | null>((last, s) => {
