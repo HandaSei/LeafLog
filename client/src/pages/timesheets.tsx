@@ -34,6 +34,7 @@ interface EmployeeWorkday {
   clockOut: Date | null;
   totalWorkedMinutes: number;
   totalBreakMinutes: number;
+  forcedUnpaidBreakMinutes: number;
   unpaidBreakMinutes: number;
   netWorkedMinutes: number;
   hasUnfinishedBreak: boolean;
@@ -44,7 +45,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
   const sorted = [...dayEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   const workdays: EmployeeWorkday[] = [];
-  let currentWorkday: Partial<EmployeeWorkday> & { lastClockIn: Date | null; lastBreakStart: Date | null; onBreak: boolean; hasUnfinishedBreak: boolean } | null = null;
+  let currentWorkday: Partial<EmployeeWorkday> & { lastClockIn: Date | null; lastBreakStart: Date | null; onBreak: boolean; hasUnfinishedBreak: boolean; currentBreakIsUnpaid: boolean } | null = null;
 
   for (let i = 0; i < sorted.length; i++) {
     const entry = sorted[i];
@@ -65,11 +66,13 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
         clockOut: null,
         totalWorkedMinutes: 0,
         totalBreakMinutes: 0,
+        forcedUnpaidBreakMinutes: 0,
         hasUnfinishedBreak: false,
         status: "working",
         lastClockIn: ts,
         lastBreakStart: null,
-        onBreak: false
+        onBreak: false,
+        currentBreakIsUnpaid: false,
       };
     }
 
@@ -112,6 +115,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
         currentWorkday.lastBreakStart = ts;
         currentWorkday.onBreak = true;
         currentWorkday.status = "on-break";
+        currentWorkday.currentBreakIsUnpaid = entry.isUnpaid ?? false;
         if (currentWorkday.lastClockIn) {
           currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastClockIn);
           currentWorkday.lastClockIn = null;
@@ -121,8 +125,13 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
         currentWorkday.onBreak = false;
         currentWorkday.status = "working";
         if (currentWorkday.lastBreakStart) {
-          currentWorkday.totalBreakMinutes! += differenceInMinutes(ts, currentWorkday.lastBreakStart);
+          const breakDuration = differenceInMinutes(ts, currentWorkday.lastBreakStart);
+          currentWorkday.totalBreakMinutes! += breakDuration;
+          if (currentWorkday.currentBreakIsUnpaid) {
+            currentWorkday.forcedUnpaidBreakMinutes! += breakDuration;
+          }
           currentWorkday.lastBreakStart = null;
+          currentWorkday.currentBreakIsUnpaid = false;
         }
         currentWorkday.lastClockIn = ts;
         break;
@@ -155,6 +164,7 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
     clockOut: null,
     totalWorkedMinutes: 0,
     totalBreakMinutes: 0,
+    forcedUnpaidBreakMinutes: 0,
     unpaidBreakMinutes: 0,
     netWorkedMinutes: 0,
     hasUnfinishedBreak: false,
@@ -163,10 +173,13 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
 }
 
 function finalizeWorkday(emp: Employee, wd: any, paidBreakMinutes?: number | null): EmployeeWorkday {
-  const unpaidBreakMinutes = (paidBreakMinutes != null && paidBreakMinutes >= 0)
-    ? Math.max(0, wd.totalBreakMinutes - paidBreakMinutes)
+  const forcedUnpaid = wd.forcedUnpaidBreakMinutes ?? 0;
+  const regularBreakMinutes = (wd.totalBreakMinutes ?? 0) - forcedUnpaid;
+  const policyUnpaid = (paidBreakMinutes != null && paidBreakMinutes >= 0)
+    ? Math.max(0, regularBreakMinutes - paidBreakMinutes)
     : 0;
-  const netWorkedMinutes = Math.max(0, wd.totalWorkedMinutes - unpaidBreakMinutes);
+  const unpaidBreakMinutes = forcedUnpaid + policyUnpaid;
+  const netWorkedMinutes = Math.max(0, (wd.totalWorkedMinutes ?? 0) - unpaidBreakMinutes);
   
   return {
     employee: emp,
@@ -174,6 +187,7 @@ function finalizeWorkday(emp: Employee, wd: any, paidBreakMinutes?: number | nul
     clockIn: wd.clockIn,
     clockOut: wd.clockOut,
     totalWorkedMinutes: wd.totalWorkedMinutes,
+    forcedUnpaidBreakMinutes: forcedUnpaid,
     totalBreakMinutes: wd.totalBreakMinutes,
     unpaidBreakMinutes,
     netWorkedMinutes,
@@ -529,7 +543,8 @@ export default function Timesheets() {
       clockOutEntryId: number; employeeId: number; clockOutDate: string; clockOutTimestamp: string; gapOption: "break" | "unpaid-break" | "worked";
     }) => {
       if (gapOption === "break" || gapOption === "unpaid-break") {
-        await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-start", date: clockOutDate, timestamp: clockOutTimestamp });
+        const isUnpaid = gapOption === "unpaid-break";
+        await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-start", date: clockOutDate, timestamp: clockOutTimestamp, isUnpaid });
         const nowIso = new Date().toISOString();
         await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-end", date: clockOutDate, timestamp: nowIso });
       }
@@ -1638,64 +1653,82 @@ export default function Timesheets() {
                 })()}
 
                 {(() => {
-                  const breakStart = dayEntries.find(e => e.type === "break-start");
-                  const breakEnd = dayEntries.find(e => e.type === "break-end");
-                  if (!breakStart && !breakEnd) return null;
-                  const dateStr = dayEntries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
+                  const dateStr = dayEntries.find(e => e.type === "clock-in")?.date as string || format(activeDay, "yyyy-MM-dd");
+                  const sortedEntries = [...dayEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                  const breakPairs: { start: TimeEntry; end: TimeEntry | null }[] = [];
+                  let pendingStart: TimeEntry | null = null;
+                  for (const e of sortedEntries) {
+                    if (e.type === "break-start") { pendingStart = e; }
+                    else if (e.type === "break-end" && pendingStart) { breakPairs.push({ start: pendingStart, end: e }); pendingStart = null; }
+                  }
+                  if (pendingStart) breakPairs.push({ start: pendingStart, end: null });
+                  if (breakPairs.length === 0) return null;
                   return (
-                    <div className="rounded-md border p-3 text-sm">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Break Time</span>
-                        <div className="flex items-center gap-1">
-                          {breakStart && !breakEnd && (
-                            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium mr-1" data-testid="status-unfinished-break">Unfinished</span>
-                          )}
-                          <Button variant="ghost" size="icon" className="h-6 w-6"
-                            onClick={() => {
-                              setEditingBreak({ start: breakStart || null, end: breakEnd || null });
-                              setEditBreakStart(breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "");
-                              setEditBreakEnd(breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm") : "");
-                            }}
-                            data-testid="button-edit-break-time"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive"
-                            onClick={() => {
-                              if (confirm("Are you sure you want to delete this entire break session?")) {
-                                if (breakStart) deleteEntryMutation.mutate(breakStart.id);
-                                if (breakEnd) deleteEntryMutation.mutate(breakEnd.id);
-                                setSelectedWorkday(null);
-                                toast({ title: "Success", description: "Break deleted" });
-                              }
-                            }}
-                            data-testid="button-delete-break-time"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                          {!breakEnd && (
-                            <Button variant="outline" size="sm" className="h-6 text-xs px-2"
-                              onClick={() => openClock(format(new Date(), "HH:mm"), (v) => {
-                                addEntryMutation.mutate({ employeeId: emp.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${v}:00`).toISOString() });
-                              })}
-                              data-testid="button-add-break-end"
-                            >
-                              <Plus className="w-3 h-3 mr-1" /> Add End Break
-                            </Button>
-                          )}
+                    <div className="space-y-2">
+                      {breakPairs.map((bp, idx) => (
+                        <div key={bp.start.id} className="rounded-md border p-3 text-sm">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Break {breakPairs.length > 1 ? idx + 1 : ""}</span>
+                              {bp.start && !bp.end && (
+                                <span className="text-[10px] bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium" data-testid={`status-unfinished-break-${idx}`}>Unfinished</span>
+                              )}
+                              <button
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-medium border transition-colors ${bp.start.isUnpaid ? "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800" : "bg-muted text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 hover:border-red-200"}`}
+                                title={bp.start.isUnpaid ? "Marked as unpaid — click to toggle" : "Mark as unpaid break"}
+                                onClick={() => apiRequest("PATCH", `/api/steepin/entries/${bp.start.id}`, { isUnpaid: !bp.start.isUnpaid }).then(() => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }))}
+                                data-testid={`button-toggle-unpaid-${idx}`}
+                              >
+                                {bp.start.isUnpaid ? "Unpaid" : "Paid"}
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button variant="ghost" size="icon" className="h-6 w-6"
+                                onClick={() => {
+                                  setEditingBreak({ start: bp.start, end: bp.end });
+                                  setEditBreakStart(format(new Date(bp.start.timestamp), "HH:mm"));
+                                  setEditBreakEnd(bp.end ? format(new Date(bp.end.timestamp), "HH:mm") : "");
+                                }}
+                                data-testid={`button-edit-break-${idx}`}
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive"
+                                onClick={() => {
+                                  if (confirm("Delete this break?")) {
+                                    deleteEntryMutation.mutate(bp.start.id);
+                                    if (bp.end) deleteEntryMutation.mutate(bp.end.id);
+                                  }
+                                }}
+                                data-testid={`button-delete-break-${idx}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                              {!bp.end && (
+                                <Button variant="outline" size="sm" className="h-6 text-xs px-2"
+                                  onClick={() => openClock(format(new Date(), "HH:mm"), (v) => {
+                                    addEntryMutation.mutate({ employeeId: emp.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${v}:00`).toISOString() });
+                                  })}
+                                  data-testid={`button-add-break-end-${idx}`}
+                                >
+                                  <Plus className="w-3 h-3 mr-1" /> Add End
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-0.5">Start</div>
+                              <div className="font-medium font-mono">{format(new Date(bp.start.timestamp), "HH:mm")}</div>
+                            </div>
+                            <div className="text-muted-foreground mt-3">→</div>
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-0.5">End</div>
+                              <div className="font-medium font-mono">{bp.end ? format(new Date(bp.end.timestamp), "HH:mm") : "—"}</div>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-0.5">Start</div>
-                          <div className="font-medium font-mono">{breakStart ? format(new Date(breakStart.timestamp), "HH:mm") : "—"}</div>
-                        </div>
-                        <div className="text-muted-foreground mt-3">→</div>
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-0.5">End</div>
-                          <div className="font-medium font-mono">{breakEnd ? format(new Date(breakEnd.timestamp), "HH:mm") : "—"}</div>
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   );
                 })()}

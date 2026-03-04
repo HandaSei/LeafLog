@@ -431,17 +431,20 @@ export async function registerRoutes(
     if (req.body.role !== undefined) {
       updateData.role = req.body.role;
     }
+    if (req.body.isUnpaid !== undefined) {
+      updateData.isUnpaid = Boolean(req.body.isUnpaid);
+    }
     const entry = await storage.updateTimeEntry(id, updateData);
     if (!entry) return res.status(404).json({ message: "Entry not found" });
     res.json(entry);
   });
 
   router.post("/api/steepin/entries", requireRole("admin", "manager"), async (req, res) => {
-    const { employeeId, type, date, timestamp, role } = req.body;
+    const { employeeId, type, date, timestamp, role, isUnpaid } = req.body;
     if (!employeeId || !type || !date) {
       return res.status(400).json({ message: "Employee ID, type, and date are required" });
     }
-    const entry = await storage.createTimeEntryManual(Number(employeeId), type, date, timestamp ? new Date(timestamp) : new Date(), role || null);
+    const entry = await storage.createTimeEntryManual(Number(employeeId), type, date, timestamp ? new Date(timestamp) : new Date(), role || null, null, isUnpaid === true);
     res.status(201).json(entry);
   });
 

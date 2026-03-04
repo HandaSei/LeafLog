@@ -81,6 +81,7 @@ export const timeEntries = pgTable("time_entries", {
   date: date("entry_date").notNull(),
   role: text("role"),
   notes: text("notes"),
+  isUnpaid: boolean("is_unpaid").notNull().default(false),
 });
 
 export const approvalRequests = pgTable("approval_requests", {
