@@ -1681,11 +1681,6 @@ export default function Timesheets() {
                       return last;
                     }, null);
                   if (!lastCompleted || lastCompleted.clockIn?.getTime() !== clockIn?.getTime()) return null;
-
-                  const diffMs = new Date().getTime() - new Date(clockOutEntry.timestamp).getTime();
-                  const diffMins = Math.floor(diffMs / 60000);
-                  const isLongAgo = diffMins > 10;
-
                   return (
                     <div className="flex justify-end">
                       <Button
@@ -1693,88 +1688,12 @@ export default function Timesheets() {
                         size="sm"
                         className="h-7 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
                         onClick={() => {
-                          if (isLongAgo) {
-                            setShiftWarning({
-                              title: "Reopen Timesheet",
-                              description: `This shift was closed ${diffMins} minutes ago. How would you like to treat the time between then and now?`,
-                              actions: [
-                                {
-                                  label: "Add as Regular Break",
-                                  onClick: () => {
-                                    const now = new Date().toISOString();
-                                    // Add break start at old clock out, break end now
-                                    addEntryMutation.mutate({
-                                      employeeId: emp.id,
-                                      type: "break-start",
-                                      date: format(new Date(clockOutEntry.timestamp), "yyyy-MM-dd"),
-                                      timestamp: clockOutEntry.timestamp
-                                    }, {
-                                      onSuccess: () => {
-                                        addEntryMutation.mutate({
-                                          employeeId: emp.id,
-                                          type: "break-end",
-                                          date: format(new Date(), "yyyy-MM-dd"),
-                                          timestamp: now
-                                        }, {
-                                          onSuccess: () => {
-                                            deleteEntryMutation.mutate(clockOutEntry.id);
-                                            setShiftWarning(null);
-                                          }
-                                        });
-                                      }
-                                    });
-                                  }
-                                },
-                                {
-                                  label: "Add as Unpaid Break",
-                                  onClick: () => {
-                                    const now = new Date().toISOString();
-                                    // Add break start at old clock out, break end now with notes
-                                    addEntryMutation.mutate({
-                                      employeeId: emp.id,
-                                      type: "break-start",
-                                      date: format(new Date(clockOutEntry.timestamp), "yyyy-MM-dd"),
-                                      timestamp: clockOutEntry.timestamp,
-                                      notes: "Unpaid gap"
-                                    }, {
-                                      onSuccess: () => {
-                                        addEntryMutation.mutate({
-                                          employeeId: emp.id,
-                                          type: "break-end",
-                                          date: format(new Date(), "yyyy-MM-dd"),
-                                          timestamp: now
-                                        }, {
-                                          onSuccess: () => {
-                                            deleteEntryMutation.mutate(clockOutEntry.id);
-                                            setShiftWarning(null);
-                                          }
-                                        });
-                                      }
-                                    });
-                                  }
-                                },
-                                {
-                                  label: "Continue Working (Paid)",
-                                  onClick: () => {
-                                    deleteEntryMutation.mutate(clockOutEntry.id);
-                                    setShiftWarning(null);
-                                  }
-                                },
-                                {
-                                  label: "Cancel",
-                                  variant: "outline",
-                                  onClick: () => setShiftWarning(null)
-                                }
-                              ]
-                            });
-                          } else {
-                            deleteEntryMutation.mutate(clockOutEntry.id);
-                          }
+                          deleteEntryMutation.mutate(clockOutEntry.id);
                         }}
                         disabled={deleteEntryMutation.isPending}
-                        data-testid="button-reopen-timesheet"
+                        data-testid="button-remove-clock-out"
                       >
-                        <Trash2 className="w-3 h-3 mr-1" /> Reopen Timesheet
+                        <Trash2 className="w-3 h-3 mr-1" /> Remove Clock Out
                       </Button>
                     </div>
                   );
