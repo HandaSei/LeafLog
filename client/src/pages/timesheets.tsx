@@ -83,11 +83,25 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidB
           currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastClockIn);
           currentWorkday.lastClockIn = null;
         } else if (currentWorkday.lastBreakStart) {
-          // Break was never ended — mark as unfinished and don't count as break time.
-          // We also don't count the gap from break-start to clock-out as worked time.
-          currentWorkday.hasUnfinishedBreak = true;
-          currentWorkday.lastBreakStart = null;
-          currentWorkday.onBreak = false;
+          // Break is open at clock-out time. Check if a break-end exists later in the
+          // sorted entries (before the next clock-in). This happens when "Reopen Shift"
+          // inserts a break-end with a timestamp after the user's re-added clock-out.
+          let hasOutOfOrderBreakEnd = false;
+          for (let j = i + 1; j < sorted.length; j++) {
+            if (sorted[j].type === "clock-in") break;
+            if (sorted[j].type === "break-end") { hasOutOfOrderBreakEnd = true; break; }
+          }
+          if (hasOutOfOrderBreakEnd) {
+            // Treat the break as ending at clock-out; count break time normally.
+            currentWorkday.totalBreakMinutes! += differenceInMinutes(ts, currentWorkday.lastBreakStart);
+            currentWorkday.lastBreakStart = null;
+            currentWorkday.onBreak = false;
+          } else {
+            // Genuine unfinished break — don't count the gap as worked or break time.
+            currentWorkday.hasUnfinishedBreak = true;
+            currentWorkday.lastBreakStart = null;
+            currentWorkday.onBreak = false;
+          }
         }
         currentWorkday.status = "completed";
         const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
