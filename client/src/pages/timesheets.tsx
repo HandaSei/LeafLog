@@ -1672,7 +1672,7 @@ export default function Timesheets() {
                   // Only show for the last completed session AND only if the employee has no open session
                   const allEmpEntries = entries.filter(e => e.employeeId === emp.id);
                   const allSessions = processEntriesForEmployee(emp, allEmpEntries, paidBreakMinutes);
-                  const hasOpenSession = allSessions.some(s => s.status === "in-progress");
+                  const hasOpenSession = allSessions.some(s => s.status === "working" || s.status === "on-break");
                   if (hasOpenSession) return null;
                   const lastCompleted = allSessions
                     .filter(s => s.status === "completed" && s.clockOut)
