@@ -1845,11 +1845,12 @@ export default function Timesheets() {
                           size="sm" 
                           className="flex-1 h-8"
                           disabled={deleteTimesheetMutation.isPending}
-                          onClick={() => deleteTimesheetMutation.mutate({ 
-                            employeeId: emp.id, 
-                            date: dayEntries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd"),
-                            entries: dayEntries
-                          })}
+                          onClick={() => {
+                            const date = dayEntries.find(e => e.type === "clock-in")?.date as string || format(activeDay, "yyyy-MM-dd");
+                            const rawForDate = entries.filter(e => e.employeeId === emp.id && (typeof e.date === "string" ? e.date.substring(0, 10) : format(new Date(e.date as string), "yyyy-MM-dd")) === date.substring(0, 10));
+                            const allToDelete = [...new Map([...dayEntries, ...rawForDate].map(e => [e.id, e])).values()];
+                            deleteTimesheetMutation.mutate({ employeeId: emp.id, date, entries: allToDelete });
+                          }}
                           data-testid="button-delete-timesheet-confirm"
                         >
                           {deleteTimesheetMutation.isPending ? "Deleting..." : "Confirm Delete"}
