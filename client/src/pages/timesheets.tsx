@@ -517,8 +517,7 @@ export default function Timesheets() {
       if (gapOption === "break" || gapOption === "unpaid-break") {
         await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-start", date: clockOutDate, timestamp: clockOutTimestamp });
         const nowIso = new Date().toISOString();
-        const nowDate = format(new Date(), "yyyy-MM-dd");
-        await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-end", date: nowDate, timestamp: nowIso });
+        await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-end", date: clockOutDate, timestamp: nowIso });
       }
       await apiRequest("DELETE", `/api/steepin/entries/${clockOutEntryId}`);
     },
