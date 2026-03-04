@@ -1678,6 +1678,8 @@ export default function Timesheets() {
                       if (!last || s.clockOut! > last.clockOut!) return s;
                       return last;
                     }, null);
+                  const hasOpenSession = allSessions.some(s => s.status === "active" || s.status === "on-break");
+                  if (hasOpenSession) return null;
                   if (!lastCompleted || lastCompleted.clockIn?.getTime() !== clockIn?.getTime()) return null;
                   return (
                     <div className="flex justify-end">
