@@ -1669,6 +1669,15 @@ export default function Timesheets() {
                 {clockOut && (() => {
                   const clockOutEntry = dayEntries.filter(e => e.type === "clock-out").pop();
                   if (!clockOutEntry) return null;
+                  // Only show for the most recent clock-out across ALL of this employee's entries
+                  const allEmpEntries = entries.filter(e => e.employeeId === emp.id);
+                  const latestClockOut = allEmpEntries
+                    .filter(e => e.type === "clock-out")
+                    .reduce<Date | null>((max, e) => {
+                      const ts = new Date(e.timestamp);
+                      return !max || ts > max ? ts : max;
+                    }, null);
+                  if (!latestClockOut || new Date(clockOutEntry.timestamp).getTime() !== latestClockOut.getTime()) return null;
                   return (
                     <div className="flex justify-end">
                       <Button
