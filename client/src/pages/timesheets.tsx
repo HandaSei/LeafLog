@@ -1262,11 +1262,12 @@ export default function Timesheets() {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 gap-1.5 text-xs"
+              className="h-8 gap-1.5 text-xs relative"
               onClick={() => setCsvImporterOpen(true)}
               data-testid="button-import-csv"
             >
               <FileUp className="w-3.5 h-3.5" /> Import CSV
+              <span className="ml-1 text-[9px] font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 rounded px-1 py-0.5 leading-none">Experimental</span>
             </Button>
           </div>
 

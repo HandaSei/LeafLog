@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { format, parse, isValid, addDays, parseISO } from "date-fns";
-import { Upload, FileText, ChevronRight, ChevronLeft, Check, Users, Settings2 } from "lucide-react";
+import { Upload, FileText, ChevronRight, ChevronLeft, Check, Users, Settings2, ShieldCheck, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -414,6 +414,7 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="w-4 h-4" /> Import Timesheets from CSV
+            <span className="text-[9px] font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 rounded px-1.5 py-0.5 leading-none flex items-center gap-1"><FlaskConical className="w-2.5 h-2.5" /> Experimental</span>
           </DialogTitle>
         </DialogHeader>
 
@@ -528,6 +529,11 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
                   </button>
                 </div>
               )}
+
+              <div className="flex items-center gap-2 rounded-md bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs text-blue-700 dark:text-blue-400">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>A backup of your timesheet data will be created automatically before import. You can restore it from <strong>Settings → Backups</strong>.</span>
+              </div>
 
               <div className="flex gap-3 flex-wrap">
                 <div className="flex items-center gap-1.5 text-sm">

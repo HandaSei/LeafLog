@@ -3,12 +3,12 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
   employees, shifts, accounts, accessCodes, timeEntries, customRoles, feedback, emailVerifications,
-  approvalRequests, notifications,
+  approvalRequests, notifications, timesheetBackups,
   type Employee, type InsertEmployee,
   type Shift, type InsertShift,
   type Account, type InsertAccount,
   type AccessCode, type TimeEntry, type CustomRole, type Feedback, type EmailVerification,
-  type ApprovalRequest, type Notification,
+  type ApprovalRequest, type Notification, type TimesheetBackup,
 } from "@shared/schema";
 
 let connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
@@ -114,6 +114,11 @@ export interface IStorage {
 
   getNotificationSettings(accountId: number): Promise<{ notifyLate: boolean; notifyEarlyClockOut: boolean; notifyNotes: boolean; notifyApprovals: boolean; lateThresholdMinutes: number; earlyClockOutThresholdMinutes: number }>;
   updateNotificationSettings(accountId: number, settings: { notifyLate?: boolean; notifyEarlyClockOut?: boolean; notifyNotes?: boolean; notifyApprovals?: boolean; lateThresholdMinutes?: number; earlyClockOutThresholdMinutes?: number }): Promise<void>;
+
+  createTimesheetBackup(ownerAccountId: number, label: string): Promise<TimesheetBackup>;
+  getTimesheetBackups(ownerAccountId: number): Promise<Omit<TimesheetBackup, "snapshot">[]>;
+  restoreTimesheetBackup(id: number, ownerAccountId: number): Promise<number>;
+  deleteTimesheetBackup(id: number, ownerAccountId: number): Promise<void>;
 
   getLastClockOutForEmployee(employeeId: number): Promise<TimeEntry | null>;
 }
@@ -704,6 +709,66 @@ export class DatabaseStorage implements IStorage {
     if (res.rows.length === 0) return null;
     const r = res.rows[0];
     return { id: r.id, employeeId: r.employee_id, type: r.type, timestamp: r.timestamp, date: r.entry_date, role: r.role ?? null, notes: r.notes ?? null };
+  }
+
+  async createTimesheetBackup(ownerAccountId: number, label: string): Promise<TimesheetBackup> {
+    const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
+    let entries: any[] = [];
+    if (empIds.length > 0) {
+      const res = await pool.query(
+        "SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid FROM time_entries WHERE employee_id = ANY($1) ORDER BY timestamp ASC",
+        [empIds]
+      );
+      entries = res.rows;
+    }
+    const snapshot = JSON.stringify(entries);
+    const result = await pool.query(
+      "INSERT INTO timesheet_backups (owner_account_id, label, entry_count, snapshot) VALUES ($1, $2, $3, $4) RETURNING *",
+      [ownerAccountId, label, entries.length, snapshot]
+    );
+    const row = result.rows[0];
+    await pool.query(
+      "DELETE FROM timesheet_backups WHERE owner_account_id = $1 AND id NOT IN (SELECT id FROM timesheet_backups WHERE owner_account_id = $1 ORDER BY created_at DESC LIMIT 10)",
+      [ownerAccountId]
+    );
+    return { id: row.id, ownerAccountId: row.owner_account_id, label: row.label, entryCount: row.entry_count, snapshot: row.snapshot, createdAt: row.created_at };
+  }
+
+  async getTimesheetBackups(ownerAccountId: number): Promise<Omit<TimesheetBackup, "snapshot">[]> {
+    const res = await pool.query(
+      "SELECT id, owner_account_id, label, entry_count, created_at FROM timesheet_backups WHERE owner_account_id = $1 ORDER BY created_at DESC",
+      [ownerAccountId]
+    );
+    return res.rows.map(r => ({ id: r.id, ownerAccountId: r.owner_account_id, label: r.label, entryCount: r.entry_count, createdAt: r.created_at }));
+  }
+
+  async restoreTimesheetBackup(id: number, ownerAccountId: number): Promise<number> {
+    const res = await pool.query(
+      "SELECT snapshot, entry_count FROM timesheet_backups WHERE id = $1 AND owner_account_id = $2",
+      [id, ownerAccountId]
+    );
+    if (res.rows.length === 0) throw new Error("Backup not found");
+    const entries: any[] = JSON.parse(res.rows[0].snapshot);
+    const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
+    if (empIds.length > 0) {
+      await pool.query("DELETE FROM time_entries WHERE employee_id = ANY($1)", [empIds]);
+    }
+    if (entries.length > 0) {
+      const values = entries.map((_, i) => {
+        const base = i * 7;
+        return `($${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}, $${base+6}, $${base+7})`;
+      }).join(", ");
+      const params = entries.flatMap(e => [e.employee_id, e.type, e.timestamp, e.entry_date, e.role ?? null, e.notes ?? null, e.is_unpaid ?? false]);
+      await pool.query(
+        `INSERT INTO time_entries (employee_id, type, timestamp, entry_date, role, notes, is_unpaid) VALUES ${values}`,
+        params
+      );
+    }
+    return entries.length;
+  }
+
+  async deleteTimesheetBackup(id: number, ownerAccountId: number): Promise<void> {
+    await pool.query("DELETE FROM timesheet_backups WHERE id = $1 AND owner_account_id = $2", [id, ownerAccountId]);
   }
 }
 

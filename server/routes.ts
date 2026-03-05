@@ -494,6 +494,11 @@ export async function registerRoutes(
       return time < clockIn ? format(addDays(parseISO(shiftDate), 1), "yyyy-MM-dd") : shiftDate;
     };
 
+    // Auto-backup before import so users can restore if needed
+    try {
+      await storage.createTimesheetBackup(ownerAccountId, "Before CSV Import");
+    } catch (_) {}
+
     const existingEmployees = await storage.getEmployees(ownerAccountId);
     const empByName = new Map<string, number>();
     existingEmployees.forEach(e => empByName.set(e.name.toLowerCase(), e.id));
@@ -566,6 +571,47 @@ export async function registerRoutes(
     }
 
     res.json({ created, skipped, newEmployees: newEmployeeNames });
+  });
+
+  // === TIMESHEET BACKUPS ===
+  router.get("/api/backups", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const backups = await storage.getTimesheetBackups(req.session.userId!);
+      res.json(backups);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  router.post("/api/backups", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const backup = await storage.createTimesheetBackup(req.session.userId!, "Manual backup");
+      res.json({ id: backup.id, label: backup.label, entryCount: backup.entryCount, createdAt: backup.createdAt });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  router.post("/api/backups/:id/restore", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid backup id" });
+      const restored = await storage.restoreTimesheetBackup(id, req.session.userId!);
+      res.json({ restored });
+    } catch (err: any) {
+      res.status(err.message === "Backup not found" ? 404 : 500).json({ message: err.message });
+    }
+  });
+
+  router.delete("/api/backups/:id", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid backup id" });
+      await storage.deleteTimesheetBackup(id, req.session.userId!);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // === CUSTOM ROLES ===

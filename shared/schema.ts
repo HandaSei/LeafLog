@@ -197,6 +197,17 @@ export const registerAccountSchema = z.object({
   path: ["confirmPassword"],
 });
 
+export const timesheetBackups = pgTable("timesheet_backups", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  ownerAccountId: integer("owner_account_id").notNull(),
+  label: text("label").notNull(),
+  entryCount: integer("entry_count").notNull().default(0),
+  snapshot: text("snapshot").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type TimesheetBackup = typeof timesheetBackups.$inferSelect;
+
 export const feedback = pgTable("feedback", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   accountId: integer("account_id").notNull(),

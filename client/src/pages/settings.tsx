@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import type { CustomRole } from "@shared/schema";
+import type { CustomRole, TimesheetBackup } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings2, Plus, Pencil, Trash2, Check, X, Palette, Coffee, Save, TriangleAlert, ChevronDown, ChevronRight, User, Bell } from "lucide-react";
+import { Settings2, Plus, Pencil, Trash2, Check, X, Palette, Coffee, Save, TriangleAlert, ChevronDown, ChevronRight, User, Bell, Database, RotateCcw, ShieldCheck } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
@@ -51,6 +51,7 @@ export default function SettingsPage() {
   const [paidBreakInput, setPaidBreakInput] = useState<string>("");
   const [maxBreakInput, setMaxBreakInput] = useState<string>("");
   const [showDangerZone, setShowDangerZone] = useState(false);
+  const [confirmRestoreId, setConfirmRestoreId] = useState<number | null>(null);
   const [notifSettings, setNotifSettings] = useState<{
     notifyLate: boolean;
     notifyEarlyClockOut: boolean;
@@ -71,6 +72,51 @@ export default function SettingsPage() {
       if (maxBreakInput === "" && data.maxBreakMinutes !== null) setMaxBreakInput(String(data.maxBreakMinutes));
       return data;
     },
+  });
+
+  const { data: backups = [], isLoading: backupsLoading } = useQuery<Omit<TimesheetBackup, "snapshot">[]>({
+    queryKey: ["/api/backups"],
+  });
+
+  const createBackupMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/backups");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/backups"] });
+      toast({ title: "Backup created", description: "Your timesheet data has been backed up." });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const restoreBackupMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/backups/${id}/restore`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/backups"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/timesheets"] });
+      setConfirmRestoreId(null);
+      toast({ title: "Backup restored", description: `${data.restored} time entries have been restored.` });
+    },
+    onError: (err: Error) => {
+      setConfirmRestoreId(null);
+      toast({ title: "Restore failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteBackupMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/backups/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/backups"] });
+      toast({ title: "Backup deleted" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const { isLoading: notifLoading } = useQuery<any>({
@@ -425,6 +471,84 @@ export default function SettingsPage() {
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-emerald-600" />
+                  <div>
+                    <CardTitle className="text-base">Timesheet Backups</CardTitle>
+                    <CardDescription className="text-xs mt-0.5">
+                      Restore your timesheet data to a previous state. Backups are created automatically before each CSV import.
+                    </CardDescription>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => createBackupMutation.mutate()}
+                  disabled={createBackupMutation.isPending}
+                  data-testid="button-create-backup"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />
+                  {createBackupMutation.isPending ? "Saving…" : "Back up now"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {backupsLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : backups.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground text-sm">
+                  No backups yet. Create one manually or import a CSV.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {backups.map((backup) => (
+                    <div
+                      key={backup.id}
+                      className="flex items-center gap-2 p-2.5 rounded-lg border bg-muted/30"
+                      data-testid={`backup-item-${backup.id}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{backup.label}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {new Date(backup.createdAt!).toLocaleString()} &middot; {backup.entryCount} entries
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs gap-1"
+                        onClick={() => setConfirmRestoreId(backup.id)}
+                        disabled={restoreBackupMutation.isPending}
+                        data-testid={`button-restore-backup-${backup.id}`}
+                      >
+                        <RotateCcw className="w-3 h-3" /> Restore
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => deleteBackupMutation.mutate(backup.id)}
+                        disabled={deleteBackupMutation.isPending}
+                        data-testid={`button-delete-backup-${backup.id}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                  {backups.length >= 10 && (
+                    <p className="text-[11px] text-muted-foreground text-center pt-1">Showing the 10 most recent backups</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base">Employee Roles</CardTitle>
                   <CardDescription className="text-xs mt-0.5">
@@ -698,6 +822,27 @@ export default function SettingsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!confirmRestoreId} onOpenChange={(open) => !open && setConfirmRestoreId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore this backup?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will replace <strong>all current timesheet data</strong> with the entries from this backup. This action cannot be undone — consider creating a fresh backup first if needed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => confirmRestoreId && restoreBackupMutation.mutate(confirmRestoreId)}
+              disabled={restoreBackupMutation.isPending}
+              data-testid="button-confirm-restore"
+            >
+              {restoreBackupMutation.isPending ? "Restoring…" : "Yes, restore"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteAccountStep === "confirm"} onOpenChange={(open) => !open && closeDeleteFlow()}>
         <AlertDialogContent>
