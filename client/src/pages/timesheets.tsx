@@ -318,33 +318,49 @@ async function exportPDF(
     totalLateMinutes: number;
     totalDiffMinutes: number;
     scheduledDays: number;
+    netHoursDisplay: number;
   };
   const summaries: EmpSummary[] = [];
 
-  selectedEmps.forEach((emp, empIndex) => {
-    if (empIndex > 0) doc.addPage("a4", "landscape");
+  const pageWidth = doc.internal.pageSize.width;
 
+  const drawEmpHeader = (empName: string, hasPaidBreakNote: boolean) => {
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(40, 40, 40);
     doc.text("Timesheet Report", 14, 16);
-
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(80, 80, 80);
     doc.text(rangeLabel, 14, 23);
-
-    if (paidBreakMinutes != null && paidBreakMinutes > 0) {
+    if (hasPaidBreakNote) {
       doc.setFontSize(8);
       doc.setTextColor(140, 110, 40);
       doc.text(`Break policy: ${paidBreakMinutes} min paid break — excess deducted from worked hours.`, 14, 29);
     }
-
     doc.setFontSize(13);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(40, 40, 40);
+    doc.text(empName, 14, hasPaidBreakNote ? 36 : 31);
+  };
+
+  const drawContinuationHeader = (empName: string) => {
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(120, 120, 120);
+    doc.text("Timesheet Report  ·  " + rangeLabel, 14, 12);
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(40, 40, 40);
+    doc.text(empName + "  —  continued", 14, 20);
+  };
+
+  selectedEmps.forEach((emp, empIndex) => {
+    if (empIndex > 0) doc.addPage("a4", "landscape");
+
+    const hasPaidBreakNote = paidBreakMinutes != null && paidBreakMinutes > 0;
     const empLabel = `${emp.name}${emp.role && emp.role !== "No Role" ? `  ·  ${emp.role}` : ""}`;
-    doc.text(empLabel, 14, paidBreakMinutes != null && paidBreakMinutes > 0 ? 36 : 31);
+    drawEmpHeader(empLabel, hasPaidBreakNote);
 
     const empWorkdaysByDate: { date: Date; sessions: EmployeeWorkday[] }[] = [];
     grouped.forEach(({ date, workdays }) => {
@@ -352,8 +368,9 @@ async function exportPDF(
       if (sessions.length > 0) empWorkdaysByDate.push({ date, sessions });
     });
 
-    let empNetMinutes = 0;
-    let empUnpaidMinutes = 0;
+    // Accumulate 2dp-rounded hour values so totals match what's visible in each row
+    let empNetHoursDisplay = 0;
+    let empUnpaidHoursDisplay = 0;
     let empLateMinutes = 0;
     let empDiffMinutes = 0;
     let empScheduledDays = 0;
@@ -366,9 +383,10 @@ async function exportPDF(
 
       const dayNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
       const dayUnpaid = sessions.reduce((s, w) => s + w.unpaidBreakMinutes, 0);
-      const dayBreak = sessions.reduce((s, w) => s + w.totalBreakMinutes, 0);
-      empNetMinutes += dayNet;
-      empUnpaidMinutes += dayUnpaid;
+      const dayNetDisplay = parseFloat(formatHoursDecimal(dayNet));
+      const dayUnpaidDisplay = parseFloat(formatHoursDecimal(dayUnpaid));
+      empNetHoursDisplay += dayNetDisplay;
+      empUnpaidHoursDisplay += dayUnpaidDisplay;
 
       let lateMins: number | null = null;
       let diffMins: number | null = null;
@@ -416,19 +434,17 @@ async function exportPDF(
           });
         }
 
-        if (showScheduled) {
-          if (isFirst) {
-            row.push({
-              content: lateMins != null ? (lateMins > 0 ? `+${formatMinutes(lateMins)}` : "On time") : "—",
-              rowSpan: sessions.length,
-              styles: { textColor: lateMins != null && lateMins > 0 ? RED : [60, 120, 60], halign: "center", lineWidth: { top: 0.5, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LIGHT_GREEN },
-            });
-            row.push({
-              content: diffMins != null ? (diffMins >= 0 ? `+${formatMinutes(diffMins)}` : `-${formatMinutes(Math.abs(diffMins))}`) : "—",
-              rowSpan: sessions.length,
-              styles: { textColor: diffMins != null ? (diffMins >= 0 ? [60, 120, 60] : RED) : [80, 80, 80], halign: "center", lineWidth: { top: 0.5, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LIGHT_GREEN },
-            });
-          }
+        if (showScheduled && isFirst) {
+          row.push({
+            content: lateMins != null ? (lateMins > 0 ? `+${formatMinutes(lateMins)}` : "On time") : "—",
+            rowSpan: sessions.length,
+            styles: { textColor: lateMins != null && lateMins > 0 ? RED : [60, 120, 60], halign: "center", lineWidth: { top: 0.5, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LIGHT_GREEN },
+          });
+          row.push({
+            content: diffMins != null ? (diffMins >= 0 ? `+${formatMinutes(diffMins)}` : `-${formatMinutes(Math.abs(diffMins))}`) : "—",
+            rowSpan: sessions.length,
+            styles: { textColor: diffMins != null ? (diffMins >= 0 ? [60, 120, 60] : RED) : [80, 80, 80], halign: "center", lineWidth: { top: 0.5, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LIGHT_GREEN },
+          });
         }
 
         if (isFirst) {
@@ -455,30 +471,59 @@ async function exportPDF(
       "Hours",
     ]];
 
+    const totalHoursStr = empNetHoursDisplay.toFixed(2) + " h";
     const footerCells: any[] = [
       { content: `Total: ${empWorkdaysByDate.length} shift${empWorkdaysByDate.length !== 1 ? "s" : ""}`, colSpan: 1 + (hasUnpaid ? 1 : 0) + (showScheduled ? 2 : 0) + 3, styles: { halign: "right", fontStyle: "bold" } },
-      { content: formatHoursDecimal(empNetMinutes) + " h", styles: { halign: "right", fontStyle: "bold" } },
+      { content: totalHoursStr, styles: { halign: "right", fontStyle: "bold" } },
     ];
 
+    // Track which PDF pages this employee's table spans, for sheet numbering
+    const empRenderedPages: number[] = [];
+    let empSheetCount = 0;
+
     autoTable(doc, {
-      startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 42 : 37,
+      startY: hasPaidBreakNote ? 42 : 37,
+      margin: { top: 27, right: 14, bottom: 10, left: 14 },
       head,
       body: rows,
       foot: [footerCells],
+      showFoot: "lastPage",
       headStyles: { fillColor: GREEN, textColor: 255, fontStyle: "bold", fontSize: 8.5 },
       footStyles: { fillColor: [240, 243, 240], textColor: [40, 40, 40], fontStyle: "bold", lineWidth: { top: 0.5, bottom: 0.5, left: 0.1, right: 0.1 } },
       styles: { fontSize: 9, cellPadding: 2.5, lineWidth: 0.1, lineColor: GRAY, valign: "middle" },
       tableWidth: "auto",
+      didDrawPage: () => {
+        empSheetCount++;
+        const curPage = (doc.internal as any).getCurrentPageInfo().pageNumber;
+        empRenderedPages.push(curPage);
+        if (empSheetCount > 1) {
+          drawContinuationHeader(empLabel);
+        }
+      },
     });
+
+    // Go back and stamp "Sheet X of N" on every page for this employee (only if multi-page)
+    if (empSheetCount > 1) {
+      empRenderedPages.forEach((pageNum, idx) => {
+        doc.setPage(pageNum);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(140, 140, 140);
+        doc.text(`Sheet ${idx + 1} of ${empSheetCount}`, pageWidth - 14, 12, { align: "right" });
+      });
+      // return to the last page of this employee
+      doc.setPage(empRenderedPages[empRenderedPages.length - 1]);
+    }
 
     summaries.push({
       name: emp.name,
       daysWorked: empWorkdaysByDate.length,
-      netMinutes: empNetMinutes,
-      unpaidMinutes: empUnpaidMinutes,
+      netMinutes: Math.round(empNetHoursDisplay * 60),
+      unpaidMinutes: Math.round(empUnpaidHoursDisplay * 60),
       totalLateMinutes: empLateMinutes,
       totalDiffMinutes: empDiffMinutes,
       scheduledDays: empScheduledDays,
+      netHoursDisplay: empNetHoursDisplay,
     });
   });
 
@@ -496,13 +541,13 @@ async function exportPDF(
     doc.setFontSize(8.5);
     doc.text(`${selectedEmps.length} employees  ·  ${summaries.reduce((s, e) => s + e.daysWorked, 0)} total shifts`, 14, 29);
 
-    const grandNet = summaries.reduce((s, e) => s + e.netMinutes, 0);
+    const grandHours = parseFloat(summaries.reduce((s, e) => s + e.netHoursDisplay, 0).toFixed(2));
     const grandUnpaid = summaries.reduce((s, e) => s + e.unpaidMinutes, 0);
 
     const summaryRows = summaries.map(s => [
       s.name,
       String(s.daysWorked),
-      formatHoursDecimal(s.netMinutes) + " h",
+      s.netHoursDisplay.toFixed(2) + " h",
       ...(hasUnpaid ? [s.unpaidMinutes > 0 ? `-${formatMinutes(s.unpaidMinutes)}` : "—"] : []),
       ...(showScheduled ? [
         s.scheduledDays > 0 && s.totalLateMinutes > 0 ? `+${formatMinutes(s.totalLateMinutes)}` : s.scheduledDays > 0 ? "On time" : "—",
@@ -515,7 +560,7 @@ async function exportPDF(
     const summaryFootColSpan = 2 + (hasUnpaid ? 1 : 0) + (showScheduled ? 2 : 0);
     const summaryFoot = [[
       { content: "Grand Total", colSpan: summaryFootColSpan, styles: { halign: "right", fontStyle: "bold" } },
-      { content: formatHoursDecimal(grandNet) + " h", styles: { fontStyle: "bold" } },
+      { content: grandHours.toFixed(2) + " h", styles: { fontStyle: "bold" } },
     ]];
 
     autoTable(doc, {
