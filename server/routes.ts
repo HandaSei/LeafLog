@@ -755,6 +755,20 @@ export async function registerRoutes(
     res.json(policy);
   });
 
+  router.patch("/api/employees/:id/break-policy", requireRole("admin", "manager"), async (req, res) => {
+    const employeeId = Number(req.params.id);
+    if (isNaN(employeeId)) return res.status(400).json({ message: "Invalid employee id" });
+    const parsed = breakPolicySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+    const updated = await storage.updateEmployeeBreakPolicy(
+      employeeId, req.session.userId!,
+      parsed.data.paidBreakMinutes ?? null,
+      parsed.data.maxBreakMinutes ?? null
+    );
+    if (!updated) return res.status(404).json({ message: "Employee not found" });
+    res.json(updated);
+  });
+
   // === NOTIFICATION SETTINGS ===
   router.get("/api/settings/notifications", requireAuth, async (req, res) => {
     const settings = await storage.getNotificationSettings(req.session.userId!);

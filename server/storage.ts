@@ -531,6 +531,14 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
+  async updateEmployeeBreakPolicy(employeeId: number, ownerAccountId: number, paidBreakMinutes: number | null, maxBreakMinutes: number | null): Promise<Employee | null> {
+    const res = await pool.query(
+      "UPDATE employees SET paid_break_minutes = $1, max_break_minutes = $2 WHERE id = $3 AND owner_account_id = $4 RETURNING *",
+      [paidBreakMinutes, maxBreakMinutes, employeeId, ownerAccountId]
+    );
+    return res.rows[0] ?? null;
+  }
+
   async createFeedback(accountId: number, message: string): Promise<Feedback> {
     const [entry] = await db.insert(feedback).values({ accountId, message }).returning();
     return entry;

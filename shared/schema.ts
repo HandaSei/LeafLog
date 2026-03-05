@@ -49,6 +49,8 @@ export const employees = pgTable("employees", {
   accountId: integer("account_id"),
   ownerAccountId: integer("owner_account_id"),
   accessCode: text("access_code").notNull().default("0000"),
+  paidBreakMinutes: integer("paid_break_minutes"),
+  maxBreakMinutes: integer("max_break_minutes"),
 });
 
 export const shifts = pgTable("shifts", {

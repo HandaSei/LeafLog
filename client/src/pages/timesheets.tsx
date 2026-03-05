@@ -43,7 +43,8 @@ interface EmployeeWorkday {
   status: "working" | "on-break" | "completed" | "incomplete";
 }
 
-function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], paidBreakMinutes?: number | null): EmployeeWorkday[] {
+function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], accountPaidBreakMinutes?: number | null): EmployeeWorkday[] {
+  const paidBreakMinutes = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : accountPaidBreakMinutes;
   const sorted = [...dayEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   const workdays: EmployeeWorkday[] = [];
@@ -324,7 +325,8 @@ async function exportPDF(
 
   const pageWidth = doc.internal.pageSize.width;
 
-  const drawEmpHeader = (empName: string, hasPaidBreakNote: boolean) => {
+  const drawEmpHeader = (empName: string, effectivePaidBreak: number | null | undefined) => {
+    const hasPaidBreakNote = effectivePaidBreak != null && effectivePaidBreak > 0;
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(40, 40, 40);
@@ -336,12 +338,13 @@ async function exportPDF(
     if (hasPaidBreakNote) {
       doc.setFontSize(8);
       doc.setTextColor(140, 110, 40);
-      doc.text(`Break policy: ${paidBreakMinutes} min paid break — excess deducted from worked hours.`, 14, 29);
+      doc.text(`Break policy: ${effectivePaidBreak} min paid break — excess deducted from worked hours.`, 14, 29);
     }
     doc.setFontSize(13);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(40, 40, 40);
     doc.text(empName, 14, hasPaidBreakNote ? 36 : 31);
+    return hasPaidBreakNote;
   };
 
   const drawContinuationHeader = (empName: string) => {
@@ -358,9 +361,9 @@ async function exportPDF(
   selectedEmps.forEach((emp, empIndex) => {
     if (empIndex > 0) doc.addPage("a4", "landscape");
 
-    const hasPaidBreakNote = paidBreakMinutes != null && paidBreakMinutes > 0;
+    const empEffectivePaidBreak = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : paidBreakMinutes;
     const empLabel = `${emp.name}${emp.role && emp.role !== "No Role" ? `  ·  ${emp.role}` : ""}`;
-    drawEmpHeader(empLabel, hasPaidBreakNote);
+    const hasPaidBreakNote = drawEmpHeader(empLabel, empEffectivePaidBreak);
 
     const empWorkdaysByDate: { date: Date; sessions: EmployeeWorkday[] }[] = [];
     grouped.forEach(({ date, workdays }) => {

@@ -4,7 +4,8 @@ import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import type { CustomRole, TimesheetBackup } from "@shared/schema";
+import type { CustomRole, TimesheetBackup, Employee } from "@shared/schema";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +52,10 @@ export default function SettingsPage() {
   const [maxBreakInput, setMaxBreakInput] = useState<string>("");
   const [showDangerZone, setShowDangerZone] = useState(false);
   const [confirmRestoreId, setConfirmRestoreId] = useState<number | null>(null);
+  const [empExceptionOpen, setEmpExceptionOpen] = useState(false);
+  const [empExceptionId, setEmpExceptionId] = useState<string>("");
+  const [empExceptionPaid, setEmpExceptionPaid] = useState<string>("");
+  const [empExceptionMax, setEmpExceptionMax] = useState<string>("");
   const [notifSettings, setNotifSettings] = useState<{
     notifyLate: boolean;
     notifyEarlyClockOut: boolean;
@@ -72,6 +77,8 @@ export default function SettingsPage() {
       return data;
     },
   });
+
+  const { data: employees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
 
   const { data: backups = [], isLoading: backupsLoading } = useQuery<Omit<TimesheetBackup, "snapshot">[]>({
     queryKey: ["/api/backups"],
@@ -156,6 +163,50 @@ export default function SettingsPage() {
     const max = maxBreakInput === "" ? null : Number(maxBreakInput);
     updatePolicyMutation.mutate({ paidBreakMinutes: paid, maxBreakMinutes: max });
   };
+
+  const updateEmpExceptionMutation = useMutation({
+    mutationFn: async ({ id, paidBreakMinutes, maxBreakMinutes }: { id: number; paidBreakMinutes: number | null; maxBreakMinutes: number | null }) => {
+      const res = await apiRequest("PATCH", `/api/employees/${id}/break-policy`, { paidBreakMinutes, maxBreakMinutes });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      setEmpExceptionOpen(false);
+      setEmpExceptionId("");
+      setEmpExceptionPaid("");
+      setEmpExceptionMax("");
+      toast({ title: "Exception saved" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const removeEmpExceptionMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/employees/${id}/break-policy`, { paidBreakMinutes: null, maxBreakMinutes: null });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      toast({ title: "Exception removed" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const openEmpException = (emp?: Employee) => {
+    setEmpExceptionId(emp ? String(emp.id) : "");
+    setEmpExceptionPaid(emp?.paidBreakMinutes != null ? String(emp.paidBreakMinutes) : "");
+    setEmpExceptionMax(emp?.maxBreakMinutes != null ? String(emp.maxBreakMinutes) : "");
+    setEmpExceptionOpen(true);
+  };
+
+  const handleSaveEmpException = () => {
+    if (!empExceptionId) return;
+    const paid = empExceptionPaid === "" ? null : Number(empExceptionPaid);
+    const max = empExceptionMax === "" ? null : Number(empExceptionMax);
+    updateEmpExceptionMutation.mutate({ id: Number(empExceptionId), paidBreakMinutes: paid, maxBreakMinutes: max });
+  };
+
+  const employeesWithExceptions = employees.filter(e => e.paidBreakMinutes != null || e.maxBreakMinutes != null);
 
   const createMutation = useMutation({
     mutationFn: async (data: { name: string; color: string }) => {
@@ -348,6 +399,49 @@ export default function SettingsPage() {
                     <Save className="w-3.5 h-3.5 mr-1.5" />
                     {updatePolicyMutation.isPending ? "Saving..." : "Save Policy"}
                   </Button>
+
+                  {/* Per-employee exceptions */}
+                  <div className="pt-3 border-t mt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <p className="text-sm font-medium">Per-employee exceptions</p>
+                        <p className="text-[11px] text-muted-foreground">Override the policy above for specific employees</p>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => openEmpException()} data-testid="button-add-emp-exception">
+                        <Plus className="w-3.5 h-3.5 mr-1" />
+                        Add exception
+                      </Button>
+                    </div>
+                    {employeesWithExceptions.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No exceptions set — all employees use the account policy above.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {employeesWithExceptions.map(emp => (
+                          <div key={emp.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm" data-testid={`emp-exception-${emp.id}`}>
+                            <div>
+                              <span className="font-medium">{emp.name}</span>
+                              {emp.role && emp.role !== "No Role" && (
+                                <span className="text-muted-foreground ml-1.5 text-xs">· {emp.role}</span>
+                              )}
+                              <div className="text-[11px] text-muted-foreground mt-0.5">
+                                {emp.paidBreakMinutes != null ? `${emp.paidBreakMinutes}m paid` : "paid: default"}
+                                {" · "}
+                                {emp.maxBreakMinutes != null ? `${emp.maxBreakMinutes}m max` : "max: default"}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEmpException(emp)} data-testid={`button-edit-exception-${emp.id}`}>
+                                <Pencil className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => removeEmpExceptionMutation.mutate(emp.id)} data-testid={`button-remove-exception-${emp.id}`}>
+                                <X className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </CardContent>
@@ -879,6 +973,66 @@ export default function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={empExceptionOpen} onOpenChange={setEmpExceptionOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Per-employee break exception</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label>Employee</Label>
+              <Select value={empExceptionId} onValueChange={setEmpExceptionId}>
+                <SelectTrigger data-testid="select-exception-employee">
+                  <SelectValue placeholder="Select employee…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map(emp => (
+                    <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="exc-paid">Paid break (min)</Label>
+                <Input
+                  id="exc-paid"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 30"
+                  value={empExceptionPaid}
+                  onChange={e => setEmpExceptionPaid(e.target.value)}
+                  data-testid="input-exception-paid"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="exc-max">Max break (min)</Label>
+                <Input
+                  id="exc-max"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 60"
+                  value={empExceptionMax}
+                  onChange={e => setEmpExceptionMax(e.target.value)}
+                  data-testid="input-exception-max"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">Leave a field blank to inherit the account-level default for that setting.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEmpExceptionOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleSaveEmpException}
+              disabled={!empExceptionId || updateEmpExceptionMutation.isPending}
+              data-testid="button-save-emp-exception"
+            >
+              {updateEmpExceptionMutation.isPending ? "Saving…" : "Save exception"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
