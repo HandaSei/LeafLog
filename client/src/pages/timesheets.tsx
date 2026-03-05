@@ -25,7 +25,9 @@ import { EmployeeAvatar } from "@/components/employee-avatar";
 import { TimeInput, TimeRangeInput, ClockPickerDialog } from "@/components/time-input";
 import { DateInput } from "@/components/date-input";
 import CsvImporter from "@/components/csv-importer";
-import type { Employee, TimeEntry, CustomRole, ApprovalRequest } from "@shared/schema";
+import type { Employee, TimeEntry, CustomRole, ApprovalRequest, Shift } from "@shared/schema";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 
 interface EmployeeWorkday {
   employee: Employee;
@@ -271,6 +273,11 @@ function formatHoursDecimal(minutes: number): string {
   return (minutes / 60).toFixed(2);
 }
 
+function shiftMinutes(timeStr: string): number {
+  const [h, m] = timeStr.split(":").map(Number);
+  return h * 60 + m;
+}
+
 async function exportPDF(
   rangeStart: Date,
   rangeEnd: Date,
@@ -278,147 +285,264 @@ async function exportPDF(
   entries: TimeEntry[],
   employees: Employee[],
   targetEmployeeIds: number[],
-  paidBreakMinutes?: number | null
+  paidBreakMinutes?: number | null,
+  options?: {
+    showScheduledComparison?: boolean;
+    shifts?: Shift[];
+  }
 ) {
   const jspdf = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
   const jsPDF = jspdf.jsPDF;
 
+  const GREEN: [number, number, number] = [109, 140, 109];
+  const LIGHT_GREEN: [number, number, number] = [220, 232, 220];
+  const GRAY: [number, number, number] = [150, 150, 150];
+  const RED: [number, number, number] = [200, 60, 60];
+
+  const showScheduled = !!(options?.showScheduledComparison && options?.shifts?.length);
+  const allShifts = options?.shifts ?? [];
+
   const doc = new jsPDF({ orientation: "landscape" });
 
-  doc.setFontSize(16);
-  doc.setFont("helvetica", "bold");
-  doc.text("Timesheet Report", 14, 16);
-
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-  doc.text(rangeLabel, 14, 24);
-  if (paidBreakMinutes != null && paidBreakMinutes > 0) {
-    doc.setFontSize(9);
-    doc.setTextColor(120, 100, 50);
-    doc.text(`Break policy: ${paidBreakMinutes} min paid break. Any excess deducted from worked hours.`, 14, 29);
-    doc.setTextColor(0, 0, 0);
-  }
-
   const grouped = buildWorkdaysForRange(entries, employees, rangeStart, rangeEnd, "all", "", targetEmployeeIds, paidBreakMinutes);
-
   const hasUnpaid = grouped.some(({ workdays }) => workdays.some(wd => wd.unpaidBreakMinutes > 0));
 
-  const rows: (string | number)[][] = [];
-  let grandTotal = 0;
+  const selectedEmps = employees.filter(e => targetEmployeeIds.includes(e.id));
 
-  grouped.forEach(({ date, workdays }) => {
-    const byEmployee = new Map<number, typeof workdays>();
-    workdays.forEach(wd => {
-      if (wd.status !== "completed") return;
-      const list = byEmployee.get(wd.employee.id) || [];
-      list.push(wd);
-      byEmployee.set(wd.employee.id, list);
+  type EmpSummary = {
+    name: string;
+    daysWorked: number;
+    netMinutes: number;
+    unpaidMinutes: number;
+    totalLateMinutes: number;
+    totalDiffMinutes: number;
+    scheduledDays: number;
+  };
+  const summaries: EmpSummary[] = [];
+
+  selectedEmps.forEach((emp, empIndex) => {
+    if (empIndex > 0) doc.addPage("a4", "landscape");
+
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(40, 40, 40);
+    doc.text("Timesheet Report", 14, 16);
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80, 80, 80);
+    doc.text(rangeLabel, 14, 23);
+
+    if (paidBreakMinutes != null && paidBreakMinutes > 0) {
+      doc.setFontSize(8);
+      doc.setTextColor(140, 110, 40);
+      doc.text(`Break policy: ${paidBreakMinutes} min paid break — excess deducted from worked hours.`, 14, 29);
+    }
+
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(40, 40, 40);
+    const empLabel = `${emp.name}${emp.role && emp.role !== "No Role" ? `  ·  ${emp.role}` : ""}`;
+    doc.text(empLabel, 14, paidBreakMinutes != null && paidBreakMinutes > 0 ? 36 : 31);
+
+    const empWorkdaysByDate: { date: Date; sessions: EmployeeWorkday[] }[] = [];
+    grouped.forEach(({ date, workdays }) => {
+      const sessions = workdays.filter(wd => wd.employee.id === emp.id && wd.status === "completed");
+      if (sessions.length > 0) empWorkdaysByDate.push({ date, sessions });
     });
 
-    byEmployee.forEach((sessions) => {
-      const totalNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
-      const totalBreak = sessions.reduce((s, w) => s + w.totalBreakMinutes, 0);
-      const totalUnpaid = sessions.reduce((s, w) => s + w.unpaidBreakMinutes, 0);
-      grandTotal += totalNet;
+    let empNetMinutes = 0;
+    let empUnpaidMinutes = 0;
+    let empLateMinutes = 0;
+    let empDiffMinutes = 0;
+    let empScheduledDays = 0;
+
+    const rows: any[][] = [];
+
+    empWorkdaysByDate.forEach(({ date, sessions }) => {
+      const dateStr = format(date, "yyyy-MM-dd");
+      const matchedShift = allShifts.find(s => s.employeeId === emp.id && s.date === dateStr);
+
+      const dayNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
+      const dayUnpaid = sessions.reduce((s, w) => s + w.unpaidBreakMinutes, 0);
+      const dayBreak = sessions.reduce((s, w) => s + w.totalBreakMinutes, 0);
+      empNetMinutes += dayNet;
+      empUnpaidMinutes += dayUnpaid;
+
+      let lateMins: number | null = null;
+      let diffMins: number | null = null;
+
+      if (showScheduled && matchedShift) {
+        empScheduledDays++;
+        const schedStart = shiftMinutes(matchedShift.startTime);
+        const schedEnd = shiftMinutes(matchedShift.endTime);
+        const schedDuration = schedEnd > schedStart ? schedEnd - schedStart : (1440 - schedStart) + schedEnd;
+
+        const firstSession = sessions[0];
+        if (firstSession.clockIn) {
+          const actualStart = firstSession.clockIn.getHours() * 60 + firstSession.clockIn.getMinutes();
+          let late = actualStart - schedStart;
+          if (late > 720) late -= 1440;
+          if (late < -720) late += 1440;
+          lateMins = Math.max(0, late);
+          empLateMinutes += lateMins;
+        }
+
+        diffMins = dayNet - schedDuration;
+        empDiffMinutes += diffMins;
+      }
 
       sessions.forEach((wd, idx) => {
         const isFirst = idx === 0;
         const row: any[] = [];
-        
+
         if (isFirst) {
-          grandTotal += totalNet;
-          row.push({ 
-            content: format(date, "EEE, MMM d, yyyy"), 
+          row.push({
+            content: format(date, "EEE, MMM d"),
             rowSpan: sessions.length,
-            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, fontStyle: 'bold', lineColor: [160, 180, 160] }
-          });
-          row.push({ 
-            content: wd.employee.name, 
-            rowSpan: sessions.length,
-            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, fontStyle: 'bold', lineColor: [160, 180, 160] }
-          });
-          row.push({ 
-            content: wd.employee.role || "No Role", 
-            rowSpan: sessions.length,
-            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: [160, 180, 160] }
+            styles: { fontStyle: "bold", lineWidth: { top: 0.5, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LIGHT_GREEN },
           });
         }
 
-        const clockInStr = wd.clockIn ? format(wd.clockIn, "HH:mm") : "—";
-        const clockOutStr = wd.clockOut ? format(wd.clockOut, "HH:mm") : "—";
-        row.push({ 
-          content: clockInStr, 
-          styles: { lineWidth: { top: isFirst ? 0.6 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [160, 180, 160] : [150, 150, 150] }
-        });
-        row.push({ 
-          content: clockOutStr, 
-          styles: { lineWidth: { top: isFirst ? 0.6 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [160, 180, 160] : [150, 150, 150] }
-        });
-
-        const breakStr = wd.totalBreakMinutes > 0 ? formatMinutes(wd.totalBreakMinutes) : "—";
-        row.push({ 
-          content: breakStr, 
-          styles: { lineWidth: { top: isFirst ? 0.6 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [160, 180, 160] : [150, 150, 150] }
-        });
+        row.push({ content: wd.clockIn ? format(wd.clockIn, "HH:mm") : "—", styles: { lineWidth: { top: isFirst ? 0.5 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? LIGHT_GREEN : GRAY } });
+        row.push({ content: wd.clockOut ? format(wd.clockOut, "HH:mm") : "—", styles: { lineWidth: { top: isFirst ? 0.5 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? LIGHT_GREEN : GRAY } });
+        row.push({ content: wd.totalBreakMinutes > 0 ? formatMinutes(wd.totalBreakMinutes) : "—", styles: { lineWidth: { top: isFirst ? 0.5 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? LIGHT_GREEN : GRAY } });
 
         if (hasUnpaid) {
-          const unpaidStr = wd.unpaidBreakMinutes > 0 ? `-${formatMinutes(wd.unpaidBreakMinutes)}` : "—";
-          row.push({ 
-            content: unpaidStr, 
-            styles: { lineWidth: { top: isFirst ? 0.6 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? [160, 180, 160] : [150, 150, 150] }
+          row.push({
+            content: wd.unpaidBreakMinutes > 0 ? `-${formatMinutes(wd.unpaidBreakMinutes)}` : "—",
+            styles: { textColor: wd.unpaidBreakMinutes > 0 ? RED : [80, 80, 80], lineWidth: { top: isFirst ? 0.5 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? LIGHT_GREEN : GRAY },
           });
         }
 
+        if (showScheduled) {
+          if (isFirst) {
+            row.push({
+              content: lateMins != null ? (lateMins > 0 ? `+${formatMinutes(lateMins)}` : "On time") : "—",
+              rowSpan: sessions.length,
+              styles: { textColor: lateMins != null && lateMins > 0 ? RED : [60, 120, 60], halign: "center", lineWidth: { top: 0.5, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LIGHT_GREEN },
+            });
+            row.push({
+              content: diffMins != null ? (diffMins >= 0 ? `+${formatMinutes(diffMins)}` : `-${formatMinutes(Math.abs(diffMins))}`) : "—",
+              rowSpan: sessions.length,
+              styles: { textColor: diffMins != null ? (diffMins >= 0 ? [60, 120, 60] : RED) : [80, 80, 80], halign: "center", lineWidth: { top: 0.5, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LIGHT_GREEN },
+            });
+          }
+        }
+
         if (isFirst) {
-          row.push({ 
-            content: formatHoursDecimal(totalNet) + " h", 
+          row.push({
+            content: formatHoursDecimal(dayNet) + " h",
             rowSpan: sessions.length,
-            styles: { lineWidth: { top: 0.6, right: 0.1, bottom: 0.1, left: 0.1 }, halign: "right", fontStyle: 'bold', lineColor: [160, 180, 160] }
+            styles: { fontStyle: "bold", halign: "right", lineWidth: { top: 0.5, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LIGHT_GREEN },
           });
         }
-        
+
         rows.push(row);
       });
     });
+
+    if (rows.length === 0) {
+      rows.push(["No completed shifts in this period.", "", "", "", ...(hasUnpaid ? [""] : []), ...(showScheduled ? ["", ""] : []), ""]);
+    }
+
+    const head: string[][] = [[
+      "Date",
+      "Clock In", "Clock Out", "Break",
+      ...(hasUnpaid ? ["Unpaid"] : []),
+      ...(showScheduled ? ["Arrived Late", "Over / Under"] : []),
+      "Hours",
+    ]];
+
+    const footerCells: any[] = [
+      { content: `Total: ${empWorkdaysByDate.length} shift${empWorkdaysByDate.length !== 1 ? "s" : ""}`, colSpan: 1 + (hasUnpaid ? 1 : 0) + (showScheduled ? 2 : 0) + 3, styles: { halign: "right", fontStyle: "bold" } },
+      { content: formatHoursDecimal(empNetMinutes) + " h", styles: { halign: "right", fontStyle: "bold" } },
+    ];
+
+    autoTable(doc, {
+      startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 42 : 37,
+      head,
+      body: rows,
+      foot: [footerCells],
+      headStyles: { fillColor: GREEN, textColor: 255, fontStyle: "bold", fontSize: 8.5 },
+      footStyles: { fillColor: [240, 243, 240], textColor: [40, 40, 40], fontStyle: "bold", lineWidth: { top: 0.5, bottom: 0.5, left: 0.1, right: 0.1 } },
+      styles: { fontSize: 9, cellPadding: 2.5, lineWidth: 0.1, lineColor: GRAY, valign: "middle" },
+      tableWidth: "auto",
+    });
+
+    summaries.push({
+      name: emp.name,
+      daysWorked: empWorkdaysByDate.length,
+      netMinutes: empNetMinutes,
+      unpaidMinutes: empUnpaidMinutes,
+      totalLateMinutes: empLateMinutes,
+      totalDiffMinutes: empDiffMinutes,
+      scheduledDays: empScheduledDays,
+    });
   });
 
-  if (rows.length === 0) {
-    const emptyRow = ["No timesheet data for this period.", "", "", "", "", "", ""];
-    if (hasUnpaid) emptyRow.push("");
-    rows.push(emptyRow);
+  if (selectedEmps.length > 1) {
+    doc.addPage("a4", "landscape");
+
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(40, 40, 40);
+    doc.text("Summary", 14, 16);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80, 80, 80);
+    doc.text(rangeLabel, 14, 23);
+    doc.setFontSize(8.5);
+    doc.text(`${selectedEmps.length} employees  ·  ${summaries.reduce((s, e) => s + e.daysWorked, 0)} total shifts`, 14, 29);
+
+    const grandNet = summaries.reduce((s, e) => s + e.netMinutes, 0);
+    const grandUnpaid = summaries.reduce((s, e) => s + e.unpaidMinutes, 0);
+
+    const summaryRows = summaries.map(s => [
+      s.name,
+      String(s.daysWorked),
+      formatHoursDecimal(s.netMinutes) + " h",
+      ...(hasUnpaid ? [s.unpaidMinutes > 0 ? `-${formatMinutes(s.unpaidMinutes)}` : "—"] : []),
+      ...(showScheduled ? [
+        s.scheduledDays > 0 && s.totalLateMinutes > 0 ? `+${formatMinutes(s.totalLateMinutes)}` : s.scheduledDays > 0 ? "On time" : "—",
+        s.scheduledDays > 0 ? (s.totalDiffMinutes >= 0 ? `+${formatMinutes(s.totalDiffMinutes)}` : `-${formatMinutes(Math.abs(s.totalDiffMinutes))}`) : "—",
+      ] : []),
+    ]);
+
+    const summaryHead = [["Employee", "Shifts", "Total Hours", ...(hasUnpaid ? ["Unpaid Break"] : []), ...(showScheduled ? ["Total Late", "Over / Under"] : [])]];
+
+    const summaryFootColSpan = 2 + (hasUnpaid ? 1 : 0) + (showScheduled ? 2 : 0);
+    const summaryFoot = [[
+      { content: "Grand Total", colSpan: summaryFootColSpan, styles: { halign: "right", fontStyle: "bold" } },
+      { content: formatHoursDecimal(grandNet) + " h", styles: { fontStyle: "bold" } },
+    ]];
+
+    autoTable(doc, {
+      startY: 35,
+      head: summaryHead,
+      body: summaryRows,
+      foot: summaryFoot,
+      headStyles: { fillColor: GREEN, textColor: 255, fontStyle: "bold" },
+      footStyles: { fillColor: [240, 243, 240], textColor: [40, 40, 40], fontStyle: "bold", lineWidth: { top: 0.5, bottom: 0.5, left: 0.1, right: 0.1 } },
+      styles: { fontSize: 9.5, cellPadding: 3, lineWidth: 0.1, lineColor: GRAY, valign: "middle" },
+      columnStyles: {
+        0: { fontStyle: "bold", cellWidth: 60 },
+        1: { halign: "center", cellWidth: 18 },
+        2: { halign: "right", cellWidth: 28 },
+        ...(hasUnpaid ? { 3: { halign: "center", cellWidth: 25, textColor: RED } } : {}),
+      },
+      tableWidth: "auto",
+    });
+
+    if (grandUnpaid > 0) {
+      const finalY = (doc as any).lastAutoTable.finalY + 6;
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(120, 120, 120);
+      doc.text(`Total unpaid break time across all employees: ${formatMinutes(grandUnpaid)}`, 14, finalY);
+    }
   }
-
-  const head = hasUnpaid
-    ? [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Unpaid", "Hours"]]
-    : [["Date", "Employee", "Role", "Clock In", "Clock Out", "Break", "Hours"]];
-
-  const foot = rows.length > 1
-    ? hasUnpaid
-      ? [["", "", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
-      : [["", "", "", "", "", "Total", formatHoursDecimal(grandTotal) + " h"]]
-    : undefined;
-
-  const colStyles: Record<number, object> = hasUnpaid
-    ? { 0: { cellWidth: 40 }, 1: { cellWidth: 35 }, 2: { cellWidth: 25 }, 3: { cellWidth: 14 }, 4: { cellWidth: 14 }, 5: { cellWidth: 14 }, 6: { cellWidth: 14, textColor: [200, 60, 60] }, 7: { cellWidth: 18, halign: "right" } }
-    : { 0: { cellWidth: 45 }, 1: { cellWidth: 40 }, 2: { cellWidth: 30 }, 3: { cellWidth: 15 }, 4: { cellWidth: 15 }, 5: { cellWidth: 15 }, 6: { cellWidth: 20, halign: "right" } };
-
-  autoTable(doc, {
-    startY: paidBreakMinutes != null && paidBreakMinutes > 0 ? 34 : 30,
-    head,
-    body: rows,
-    foot,
-    headStyles: { fillColor: [139, 158, 139], textColor: 255, fontStyle: "bold" },
-    footStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40], fontStyle: "bold", lineWidth: { top: 0.5, bottom: 0.5, left: 0.1, right: 0.1 } },
-    styles: { 
-      fontSize: 9, 
-      cellPadding: 2, 
-      lineWidth: 0.1, 
-      lineColor: [150, 150, 150],
-      valign: "middle"
-    },
-    columnStyles: colStyles,
-  });
 
   const safeLabel = rangeLabel.replace(/[^a-zA-Z0-9-]/g, "_");
   doc.save(`timesheets_${safeLabel}.pdf`);
@@ -479,6 +603,7 @@ export default function Timesheets() {
   const [exportSelectedEmployeeIds, setExportSelectedEmployeeIds] = useState<number[]>([]);
   const [exportStartDate, setExportStartDate] = useState(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
   const [exportEndDate, setExportEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [exportShowScheduled, setExportShowScheduled] = useState(false);
   const [csvImporterOpen, setCsvImporterOpen] = useState(false);
   const [reopenGapDialog, setReopenGapDialog] = useState<{ clockOutEntry: TimeEntry; gapMinutes: number; employeeId: number; clockOutDate: string } | null>(null);
   const { toast } = useToast();
@@ -1111,7 +1236,17 @@ export default function Timesheets() {
       const start = new Date(exportStartDate);
       const end = new Date(exportEndDate);
       const rangeLabel = `Period: ${format(start, "MMM d, yyyy")} – ${format(end, "MMM d, yyyy")}`;
-      await exportPDF(start, end, rangeLabel, entries, employees, exportSelectedEmployeeIds, paidBreakMinutes);
+
+      let shiftsData: Shift[] | undefined;
+      if (exportShowScheduled) {
+        const res = await fetch("/api/shifts", { credentials: "include" });
+        if (res.ok) shiftsData = await res.json();
+      }
+
+      await exportPDF(start, end, rangeLabel, entries, employees, exportSelectedEmployeeIds, paidBreakMinutes, {
+        showScheduledComparison: exportShowScheduled,
+        shifts: shiftsData,
+      });
       setExportDialogOpen(false);
     } catch (e: any) {
       toast({ title: "Export failed", description: e.message, variant: "destructive" });
@@ -1423,9 +1558,12 @@ export default function Timesheets() {
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Export Timesheet PDF</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              Export Timesheet PDF
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-medium tracking-wide">Experimental</Badge>
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>Time Period</Label>
               <div className="grid grid-cols-2 gap-2">
@@ -1456,13 +1594,16 @@ export default function Timesheets() {
                   size="sm" 
                   className="h-auto p-0 text-[11px]" 
                   onClick={() => setExportSelectedEmployeeIds(
-                    exportSelectedEmployeeIds.length === employees.length ? [] : employees.map(e => e.id)
+                    exportSelectedEmployeeIds.length === employees.filter(e => e.status === "active").length
+                      ? []
+                      : employees.filter(e => e.status === "active").map(e => e.id)
                   )}
+                  data-testid="button-export-select-all"
                 >
-                  {exportSelectedEmployeeIds.length === employees.length ? "Deselect All" : "Select All"}
+                  {exportSelectedEmployeeIds.length === employees.filter(e => e.status === "active").length ? "Deselect All" : "Select All"}
                 </Button>
               </div>
-              <div className="max-h-48 overflow-auto border rounded-md p-2 space-y-1">
+              <div className="max-h-44 overflow-auto border rounded-md p-2 space-y-0.5">
                 {employees
                   .filter(e => e.status === "active")
                   .sort((a, b) => a.name.localeCompare(b.name))
@@ -1471,6 +1612,7 @@ export default function Timesheets() {
                       key={emp.id} 
                       className="flex items-center gap-2 p-1.5 rounded-sm hover:bg-muted/50 transition-colors cursor-pointer"
                       onClick={() => toggleExportEmployee(emp.id)}
+                      data-testid={`export-emp-${emp.id}`}
                     >
                       <Checkbox 
                         checked={exportSelectedEmployeeIds.includes(emp.id)} 
@@ -1486,16 +1628,43 @@ export default function Timesheets() {
                     </div>
                   ))}
               </div>
+              {exportSelectedEmployeeIds.length === 0 && (
+                <p className="text-[11px] text-muted-foreground">No employees selected — select at least one.</p>
+              )}
+              {exportSelectedEmployeeIds.length > 1 && (
+                <p className="text-[11px] text-muted-foreground">Each employee will get their own page, followed by a summary.</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between mb-0.5">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Optional Columns</Label>
+                <Badge variant="outline" className="text-[9px] px-1.5 py-0">off by default</Badge>
+              </div>
+              <div className="rounded-md border p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium leading-none">Scheduled shift comparison</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">Shows time arrived late and total hours over / under the scheduled shift, for days with a scheduled shift set.</p>
+                  </div>
+                  <Switch
+                    checked={exportShowScheduled}
+                    onCheckedChange={setExportShowScheduled}
+                    data-testid="toggle-export-scheduled"
+                  />
+                </div>
+              </div>
             </div>
           </div>
-          <div className="flex justify-end pt-4">
+          <div className="flex justify-end pt-2">
             <Button 
               onClick={handleExportPDF} 
               disabled={isExporting || exportSelectedEmployeeIds.length === 0}
               className="w-full sm:w-auto px-8 gap-2"
+              data-testid="button-export-pdf-download"
             >
               <FileDown className="w-4 h-4" />
-              {isExporting ? "Generating..." : "Download PDF"}
+              {isExporting ? "Generating…" : "Download PDF"}
             </Button>
           </div>
         </DialogContent>
