@@ -179,7 +179,8 @@ function finalizeWorkday(emp: Employee, wd: any, paidBreakMinutes?: number | nul
     ? Math.max(0, regularBreakMinutes - paidBreakMinutes)
     : 0;
   const unpaidBreakMinutes = forcedUnpaid + policyUnpaid;
-  const netWorkedMinutes = Math.max(0, (wd.totalWorkedMinutes ?? 0) - unpaidBreakMinutes);
+  const paidBreakActual = (wd.totalBreakMinutes ?? 0) - unpaidBreakMinutes;
+  const netWorkedMinutes = Math.max(0, (wd.totalWorkedMinutes ?? 0) + paidBreakActual);
   
   return {
     employee: emp,
