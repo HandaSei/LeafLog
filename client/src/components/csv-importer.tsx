@@ -1,18 +1,11 @@
 import { useState, useCallback, useRef } from "react";
 import { format, parse, isValid, addDays, parseISO } from "date-fns";
-import { Upload, FileText, ChevronRight, ChevronLeft, Check, Users, Settings2, ShieldCheck, FlaskConical } from "lucide-react";
+import { Upload, FileText, ChevronLeft, Check, Users, ShieldCheck, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee } from "@shared/schema";
-
-type FieldKey =
-  | "employeeName" | "firstName" | "lastName"
-  | "date" | "clockIn" | "clockOut"
-  | "breakDetail" | "breakStart" | "breakEnd" | "breakMinutes"
-  | "role" | "notes" | "none";
 
 interface ColumnMapping {
   employeeName: number | null;
@@ -81,7 +74,9 @@ function parseCSV(text: string, delimiter: string): string[][] {
   return rows;
 }
 
-const fieldPatterns: Record<Exclude<FieldKey, "none">, RegExp[]> = {
+type FieldKey = keyof ColumnMapping;
+
+const fieldPatterns: Record<FieldKey, RegExp[]> = {
   employeeName: [/^(employee[\s._-]?)?name$/i, /^(full[\s._-]?)?name$/i, /^employee$/i, /^worker$/i, /^staff$/i, /^person$/i, /^team[\s._-]?member$/i],
   firstName: [/^(first[\s._-]?name|first|nome|forename|given[\s._-]?name)$/i],
   lastName: [/^(last[\s._-]?name|last|surname|cognome|family[\s._-]?name)$/i],
@@ -92,7 +87,7 @@ const fieldPatterns: Record<Exclude<FieldKey, "none">, RegExp[]> = {
   breakStart: [/break[\s._-]?start/i, /break[\s._-]?in/i, /break[\s._-]?begin/i, /break[\s._-]?from/i],
   breakEnd: [/break[\s._-]?end/i, /break[\s._-]?out/i, /break[\s._-]?finish/i, /break[\s._-]?stop/i, /break[\s._-]?to/i],
   breakMinutes: [/^break[\s._-]?(min(utes?)?|hrs?|hours?|dur(ation)?|len(gth)?|time)$/i, /^unpaid[\s._-]?break$/i],
-  role: [/^role$/i, /^position$/i, /^job[\s._-]?title$/i, /^title$/i, /^department$/i, /^dept$/i, /^mansione$/i, /^ruolo$/i],
+  role: [/^role$/i, /^position$/i, /^job[\s._-]?title$/i, /^title$/i, /^mansione$/i, /^ruolo$/i],
   notes: [/^notes?$/i, /^comment(s)?$/i, /^remark(s)?$/i, /^memo$/i, /^note$/i],
 };
 
@@ -105,7 +100,7 @@ function detectColumns(headers: string[]): ColumnMapping {
   };
   const usedCols = new Set<number>();
 
-  for (const [field, patterns] of Object.entries(fieldPatterns) as [Exclude<FieldKey, "none">, RegExp[]][]) {
+  for (const [field, patterns] of Object.entries(fieldPatterns) as [FieldKey, RegExp[]][]) {
     for (const pattern of patterns) {
       const idx = headers.findIndex((h, i) => !usedCols.has(i) && pattern.test(h.trim()));
       if (idx !== -1) {
@@ -116,11 +111,6 @@ function detectColumns(headers: string[]): ColumnMapping {
     }
   }
   return mapping;
-}
-
-function isMappingComplete(m: ColumnMapping): boolean {
-  const hasName = m.employeeName !== null || m.firstName !== null;
-  return hasName && m.date !== null && m.clockIn !== null;
 }
 
 const DATE_FORMATS = [
@@ -180,41 +170,26 @@ function parseBreakMinutes(str: string): number | null {
   return null;
 }
 
-// Parse break detail text like:
-//   "Pausa pranzo/cena: 29 mins (12:39 - 13:08)"
-//   "Pausa turno staccato (non pagata): 148 mins (16:01 - 18:29)"
-// Multiple breaks separated by newlines are all extracted.
-function parseBreakDetail(text: string, clockInTime?: string, clockOutTime?: string, date?: string): BreakEntry[] {
+function parseBreakDetail(text: string): BreakEntry[] {
   if (!text?.trim()) return [];
   const results: BreakEntry[] = [];
-  // Split on newlines to handle multiple break entries
   const lines = text.split(/\n/);
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    // Match "(HH:MM - HH:MM)" at the end of any line
     const timeMatch = trimmed.match(/\((\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})\)/);
     if (!timeMatch) continue;
     const startTime = parseTime(timeMatch[1]);
     const endTime = parseTime(timeMatch[2]);
     if (!startTime || !endTime) continue;
-    // Skip invalid/zero-length breaks (e.g., -1 mins)
     const minsMatch = trimmed.match(/([-\d]+)\s*min/i);
     const mins = minsMatch ? parseInt(minsMatch[1]) : 1;
     if (mins <= 0) continue;
-    // Check if this is an unpaid break (various languages)
     const isUnpaid = /non\s*pagat|unpaid|staccato|deduct/i.test(trimmed);
     results.push({ start: startTime, end: endTime, isUnpaid });
   }
   return results;
 }
-
-const EMPTY_MAPPING: ColumnMapping = {
-  employeeName: null, firstName: null, lastName: null,
-  date: null, clockIn: null, clockOut: null,
-  breakDetail: null, breakStart: null, breakEnd: null, breakMinutes: null,
-  role: null, notes: null,
-};
 
 interface Props {
   open: boolean;
@@ -222,46 +197,19 @@ interface Props {
   employees: Employee[];
 }
 
-const FIELD_LABELS: Record<FieldKey, string> = {
-  employeeName: "Employee Name",
-  firstName: "First Name",
-  lastName: "Last Name",
-  date: "Date",
-  clockIn: "Clock In",
-  clockOut: "Clock Out",
-  breakDetail: "Break Detail (text)",
-  breakStart: "Break Start",
-  breakEnd: "Break End",
-  breakMinutes: "Break Duration",
-  role: "Role",
-  notes: "Notes",
-  none: "— Skip —",
-};
-
-const FIELD_GROUPS: { label: string; fields: Exclude<FieldKey, "none">[] }[] = [
-  { label: "Employee", fields: ["employeeName", "firstName", "lastName"] },
-  { label: "Shift", fields: ["date", "clockIn", "clockOut"] },
-  { label: "Break", fields: ["breakDetail", "breakStart", "breakEnd", "breakMinutes"] },
-  { label: "Other", fields: ["role", "notes"] },
-];
-
 export default function CsvImporter({ open, onClose, employees }: Props) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [rawHeaders, setRawHeaders] = useState<string[]>([]);
-  const [rawRows, setRawRows] = useState<string[][]>([]);
-  const [mapping, setMapping] = useState<ColumnMapping>({ ...EMPTY_MAPPING });
-  const [autoDetected, setAutoDetected] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ created: number; skipped: number; newEmployees: string[] } | null>(null);
+  const [importResult, setImportResult] = useState<{ created: number; replaced: number; newEmployees: string[]; newRoles: string[] } | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const { toast } = useToast();
 
   const resetState = () => {
-    setStep(1); setRawHeaders([]); setRawRows([]); setParsedRows([]);
-    setImportResult(null); setImporting(false); setAutoDetected(false);
-    setMapping({ ...EMPTY_MAPPING });
+    setStep(1); setParsedRows([]);
+    setImportResult(null); setImporting(false); setParseError(null);
   };
 
   const buildParsedRows = (m: ColumnMapping, rows: string[][]): ParsedRow[] => {
@@ -269,7 +217,6 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
     for (const row of rows) {
       const get = (idx: number | null) => (idx != null && idx < row.length ? row[idx] : "");
 
-      // Name: prefer combined employeeName, fall back to firstName + lastName
       let name = get(m.employeeName).trim();
       if (!name) {
         const fn = get(m.firstName).trim();
@@ -283,10 +230,9 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
 
       const clockOut = parseTime(get(m.clockOut));
 
-      // Collect breaks: prefer breakDetail text, then start/end columns, then duration
       let breaks: BreakEntry[] = [];
       if (m.breakDetail !== null) {
-        breaks = parseBreakDetail(get(m.breakDetail), clockIn, clockOut ?? undefined, date);
+        breaks = parseBreakDetail(get(m.breakDetail));
       }
       if (breaks.length === 0 && m.breakStart !== null && m.breakEnd !== null) {
         const bs = parseTime(get(m.breakStart));
@@ -296,7 +242,6 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
       if (breaks.length === 0 && m.breakMinutes !== null && clockOut) {
         const mins = parseBreakMinutes(get(m.breakMinutes));
         if (mins && mins > 0) {
-          // Estimate break in the middle of the shift
           const cinMs = new Date(`${date}T${clockIn}:00`).getTime();
           const coutDate = clockOut < clockIn ? format(addDays(parseISO(date), 1), "yyyy-MM-dd") : date;
           const coutMs = new Date(`${coutDate}T${clockOut}:00`).getTime();
@@ -306,7 +251,7 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
           breaks = [{
             start: format(new Date(bStartMs), "HH:mm"),
             end: format(new Date(bEndMs), "HH:mm"),
-            isUnpaid: false,
+            isUnpaid: true,
           }];
         }
       }
@@ -325,6 +270,7 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
   };
 
   const handleFile = (file: File) => {
+    setParseError(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
@@ -337,24 +283,23 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
       const headers = rows[0];
       const dataRows = rows.slice(1).filter(r => r.some(c => c.trim()));
       const detected = detectColumns(headers);
-      setRawHeaders(headers);
-      setRawRows(dataRows);
-      setMapping(detected);
 
-      const complete = isMappingComplete(detected);
-      setAutoDetected(complete);
-      if (complete) {
-        // Auto-skip mapping step — go straight to preview
-        const parsed = buildParsedRows(detected, dataRows);
-        if (parsed.length > 0) {
-          setParsedRows(parsed);
-          setStep(3);
-        } else {
-          setStep(2);
-        }
-      } else {
-        setStep(2);
+      const hasName = detected.employeeName !== null || detected.firstName !== null;
+      if (!hasName || detected.date === null || detected.clockIn === null) {
+        setParseError(
+          `Could not auto-detect required columns from headers: ${headers.join(", ")}. ` +
+          `Need at least Employee Name (or First Name), Date, and Clock In (In).`
+        );
+        return;
       }
+
+      const parsed = buildParsedRows(detected, dataRows);
+      if (parsed.length === 0) {
+        setParseError("No valid rows could be parsed from this file. Check the date and time formats.");
+        return;
+      }
+      setParsedRows(parsed);
+      setStep(2);
     };
     reader.readAsText(file, "utf-8");
   };
@@ -364,16 +309,6 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
     const file = e.dataTransfer.files[0];
     if (file) handleFile(file);
   }, []);
-
-  const goToPreview = () => {
-    const rows = buildParsedRows(mapping, rawRows);
-    if (rows.length === 0) {
-      toast({ title: "No valid rows", description: "No rows could be parsed. Check Employee Name, Date, and Clock In columns are correctly set.", variant: "destructive" });
-      return;
-    }
-    setParsedRows(rows);
-    setStep(3);
-  };
 
   const handleImport = async () => {
     setImporting(true);
@@ -386,6 +321,8 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
       setImportResult(data);
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/backups"] });
     } catch (err: any) {
       toast({ title: "Import failed", description: err.message, variant: "destructive" });
     } finally {
@@ -393,18 +330,10 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
     }
   };
 
-  const hasNameMapping = mapping.employeeName !== null || mapping.firstName !== null;
-  const isMissing = !hasNameMapping || mapping.date === null || mapping.clockIn === null;
-
   const newEmployeeNames = [...new Set(parsedRows
     .map(r => r.employeeName.toLowerCase())
     .filter(n => !employees.some(e => e.name.toLowerCase() === n))
   )];
-
-  const columnOptions = [
-    { value: "none", label: "— Skip —" },
-    ...rawHeaders.map((h, i) => ({ value: String(i), label: `[${i + 1}] ${h}` }))
-  ];
 
   const handleClose = () => { resetState(); onClose(); };
 
@@ -419,13 +348,13 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
         </DialogHeader>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-          {[1, 2, 3].map(s => (
+          {[1, 2].map(s => (
             <div key={s} className="flex items-center gap-1.5">
               <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${step >= s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                 {step > s ? <Check className="w-3 h-3" /> : s}
               </div>
-              <span className={step === s ? "text-foreground font-medium" : ""}>{s === 1 ? "Upload" : s === 2 ? "Map Columns" : "Preview & Import"}</span>
-              {s < 3 && <ChevronRight className="w-3 h-3" />}
+              <span className={step === s ? "text-foreground font-medium" : ""}>{s === 1 ? "Upload" : "Preview & Import"}</span>
+              {s < 2 && <span className="text-muted-foreground">›</span>}
             </div>
           ))}
         </div>
@@ -433,106 +362,32 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
         <div className="overflow-y-auto flex-1 pr-1">
 
           {step === 1 && (
-            <div
-              className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-primary/50"}`}
-              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={onDrop}
-              onClick={() => fileRef.current?.click()}
-            >
-              <FileText className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-sm font-medium mb-1">Drop your CSV file here, or click to browse</p>
-              <p className="text-xs text-muted-foreground">Works with exports from Planday, Deputy, When I Work, Sling, Homebase, and more — including multi-employee files</p>
-              <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Found <strong>{rawRows.length}</strong> data rows and <strong>{rawHeaders.length}</strong> columns. Some columns couldn't be auto-detected — adjust the mapping below.
-              </p>
-
-              {FIELD_GROUPS.map(group => (
-                <div key={group.label}>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">{group.label}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {group.fields.map(field => {
-                      const isRequired = field === "clockIn" || field === "date";
-                      const isNameRequired = field === "employeeName" || field === "firstName";
-                      const currentVal = mapping[field as keyof ColumnMapping];
-                      const isMapped = currentVal !== null;
-                      const showError = (isRequired && !isMapped) || (isNameRequired && !hasNameMapping && !isMapped);
-                      return (
-                        <div key={field} className="flex flex-col gap-1">
-                          <label className="text-xs font-medium flex items-center gap-1">
-                            {FIELD_LABELS[field]}
-                            {(isRequired || isNameRequired) && <span className="text-red-400 text-[10px]">required</span>}
-                            {isMapped && <Check className="w-3 h-3 text-green-500 ml-auto" />}
-                          </label>
-                          <Select
-                            value={currentVal !== null ? String(currentVal) : "none"}
-                            onValueChange={val => setMapping(prev => ({ ...prev, [field]: val === "none" ? null : parseInt(val) }))}
-                          >
-                            <SelectTrigger className={`h-8 text-xs ${showError ? "border-red-300 bg-red-50 dark:bg-red-950/20" : ""}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {columnOptions.map(opt => (
-                                <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-
-              {rawRows.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Sample data (first 3 rows):</p>
-                  <div className="overflow-x-auto rounded border text-[10px]">
-                    <table className="w-full">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          {rawHeaders.map((h, i) => (
-                            <th key={i} className="px-2 py-1 text-left font-medium truncate max-w-[90px]">{h || `Col ${i + 1}`}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rawRows.slice(0, 3).map((row, ri) => (
-                          <tr key={ri} className="border-t">
-                            {rawHeaders.map((_, ci) => (
-                              <td key={ci} className="px-2 py-1 text-muted-foreground truncate max-w-[90px]">{row[ci] || ""}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {step === 3 && !importResult && (
             <div className="space-y-3">
-              {autoDetected && (
-                <div className="flex items-center gap-2 rounded-md bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 px-3 py-2 text-xs text-green-700 dark:text-green-400">
-                  <Check className="w-3.5 h-3.5 shrink-0" />
-                  <span>All columns were auto-detected from your file.</span>
-                  <button className="ml-auto flex items-center gap-1 underline underline-offset-2 opacity-70 hover:opacity-100" onClick={() => setStep(2)}>
-                    <Settings2 className="w-3 h-3" /> Adjust
-                  </button>
+              <div
+                className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-primary/50"}`}
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={onDrop}
+                onClick={() => fileRef.current?.click()}
+              >
+                <FileText className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+                <p className="text-sm font-medium mb-1">Drop your CSV file here, or click to browse</p>
+                <p className="text-xs text-muted-foreground">Works with exports from Planday, Deputy, When I Work, Sling, Homebase, and more — including multi-employee files</p>
+                <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+              </div>
+              {parseError && (
+                <div className="rounded-md bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                  {parseError}
                 </div>
               )}
+            </div>
+          )}
 
+          {step === 2 && !importResult && (
+            <div className="space-y-3">
               <div className="flex items-center gap-2 rounded-md bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs text-blue-700 dark:text-blue-400">
                 <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                <span>A backup of your timesheet data will be created automatically before import. You can restore it from <strong>Settings → Backups</strong>.</span>
+                <span>A backup is created automatically before import. Existing entries for these dates will be replaced. You can restore from <strong>Settings → Backups</strong>.</span>
               </div>
 
               <div className="flex gap-3 flex-wrap">
@@ -608,10 +463,10 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
                 <Check className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <p className="font-semibold text-lg">Import complete!</p>
+                <p className="font-semibold text-lg" data-testid="text-import-complete">Import complete!</p>
                 <p className="text-sm text-muted-foreground mt-1">
                   {importResult.created} timesheet{importResult.created !== 1 ? "s" : ""} imported
-                  {importResult.skipped > 0 && `, ${importResult.skipped} skipped (already had entries)`}
+                  {importResult.replaced > 0 && ` (${importResult.replaced} existing entries replaced)`}
                 </p>
               </div>
               {importResult.newEmployees.length > 0 && (
@@ -622,29 +477,31 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
                   </div>
                 </div>
               )}
+              {importResult.newRoles.length > 0 && (
+                <div className="rounded-md bg-muted/40 p-3 text-sm text-left inline-block mx-auto">
+                  <p className="font-medium mb-1.5">New roles created:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {importResult.newRoles.map(n => <span key={n} className="text-xs bg-muted px-1.5 py-0.5 rounded border">{n}</span>)}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <DialogFooter className="pt-3 border-t flex-shrink-0">
           {importResult ? (
-            <Button onClick={handleClose}>Done</Button>
+            <Button onClick={handleClose} data-testid="button-import-done">Done</Button>
           ) : (
             <div className="flex items-center gap-2 w-full">
-              {step > 1 && !importing && (
-                <Button variant="outline" onClick={() => { if (step === 3) setStep(2); else setStep(1); }} className="mr-auto">
+              {step === 2 && !importing && (
+                <Button variant="outline" onClick={() => { setStep(1); setParsedRows([]); setParseError(null); }} className="mr-auto" data-testid="button-import-back">
                   <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Back
                 </Button>
               )}
-              <Button variant="ghost" onClick={handleClose} className="ml-auto" disabled={importing}>Cancel</Button>
-              {step === 2 && (
-                <Button onClick={goToPreview} disabled={isMissing}>
-                  Preview <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                  {isMissing && <span className="ml-1 text-[10px] text-red-200">(Name, Date, Clock In required)</span>}
-                </Button>
-              )}
-              {step === 3 && !importResult && (
-                <Button onClick={handleImport} disabled={importing}>
+              <Button variant="ghost" onClick={handleClose} className="ml-auto" disabled={importing} data-testid="button-import-cancel">Cancel</Button>
+              {step === 2 && !importResult && (
+                <Button onClick={handleImport} disabled={importing} data-testid="button-import-confirm">
                   {importing ? "Importing…" : `Import ${parsedRows.length} rows`}
                 </Button>
               )}

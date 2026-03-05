@@ -1884,7 +1884,7 @@ export default function Timesheets() {
                     </Button>
                   ) : (
                     <div className="flex flex-col gap-2">
-                      <p className="text-[11px] text-center text-muted-foreground font-medium">Are you sure? This will delete all entries for this day.</p>
+                      <p className="text-[11px] text-center text-muted-foreground font-medium">Are you sure? This will delete this timesheet entry.</p>
                       <div className="flex gap-2">
                         <Button 
                           variant="outline" 
@@ -1901,9 +1901,7 @@ export default function Timesheets() {
                           disabled={deleteTimesheetMutation.isPending}
                           onClick={() => {
                             const date = dayEntries.find(e => e.type === "clock-in")?.date as string || format(activeDay, "yyyy-MM-dd");
-                            const rawForDate = entries.filter(e => e.employeeId === emp.id && (typeof e.date === "string" ? e.date.substring(0, 10) : format(new Date(e.date as string), "yyyy-MM-dd")) === date.substring(0, 10));
-                            const allToDelete = [...new Map([...dayEntries, ...rawForDate].map(e => [e.id, e])).values()];
-                            deleteTimesheetMutation.mutate({ employeeId: emp.id, date, entries: allToDelete });
+                            deleteTimesheetMutation.mutate({ employeeId: emp.id, date, entries: dayEntries });
                           }}
                           data-testid="button-delete-timesheet-confirm"
                         >

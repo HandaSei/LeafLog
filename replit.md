@@ -42,6 +42,7 @@ feedback:     id, account_id, message, created_at
 email_verifications: id, email, code, type, account_data (JSONB), account_id, expires_at, used, created_at
 approval_requests: id, employee_id, owner_account_id, type, status, request_data, manager_response, entry_date, created_at, resolved_at
 notifications: id, account_id, type, title, message, data, read, created_at
+timesheet_backups: id, owner_account_id, label, entry_count, snapshot (JSONB), created_at
 session:      managed by connect-pg-simple (auto-created)
 ```
 
@@ -71,7 +72,8 @@ session:      managed by connect-pg-simple (auto-created)
 - `server/routes.ts` - REST API endpoints with role-based middleware and ownership filtering
 - `server/storage.ts` - DatabaseStorage class with Drizzle ORM, multi-tenant queries
 - `server/seed.ts` - Seeds the admin account (FanEcchyy) if no accounts exist
-- `shared/schema.ts` - Drizzle schemas for employees, shifts, accounts, access_codes, time_entries
+- `shared/schema.ts` - Drizzle schemas for employees, shifts, accounts, access_codes, time_entries, timesheet_backups
+- `client/src/components/csv-importer.tsx` - CSV import dialog: 2-step flow (Upload → Preview & Import), auto-detects columns, overwrites existing entries for imported dates
 - `client/public/` - PWA icons (icon-192.png, icon-512.png, apple-touch-icon.png, favicon.png), manifest.json, sw.js (caches JS/CSS/fonts for fast PWA startup)
 - `client/src/App.tsx` - Code-split: Login and SteepIn eagerly loaded; Dashboard/Schedule/Employees/Timesheets/Settings lazy-loaded via React.lazy
 
@@ -148,7 +150,8 @@ session:      managed by connect-pg-simple (auto-created)
 - Timesheets with actual worked hours from steepin clock-in/out entries
 - Access code generation for employee onboarding
 - SteepIn steepin for clock-in/out and break tracking
-- Settings page with custom role management (up to 6 roles per account)
+- Settings page with custom role management (unlimited roles per account)
+- Timesheet backup system: manual + automatic backups before CSV import, restore from Settings → Backups
 - Notification system: bell icon in sidebar, late/early/note/approval alerts with customizable thresholds
 - Employee notes on SteepIn actions (optional text notes on clock-in/out/break)
 - Short-break re-clock detection: when employee clocks in within 35 minutes, option to classify gap as break/working time

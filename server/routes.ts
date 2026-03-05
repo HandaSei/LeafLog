@@ -469,108 +469,124 @@ export async function registerRoutes(
 
   // === CSV IMPORT ===
   router.post("/api/timesheets/import-csv", requireRole("admin", "manager"), async (req, res) => {
-    const ownerAccountId = req.session.userId!;
-    const { rows, timezoneOffset = 0 } = req.body;
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return res.status(400).json({ message: "No rows provided" });
-    }
-
-    // timezoneOffset = new Date().getTimezoneOffset() from the browser
-    // For UTC+1 (Italy) this is -60. To convert local time → UTC: add the offset.
-    const tzOffsetMs = timezoneOffset * 60000;
-
-    const makeTimestamp = (dateStr: string, timeStr: string): Date => {
-      const ts = new Date(`${dateStr}T${timeStr}:00Z`);
-      ts.setTime(ts.getTime() + tzOffsetMs);
-      return ts;
-    };
-
-    // For cross-midnight shifts: determine if a time falls after midnight
-    // relative to the clock-in time. If the shift crosses midnight (clockOut < clockIn),
-    // then any time T < clockIn that falls in the after-midnight portion uses the next calendar day.
-    const resolveCalendarDate = (time: string, clockIn: string, shiftDate: string, isCrossMidnight: boolean): string => {
-      if (!isCrossMidnight) return shiftDate;
-      // In a cross-midnight shift, times < clockIn are on the next calendar day
-      return time < clockIn ? format(addDays(parseISO(shiftDate), 1), "yyyy-MM-dd") : shiftDate;
-    };
-
-    // Auto-backup before import so users can restore if needed
     try {
-      await storage.createTimesheetBackup(ownerAccountId, "Before CSV Import");
-    } catch (_) {}
+      const ownerAccountId = req.session.userId!;
+      const { rows, timezoneOffset = 0 } = req.body;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ message: "No rows provided" });
+      }
 
-    const existingEmployees = await storage.getEmployees(ownerAccountId);
-    const empByName = new Map<string, number>();
-    existingEmployees.forEach(e => empByName.set(e.name.toLowerCase(), e.id));
+      const tzOffsetMs = timezoneOffset * 60000;
 
-    const newEmployeeNames: string[] = [];
-    let created = 0;
-    let skipped = 0;
+      const makeTimestamp = (dateStr: string, timeStr: string): Date => {
+        const ts = new Date(`${dateStr}T${timeStr}:00Z`);
+        ts.setTime(ts.getTime() + tzOffsetMs);
+        return ts;
+      };
 
-    const getOrCreateEmployee = async (name: string): Promise<number> => {
-      const key = name.toLowerCase();
-      if (empByName.has(key)) return empByName.get(key)!;
-      const emp = await storage.createEmployee({
-        name,
-        email: "",
-        phone: "",
-        role: "",
-        department: "",
-        color: "#3B82F6",
-        status: "active",
-        ownerAccountId,
-      });
-      empByName.set(key, emp.id);
-      newEmployeeNames.push(emp.name);
-      return emp.id;
-    };
+      const resolveCalendarDate = (time: string, clockIn: string, shiftDate: string, isCrossMidnight: boolean): string => {
+        if (!isCrossMidnight) return shiftDate;
+        return time < clockIn ? format(addDays(parseISO(shiftDate), 1), "yyyy-MM-dd") : shiftDate;
+      };
 
-    for (const row of rows) {
-      const { employeeName, date, clockIn, clockOut, breaks, role, notes } = row;
-      if (!employeeName || !date || !clockIn) continue;
+      try {
+        await storage.createTimesheetBackup(ownerAccountId, "Before CSV Import");
+      } catch (_) {}
 
-      const employeeId = await getOrCreateEmployee(String(employeeName).trim());
-      const isCrossMidnight = clockOut ? clockOut < clockIn : false;
+      const existingEmployees = await storage.getEmployees(ownerAccountId);
+      const empByName = new Map<string, number>();
+      existingEmployees.forEach(e => empByName.set(e.name.toLowerCase(), e.id));
 
-      // Duplicate check: look for an existing clock-in within 1 minute of this one
-      const clockInTs = makeTimestamp(date, clockIn);
-      const existing = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
-      const alreadyExists = existing.some(e =>
-        e.type === "clock-in" &&
-        Math.abs(new Date(e.timestamp).getTime() - clockInTs.getTime()) < 60000
-      );
-      if (alreadyExists) { skipped++; continue; }
+      const existingRoles = await storage.getCustomRoles(ownerAccountId);
+      const roleByName = new Map<string, boolean>();
+      existingRoles.forEach(r => roleByName.set(r.name.toLowerCase(), true));
 
-      // Clock in — all entries for this shift share the same entry_date (date)
-      await storage.createTimeEntryManual(employeeId, "clock-in", date, clockInTs, role || null, notes || null);
+      const newEmployeeNames: string[] = [];
+      const newRoleNames: string[] = [];
+      let created = 0;
+      let replaced = 0;
 
-      // Break entries — support multiple breaks per shift
-      if (Array.isArray(breaks)) {
-        for (const brk of breaks) {
-          if (!brk.start || !brk.end) continue;
-          const bStartCalendar = resolveCalendarDate(brk.start, clockIn, date, isCrossMidnight);
-          const bEndCalendar = brk.end < brk.start
-            ? format(addDays(parseISO(bStartCalendar), 1), "yyyy-MM-dd")
-            : bStartCalendar;
-          const bStartTs = makeTimestamp(bStartCalendar, brk.start);
-          const bEndTs = makeTimestamp(bEndCalendar, brk.end);
-          // entry_date = shift date for all entries
-          await storage.createTimeEntryManual(employeeId, "break-start", date, bStartTs, null, null, brk.isUnpaid === true);
-          await storage.createTimeEntryManual(employeeId, "break-end", date, bEndTs);
+      const getOrCreateEmployee = async (name: string): Promise<number> => {
+        const key = name.toLowerCase();
+        if (empByName.has(key)) return empByName.get(key)!;
+        const emp = await storage.createEmployee({
+          name,
+          email: "",
+          phone: "",
+          role: "",
+          department: "",
+          color: "#3B82F6",
+          status: "active",
+          ownerAccountId,
+        });
+        empByName.set(key, emp.id);
+        newEmployeeNames.push(emp.name);
+        return emp.id;
+      };
+
+      const ensureRole = async (roleName: string) => {
+        if (!roleName?.trim()) return;
+        const key = roleName.trim().toLowerCase();
+        if (roleByName.has(key)) return;
+        try {
+          await storage.createCustomRole(ownerAccountId, roleName.trim());
+          roleByName.set(key, true);
+          newRoleNames.push(roleName.trim());
+        } catch (_) {}
+      };
+
+      const deletedDates = new Set<string>();
+
+      for (const row of rows) {
+        const { employeeName, date, clockIn, clockOut, breaks, role, notes } = row;
+        if (!employeeName || !date || !clockIn) continue;
+
+        const employeeId = await getOrCreateEmployee(String(employeeName).trim());
+        const isCrossMidnight = clockOut ? clockOut < clockIn : false;
+        const clockInTs = makeTimestamp(date, clockIn);
+
+        if (role) await ensureRole(role);
+
+        const dateKey = `${employeeId}:${date}`;
+        if (!deletedDates.has(dateKey)) {
+          const existing = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
+          if (existing.length > 0) {
+            await storage.deleteTimeEntriesByEmployeeAndDate(employeeId, date);
+            replaced += existing.length;
+          }
+          deletedDates.add(dateKey);
         }
+
+        await storage.createTimeEntryManual(employeeId, "clock-in", date, clockInTs, role || null, notes || null);
+
+        if (Array.isArray(breaks)) {
+          for (const brk of breaks) {
+            if (!brk.start || !brk.end) continue;
+            const bStartCalendar = resolveCalendarDate(brk.start, clockIn, date, isCrossMidnight);
+            const bEndCalendar = brk.end < brk.start
+              ? format(addDays(parseISO(bStartCalendar), 1), "yyyy-MM-dd")
+              : bStartCalendar;
+            const bStartTs = makeTimestamp(bStartCalendar, brk.start);
+            const bEndTs = makeTimestamp(bEndCalendar, brk.end);
+            await storage.createTimeEntryManual(employeeId, "break-start", date, bStartTs, null, null, brk.isUnpaid === true);
+            await storage.createTimeEntryManual(employeeId, "break-end", date, bEndTs);
+          }
+        }
+
+        if (clockOut) {
+          const clockOutCalendar = resolveCalendarDate(clockOut, clockIn, date, isCrossMidnight);
+          const clockOutTs = makeTimestamp(clockOutCalendar, clockOut);
+          await storage.createTimeEntryManual(employeeId, "clock-out", date, clockOutTs, role || null);
+        }
+
+        created++;
       }
 
-      // Clock out — entry_date stays as shift date, timestamp uses next day if needed
-      if (clockOut) {
-        const clockOutCalendar = resolveCalendarDate(clockOut, clockIn, date, isCrossMidnight);
-        const clockOutTs = makeTimestamp(clockOutCalendar, clockOut);
-        await storage.createTimeEntryManual(employeeId, "clock-out", date, clockOutTs, role || null);
-      }
-
-      created++;
+      res.json({ created, replaced, newEmployees: newEmployeeNames, newRoles: newRoleNames });
+    } catch (err: any) {
+      console.error("CSV import error:", err);
+      res.status(500).json({ message: err.message || "Import failed" });
     }
-
-    res.json({ created, skipped, newEmployees: newEmployeeNames });
   });
 
   // === TIMESHEET BACKUPS ===
@@ -626,9 +642,6 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Role name is required" });
     }
     const existing = await storage.getCustomRoles(req.session.userId!);
-    if (existing.length >= 6) {
-      return res.status(400).json({ message: "Maximum of 6 roles allowed" });
-    }
     const duplicate = existing.find((r) => r.name.toLowerCase() === name.trim().toLowerCase());
     if (duplicate) {
       return res.status(400).json({ message: "A role with this name already exists" });

@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ROLE_COLORS } from "@/lib/constants";
 
-const MAX_ROLES = 6;
 
 export default function SettingsPage() {
   const [, setLocation] = useLocation();
@@ -262,7 +261,6 @@ export default function SettingsPage() {
     updateMutation.mutate({ id: editingId, name: editingName.trim(), color: editingColor });
   };
 
-  const atLimit = roles.length >= MAX_ROLES;
 
   return (
     <div className="flex flex-col h-full overflow-auto p-6 max-w-2xl mx-auto space-y-6">
@@ -552,11 +550,11 @@ export default function SettingsPage() {
                 <div>
                   <CardTitle className="text-base">Employee Roles</CardTitle>
                   <CardDescription className="text-xs mt-0.5">
-                    Define up to {MAX_ROLES} roles for your team members
+                    Define roles for your team members
                   </CardDescription>
                 </div>
-                <Badge variant={atLimit ? "destructive" : "secondary"} className="text-xs" data-testid="badge-role-count">
-                  {roles.length} / {MAX_ROLES}
+                <Badge variant="secondary" className="text-xs" data-testid="badge-role-count">
+                  {roles.length} roles
                 </Badge>
               </div>
             </CardHeader>
@@ -661,7 +659,7 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              {!atLimit && (
+              {(
                 <form onSubmit={handleAdd} className="flex gap-2 pt-1">
                   <label className="relative cursor-pointer flex-shrink-0" title="Pick color">
                     <div
@@ -697,11 +695,6 @@ export default function SettingsPage() {
                 </form>
               )}
 
-              {atLimit && (
-                <p className="text-xs text-muted-foreground text-center pt-1">
-                  Maximum of {MAX_ROLES} roles reached. Remove one to add a new role.
-                </p>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
