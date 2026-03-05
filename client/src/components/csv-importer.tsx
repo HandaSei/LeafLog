@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { format, parse, isValid, addDays, parseISO } from "date-fns";
-import { Upload, FileText, ChevronLeft, Check, Users, ShieldCheck, FlaskConical } from "lucide-react";
+import { Upload, FileText, ChevronLeft, Check, Users, ShieldCheck, FlaskConical, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -204,15 +204,40 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
   const [importSlow, setImportSlow] = useState(false);
   const [importResult, setImportResult] = useState<{ created: number; replaced: number; newEmployees: string[]; newRoles: string[] } | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (importing) {
+      setElapsed(0);
+      elapsedTimerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    } else {
+      if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    }
+    return () => { if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current); };
+  }, [importing]);
+
+  useEffect(() => {
+    if (!importing) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "An import is in progress. If you leave now, the import may still finish in the background, but you will lose track of it. Are you sure?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [importing]);
 
   const resetState = () => {
     setStep(1); setParsedRows([]);
     setImportResult(null); setImporting(false); setImportSlow(false); setParseError(null);
+    setElapsed(0);
     if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
   };
 
   const buildParsedRows = (m: ColumnMapping, rows: string[][]): ParsedRow[] => {
@@ -390,7 +415,35 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
             </div>
           )}
 
-          {step === 2 && !importResult && (
+          {step === 2 && importing && (
+            <div className="flex flex-col items-center justify-center py-10 gap-5">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                <p className="font-semibold text-base">Importing {parsedRows.length} rows…</p>
+                <p className="text-sm text-muted-foreground">
+                  {elapsed < 5
+                    ? "Creating backup and preparing data…"
+                    : elapsed < 15
+                    ? "Writing entries to the database…"
+                    : "Still working, almost there…"}
+                </p>
+              </div>
+              <div className="w-full max-w-sm space-y-1.5">
+                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-1000"
+                    style={{ width: `${Math.min(95, elapsed * (elapsed < 10 ? 8 : elapsed < 20 ? 4 : 1.5))}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground text-center">{elapsed}s elapsed</p>
+              </div>
+              <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 text-center max-w-sm">
+                Don't close or reload this tab — the import is running. If you close it, the import may still finish in the background but you won't see the result.
+              </div>
+            </div>
+          )}
+
+          {step === 2 && !importing && !importResult && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 rounded-md bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs text-blue-700 dark:text-blue-400">
                 <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
@@ -500,25 +553,20 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
           {importResult ? (
             <Button onClick={handleClose} data-testid="button-import-done">Done</Button>
           ) : (
-            <div className="flex flex-col gap-2 w-full">
-              {importSlow && (
-                <p className="text-xs text-muted-foreground text-center">
-                  Import is taking a moment… You can close this dialog — the import will finish in the background.
-                </p>
+            <div className="flex items-center gap-2 w-full">
+              {step === 2 && !importing && (
+                <Button variant="outline" onClick={() => { setStep(1); setParsedRows([]); setParseError(null); }} className="mr-auto" data-testid="button-import-back">
+                  <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Back
+                </Button>
               )}
-              <div className="flex items-center gap-2 w-full">
-                {step === 2 && !importing && (
-                  <Button variant="outline" onClick={() => { setStep(1); setParsedRows([]); setParseError(null); }} className="mr-auto" data-testid="button-import-back">
-                    <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Back
-                  </Button>
-                )}
-                <Button variant="ghost" onClick={handleClose} className="ml-auto" data-testid="button-import-cancel">Cancel</Button>
-                {step === 2 && !importResult && (
-                  <Button onClick={handleImport} disabled={importing} data-testid="button-import-confirm">
-                    {importing ? "Importing…" : `Import ${parsedRows.length} rows`}
-                  </Button>
-                )}
-              </div>
+              <Button variant="ghost" onClick={handleClose} className="ml-auto" data-testid="button-import-cancel">
+                {importing ? "Close" : "Cancel"}
+              </Button>
+              {step === 2 && !importing && (
+                <Button onClick={handleImport} data-testid="button-import-confirm">
+                  Import {parsedRows.length} rows
+                </Button>
+              )}
             </div>
           )}
         </DialogFooter>
