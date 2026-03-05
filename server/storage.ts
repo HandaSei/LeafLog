@@ -76,6 +76,8 @@ export interface IStorage {
   updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
   deleteTimeEntry(id: number): Promise<void>;
   deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void>;
+  batchDeleteTimeEntriesByIds(ids: number[], ownerAccountId: number): Promise<void>;
+  batchCreateTimeEntries(entries: Array<{ employeeId: number; type: string; date: string; timestamp: Date; role?: string | null; notes?: string | null; isUnpaid?: boolean }>): Promise<void>;
   getEmployeeIdsByOwner(ownerAccountId: number): Promise<number[]>;
 
   getCustomRoles(ownerAccountId: number): Promise<CustomRole[]>;
@@ -457,6 +459,34 @@ export class DatabaseStorage implements IStorage {
       "DELETE FROM time_entries WHERE employee_id = $1 AND entry_date = $2",
       [employeeId, date]
     );
+  }
+
+  async batchDeleteTimeEntriesByIds(ids: number[], ownerAccountId: number): Promise<void> {
+    if (ids.length === 0) return;
+    await pool.query(
+      "DELETE FROM time_entries WHERE id = ANY($1) AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $2)",
+      [ids, ownerAccountId]
+    );
+  }
+
+  async batchCreateTimeEntries(entries: Array<{ employeeId: number; type: string; date: string; timestamp: Date; role?: string | null; notes?: string | null; isUnpaid?: boolean }>): Promise<void> {
+    if (entries.length === 0) return;
+    const CHUNK = 200;
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const chunk = entries.slice(i, i + CHUNK);
+      const values = chunk.map((_, j) => {
+        const b = j * 7;
+        return `($${b+1}, $${b+2}, $${b+3}, $${b+4}, $${b+5}, $${b+6}, $${b+7})`;
+      }).join(", ");
+      const params = chunk.flatMap(e => [
+        e.employeeId, e.type, e.timestamp, e.date,
+        e.role ?? null, e.notes ?? null, e.isUnpaid ?? false
+      ]);
+      await pool.query(
+        `INSERT INTO time_entries (employee_id, type, timestamp, entry_date, role, notes, is_unpaid) VALUES ${values}`,
+        params
+      );
+    }
   }
 
   async getCustomRoles(ownerAccountId: number): Promise<CustomRole[]> {

@@ -560,9 +560,9 @@ export default function Timesheets() {
 
   const deleteTimesheetMutation = useMutation({
     mutationFn: async (data: { employeeId: number; date: string; entries: TimeEntry[] }) => {
-      for (const entry of data.entries) {
-        await apiRequest("DELETE", `/api/steepin/entries/${entry.id}`);
-      }
+      const ids = data.entries.map(e => e.id);
+      if (ids.length === 0) return;
+      await apiRequest("POST", "/api/steepin/entries/delete-batch", { ids });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });

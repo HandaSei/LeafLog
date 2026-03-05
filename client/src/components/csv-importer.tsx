@@ -201,15 +201,18 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
   const [step, setStep] = useState<1 | 2>(1);
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [importing, setImporting] = useState(false);
+  const [importSlow, setImportSlow] = useState(false);
   const [importResult, setImportResult] = useState<{ created: number; replaced: number; newEmployees: string[]; newRoles: string[] } | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
 
   const resetState = () => {
     setStep(1); setParsedRows([]);
-    setImportResult(null); setImporting(false); setParseError(null);
+    setImportResult(null); setImporting(false); setImportSlow(false); setParseError(null);
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
   };
 
   const buildParsedRows = (m: ColumnMapping, rows: string[][]): ParsedRow[] => {
@@ -312,6 +315,8 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
 
   const handleImport = async () => {
     setImporting(true);
+    setImportSlow(false);
+    slowTimerRef.current = setTimeout(() => setImportSlow(true), 8000);
     try {
       const res = await apiRequest("POST", "/api/timesheets/import-csv", {
         rows: parsedRows,
@@ -327,6 +332,8 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
       toast({ title: "Import failed", description: err.message, variant: "destructive" });
     } finally {
       setImporting(false);
+      setImportSlow(false);
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
     }
   };
 
@@ -493,18 +500,25 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
           {importResult ? (
             <Button onClick={handleClose} data-testid="button-import-done">Done</Button>
           ) : (
-            <div className="flex items-center gap-2 w-full">
-              {step === 2 && !importing && (
-                <Button variant="outline" onClick={() => { setStep(1); setParsedRows([]); setParseError(null); }} className="mr-auto" data-testid="button-import-back">
-                  <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Back
-                </Button>
+            <div className="flex flex-col gap-2 w-full">
+              {importSlow && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Import is taking a moment… You can close this dialog — the import will finish in the background.
+                </p>
               )}
-              <Button variant="ghost" onClick={handleClose} className="ml-auto" disabled={importing} data-testid="button-import-cancel">Cancel</Button>
-              {step === 2 && !importResult && (
-                <Button onClick={handleImport} disabled={importing} data-testid="button-import-confirm">
-                  {importing ? "Importing…" : `Import ${parsedRows.length} rows`}
-                </Button>
-              )}
+              <div className="flex items-center gap-2 w-full">
+                {step === 2 && !importing && (
+                  <Button variant="outline" onClick={() => { setStep(1); setParsedRows([]); setParseError(null); }} className="mr-auto" data-testid="button-import-back">
+                    <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Back
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={handleClose} className="ml-auto" data-testid="button-import-cancel">Cancel</Button>
+                {step === 2 && !importResult && (
+                  <Button onClick={handleImport} disabled={importing} data-testid="button-import-confirm">
+                    {importing ? "Importing…" : `Import ${parsedRows.length} rows`}
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </DialogFooter>

@@ -467,6 +467,15 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  router.post("/api/steepin/entries/delete-batch", requireRole("admin", "manager"), async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: "No IDs provided" });
+    }
+    await storage.batchDeleteTimeEntriesByIds(ids.map(Number), req.session.userId!);
+    res.status(204).send();
+  });
+
   // === CSV IMPORT ===
   router.post("/api/timesheets/import-csv", requireRole("admin", "manager"), async (req, res) => {
     try {
@@ -536,6 +545,7 @@ export async function registerRoutes(
       };
 
       const deletedDates = new Set<string>();
+      const toInsert: Array<{ employeeId: number; type: string; date: string; timestamp: Date; role?: string | null; notes?: string | null; isUnpaid?: boolean }> = [];
 
       for (const row of rows) {
         const { employeeName, date, clockIn, clockOut, breaks, role, notes } = row;
@@ -557,7 +567,7 @@ export async function registerRoutes(
           deletedDates.add(dateKey);
         }
 
-        await storage.createTimeEntryManual(employeeId, "clock-in", date, clockInTs, role || null, notes || null);
+        toInsert.push({ employeeId, type: "clock-in", date, timestamp: clockInTs, role: role || null, notes: notes || null });
 
         if (Array.isArray(breaks)) {
           for (const brk of breaks) {
@@ -566,21 +576,20 @@ export async function registerRoutes(
             const bEndCalendar = brk.end < brk.start
               ? format(addDays(parseISO(bStartCalendar), 1), "yyyy-MM-dd")
               : bStartCalendar;
-            const bStartTs = makeTimestamp(bStartCalendar, brk.start);
-            const bEndTs = makeTimestamp(bEndCalendar, brk.end);
-            await storage.createTimeEntryManual(employeeId, "break-start", date, bStartTs, null, null, brk.isUnpaid === true);
-            await storage.createTimeEntryManual(employeeId, "break-end", date, bEndTs);
+            toInsert.push({ employeeId, type: "break-start", date, timestamp: makeTimestamp(bStartCalendar, brk.start), isUnpaid: brk.isUnpaid === true });
+            toInsert.push({ employeeId, type: "break-end", date, timestamp: makeTimestamp(bEndCalendar, brk.end) });
           }
         }
 
         if (clockOut) {
           const clockOutCalendar = resolveCalendarDate(clockOut, clockIn, date, isCrossMidnight);
-          const clockOutTs = makeTimestamp(clockOutCalendar, clockOut);
-          await storage.createTimeEntryManual(employeeId, "clock-out", date, clockOutTs, role || null);
+          toInsert.push({ employeeId, type: "clock-out", date, timestamp: makeTimestamp(clockOutCalendar, clockOut), role: role || null });
         }
 
         created++;
       }
+
+      await storage.batchCreateTimeEntries(toInsert);
 
       res.json({ created, replaced, newEmployees: newEmployeeNames, newRoles: newRoleNames });
     } catch (err: any) {
