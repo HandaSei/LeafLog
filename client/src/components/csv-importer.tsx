@@ -201,31 +201,18 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
   const [step, setStep] = useState<1 | 2>(1);
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [importing, setImporting] = useState(false);
-  const [importSlow, setImportSlow] = useState(false);
   const [importResult, setImportResult] = useState<{ created: number; replaced: number; newEmployees: string[]; newRoles: string[] } | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
+  const [importedRows, setImportedRows] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
-
-  useEffect(() => {
-    if (importing) {
-      setElapsed(0);
-      elapsedTimerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
-    } else {
-      if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
-    }
-    return () => { if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current); };
-  }, [importing]);
 
   useEffect(() => {
     if (!importing) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
-      e.returnValue = "An import is in progress. If you leave now, the import may still finish in the background, but you will lose track of it. Are you sure?";
+      e.returnValue = "An import is in progress. If you reload now, you will lose track of the progress. The import may still finish in the background.";
       return e.returnValue;
     };
     window.addEventListener("beforeunload", handler);
@@ -234,10 +221,19 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
 
   const resetState = () => {
     setStep(1); setParsedRows([]);
-    setImportResult(null); setImporting(false); setImportSlow(false); setParseError(null);
-    setElapsed(0);
-    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
-    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    setImportResult(null); setImporting(false); setParseError(null);
+    setImportedRows(0);
+  };
+
+  const handleClose = () => {
+    if (importing) {
+      const confirmed = window.confirm(
+        "An import is in progress. If you close this window, you will lose track of the result — the import may still finish in the background.\n\nClose anyway?"
+      );
+      if (!confirmed) return;
+    }
+    resetState();
+    onClose();
   };
 
   const buildParsedRows = (m: ColumnMapping, rows: string[][]): ParsedRow[] => {
@@ -338,17 +334,39 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
     if (file) handleFile(file);
   }, []);
 
+  const CHUNK_SIZE = 30;
+
   const handleImport = async () => {
     setImporting(true);
-    setImportSlow(false);
-    slowTimerRef.current = setTimeout(() => setImportSlow(true), 8000);
+    setImportedRows(0);
+    const tzOffset = new Date().getTimezoneOffset();
+    const chunks: ParsedRow[][] = [];
+    for (let i = 0; i < parsedRows.length; i += CHUNK_SIZE) {
+      chunks.push(parsedRows.slice(i, i + CHUNK_SIZE));
+    }
+    let totalCreated = 0;
+    let totalReplaced = 0;
+    const allNewEmployees: string[] = [];
+    const allNewRoles: string[] = [];
     try {
-      const res = await apiRequest("POST", "/api/timesheets/import-csv", {
-        rows: parsedRows,
-        timezoneOffset: new Date().getTimezoneOffset(),
-      });
-      const data = await res.json();
-      setImportResult(data);
+      for (let ci = 0; ci < chunks.length; ci++) {
+        const res = await apiRequest("POST", "/api/timesheets/import-csv", {
+          rows: chunks[ci],
+          timezoneOffset: tzOffset,
+          skipBackup: ci > 0,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: "Import failed" }));
+          throw new Error(err.message || "Import failed");
+        }
+        const data = await res.json();
+        totalCreated += data.created ?? 0;
+        totalReplaced += data.replaced ?? 0;
+        data.newEmployees?.forEach((n: string) => { if (!allNewEmployees.includes(n)) allNewEmployees.push(n); });
+        data.newRoles?.forEach((n: string) => { if (!allNewRoles.includes(n)) allNewRoles.push(n); });
+        setImportedRows(Math.min((ci + 1) * CHUNK_SIZE, parsedRows.length));
+      }
+      setImportResult({ created: totalCreated, replaced: totalReplaced, newEmployees: allNewEmployees, newRoles: allNewRoles });
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
@@ -357,8 +375,6 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
       toast({ title: "Import failed", description: err.message, variant: "destructive" });
     } finally {
       setImporting(false);
-      setImportSlow(false);
-      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
     }
   };
 
@@ -366,8 +382,6 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
     .map(r => r.employeeName.toLowerCase())
     .filter(n => !employees.some(e => e.name.toLowerCase() === n))
   )];
-
-  const handleClose = () => { resetState(); onClose(); };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -419,23 +433,27 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
             <div className="flex flex-col items-center justify-center py-10 gap-5">
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="w-10 h-10 text-primary animate-spin" />
-                <p className="font-semibold text-base">Importing {parsedRows.length} rows…</p>
+                <p className="font-semibold text-base">
+                  Importing {importedRows} / {parsedRows.length} rows…
+                </p>
                 <p className="text-sm text-muted-foreground">
-                  {elapsed < 5
+                  {importedRows === 0
                     ? "Creating backup and preparing data…"
-                    : elapsed < 15
+                    : importedRows < parsedRows.length
                     ? "Writing entries to the database…"
-                    : "Still working, almost there…"}
+                    : "Finalising…"}
                 </p>
               </div>
               <div className="w-full max-w-sm space-y-1.5">
-                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden">
                   <div
-                    className="h-full bg-primary rounded-full transition-all duration-1000"
-                    style={{ width: `${Math.min(95, elapsed * (elapsed < 10 ? 8 : elapsed < 20 ? 4 : 1.5))}%` }}
+                    className="h-full bg-primary rounded-full transition-all duration-500"
+                    style={{ width: `${parsedRows.length === 0 ? 0 : Math.round((importedRows / parsedRows.length) * 100)}%` }}
                   />
                 </div>
-                <p className="text-xs text-muted-foreground text-center">{elapsed}s elapsed</p>
+                <p className="text-xs text-muted-foreground text-center font-medium">
+                  {parsedRows.length === 0 ? 0 : Math.round((importedRows / parsedRows.length) * 100)}%
+                </p>
               </div>
               <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 text-center max-w-sm">
                 Don't close or reload this tab — the import is running. If you close it, the import may still finish in the background but you won't see the result.

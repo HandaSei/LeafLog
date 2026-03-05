@@ -480,7 +480,7 @@ export async function registerRoutes(
   router.post("/api/timesheets/import-csv", requireRole("admin", "manager"), async (req, res) => {
     try {
       const ownerAccountId = req.session.userId!;
-      const { rows, timezoneOffset = 0 } = req.body;
+      const { rows, timezoneOffset = 0, skipBackup = false } = req.body;
       if (!Array.isArray(rows) || rows.length === 0) {
         return res.status(400).json({ message: "No rows provided" });
       }
@@ -498,9 +498,11 @@ export async function registerRoutes(
         return time < clockIn ? format(addDays(parseISO(shiftDate), 1), "yyyy-MM-dd") : shiftDate;
       };
 
-      try {
-        await storage.createTimesheetBackup(ownerAccountId, "Before CSV Import");
-      } catch (_) {}
+      if (!skipBackup) {
+        try {
+          await storage.createTimesheetBackup(ownerAccountId, "Before CSV Import");
+        } catch (_) {}
+      }
 
       const existingEmployees = await storage.getEmployees(ownerAccountId);
       const empByName = new Map<string, number>();
