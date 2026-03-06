@@ -468,13 +468,9 @@ export default function SteepInPage() {
 
   const exitMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/auth/steepin-exit", { 
-        username: exitUsername, 
-        password: exitPassword 
-      });
+      await exitSteepIn(exitUsername, exitPassword);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       setExitDialogOpen(false);
       setExitUsername("");
       setExitPassword("");
@@ -756,7 +752,10 @@ export default function SteepInPage() {
               </div>
             )}
             
-            <form onSubmit={submitPasscode} className="space-y-4">
+            <form onSubmit={submitPasscode} className="space-y-4" autoComplete="off" data-form-type="other">
+              {/* Honeypot fields to trick password managers */}
+              <input type="text" name="trap_code_1" tabIndex={-1} autoComplete="off" className="sr-only" aria-hidden="true" />
+              <input type="password" name="trap_code_2" tabIndex={-1} autoComplete="off" className="sr-only" aria-hidden="true" />
               <PinPad 
                 value={passcode} 
                 onChange={setPasscode} 
@@ -776,6 +775,11 @@ export default function SteepInPage() {
                   className="h-16 text-sm resize-none rounded-xl"
                   maxLength={200}
                   data-testid="input-steepin-note"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore=""
+                  data-bwignore=""
+                  data-form-type="other"
                 />
               </div>
               

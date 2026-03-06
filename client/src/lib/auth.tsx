@@ -64,7 +64,7 @@ interface AuthContextType {
   upgradeEmployee: (username: string, password: string, email: string) => Promise<any>;
   verifyEmployeeUpgrade: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
-  exitSteepIn: () => Promise<void>;
+  exitSteepIn: (username: string, password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -167,8 +167,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const exitSteepInMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/auth/steepin-exit");
+    mutationFn: async ({ username, password }: { username: string; password: string }) => {
+      await apiRequest("POST", "/api/auth/steepin-exit", { username, password });
     },
     onSuccess: () => {
       queryClient.clear();
@@ -216,8 +216,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await logoutMutation.mutateAsync();
   }, [logoutMutation]);
 
-  const exitSteepIn = useCallback(async () => {
-    await exitSteepInMutation.mutateAsync();
+  const exitSteepIn = useCallback(async (username: string, password: string) => {
+    await exitSteepInMutation.mutateAsync({ username, password });
   }, [exitSteepInMutation]);
 
   const user = authState?.authenticated ? authState.user : null;
