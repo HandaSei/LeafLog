@@ -6,6 +6,55 @@ import { storage, pool } from "./storage";
 import { insertEmployeeSchema, insertShiftSchema, breakPolicySchema, notificationSettingsSchema } from "@shared/schema";
 import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./auth";
 import { format, subDays, addDays, parseISO, differenceInMinutes } from "date-fns";
+import { addSSEClient, removeSSEClient, broadcastEntryUpdate } from "./sse";
+
+const autoCloseCache = new Map<number, number>();
+const AUTO_CLOSE_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+
+async function autoCloseStaleSession(employeeId: number): Promise<void> {
+  const now = Date.now();
+  const lastCheck = autoCloseCache.get(employeeId);
+  if (lastCheck && now - lastCheck < AUTO_CLOSE_CACHE_TTL_MS) {
+    return;
+  }
+  autoCloseCache.set(employeeId, now);
+
+  const openDate = await storage.getOpenSessionDate(employeeId);
+  if (!openDate) return;
+
+  const entries = await storage.getTimeEntriesByEmployeeAndDate(employeeId, openDate);
+  const clockIns = entries.filter((e) => e.type === "clock-in");
+  if (clockIns.length === 0) return;
+
+  const lastClockIn = clockIns[clockIns.length - 1];
+  const lastClockInTime = new Date(lastClockIn.timestamp);
+  const nowDate = new Date();
+  const hoursOpen = differenceInMinutes(nowDate, lastClockInTime) / 60;
+
+  // Extend limit to 24h if the employee took a break after 10h (signaling they're actually still working)
+  const breakAfter10h = entries.some(
+    (e) =>
+      e.type === "break-start" &&
+      new Date(e.timestamp).getTime() > lastClockInTime.getTime() + 10 * 60 * 60 * 1000
+  );
+  const limitHours = breakAfter10h ? 24 : 16;
+
+  if (hoursOpen > limitHours) {
+    const closeTime = new Date(lastClockInTime.getTime() + limitHours * 60 * 60 * 1000);
+    const closeDate = format(closeTime, "yyyy-MM-dd");
+    await storage.createTimeEntryManual(
+      employeeId,
+      "clock-out",
+      closeDate,
+      closeTime,
+      null,
+      `auto-closed after ${limitHours}h`,
+      false,
+      "auto-close"
+    );
+    broadcastEntryUpdate(employeeId, { type: "clock-out", timestamp: closeTime.toISOString(), source: "auto-close" });
+  }
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -156,6 +205,26 @@ export async function registerRoutes(
         return res.status(409).json({ message: `This overnight shift overlaps with an existing shift on the next day (${nextConflict.startTime.slice(0,5)}–${nextConflict.endTime.slice(0,5)}) for this employee.` });
       }
     }
+    // Proximity warning: new shift is within 20 minutes of an existing shift (non-overlapping)
+    if (!req.body.allowProximity) {
+      const nearbyShift = existingShifts.find((s) => {
+        if (excludeId && s.id === excludeId) return false;
+        const sStart = toMinutes(s.startTime);
+        const sEnd = toMinutes(s.endTime);
+        const sEndAdj = sEnd <= sStart ? sEnd + 1440 : sEnd;
+        const gapAfterExisting = newStart - sEndAdj;   // gap: existing ends, new starts
+        const gapBeforeExisting = sStart - newEndAdj;  // gap: new ends, existing starts
+        return (gapAfterExisting >= 0 && gapAfterExisting < 20) ||
+               (gapBeforeExisting >= 0 && gapBeforeExisting < 20);
+      });
+      if (nearbyShift) {
+        return res.status(409).json({
+          type: "proximity-warning",
+          nearbyShift: { id: nearbyShift.id, startTime: nearbyShift.startTime.slice(0, 5), endTime: nearbyShift.endTime.slice(0, 5) },
+          message: `This shift is less than 20 minutes away from an existing shift (${nearbyShift.startTime.slice(0,5)}–${nearbyShift.endTime.slice(0,5)}). Consider merging them into one shift instead.`,
+        });
+      }
+    }
     const shift = await storage.createShift(parsed.data);
     res.status(201).json(shift);
   });
@@ -228,11 +297,11 @@ export async function registerRoutes(
   router.get("/api/steepin/employees", requireAuth, async (req, res) => {
     const ownerAccountId = req.session.userId!;
     const emps = await storage.getEmployees(ownerAccountId);
-    // Use is_active for DB filter, but Drizzle might map it to isActive
-    res.json(emps.filter(e => e.status === "active"));
+    res.json(emps.filter(e => e.status === "active" && !e.hiddenFromSteepin));
   });
 
   router.get("/api/steepin/entries/:employeeId", async (req, res) => {
+    await autoCloseStaleSession(Number(req.params.employeeId));
     const todayStr = format(new Date(), "yyyy-MM-dd");
     let entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), todayStr);
     const lastType = entries.length > 0 ? entries[entries.length - 1].type : null;
@@ -244,6 +313,34 @@ export async function registerRoutes(
       }
     }
     res.json(entries);
+  });
+
+  // Legacy check endpoint — replaced by SSE stream. Returns static response
+  // to prevent old clients from hammering the database.
+  router.get("/api/steepin/entries/:employeeId/check", (_req, res) => {
+    res.json({ deprecated: true, useStream: true });
+  });
+
+  router.get("/api/steepin/entries/:employeeId/stream", (req, res) => {
+    const employeeId = Number(req.params.employeeId);
+    if (isNaN(employeeId)) {
+      return res.status(400).json({ message: "Invalid employee ID" });
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    res.write(`event: connected\ndata: ${JSON.stringify({ employeeId })}\n\n`);
+
+    const client = addSSEClient(employeeId, res);
+
+    req.on("close", () => {
+      removeSSEClient(client);
+    });
   });
 
   router.get("/api/steepin/open-sessions", requireAuth, async (req, res) => {
@@ -269,7 +366,7 @@ export async function registerRoutes(
   });
 
   router.post("/api/steepin/action", async (req, res) => {
-    const { employeeId, type, passcode, notes, reClockAction, skipReClockCheck } = req.body;
+    const { employeeId, type, passcode, notes, offlineTimestamp } = req.body;
     if (!employeeId || !type || !passcode) {
       return res.status(400).json({ message: "Employee ID, action type, and passcode are required" });
     }
@@ -281,78 +378,158 @@ export async function registerRoutes(
       return res.status(401).json({ message: "Invalid passcode" });
     }
 
-    let date = format(new Date(), "yyyy-MM-dd");
-    if (type !== "clock-in") {
-      const openDate = await storage.getOpenSessionDate(Number(employeeId));
-      if (openDate) date = openDate;
+    const actionTime = offlineTimestamp ? new Date(offlineTimestamp) : new Date();
+
+    // Auto-close stale open sessions before processing any action
+    await autoCloseStaleSession(Number(employeeId));
+    const maxDriftMs = 24 * 60 * 60 * 1000;
+    if (offlineTimestamp && Math.abs(actionTime.getTime() - Date.now()) > maxDriftMs) {
+      return res.status(400).json({ message: "Offline timestamp too far from current time" });
     }
 
-    if (type === "clock-in" && !skipReClockCheck) {
-      const lastClockOut = await storage.getLastClockOutForEmployee(Number(employeeId));
-      if (lastClockOut) {
-        const minutesSince = differenceInMinutes(new Date(), new Date(lastClockOut.timestamp));
-        if (minutesSince < 35) {
-          const todayStr = format(new Date(), "yyyy-MM-dd");
+    let date = format(actionTime, "yyyy-MM-dd");
+    if (type !== "clock-in") {
+      const openDate = await storage.getOpenSessionDate(Number(employeeId));
+      if (openDate) {
+        date = openDate;
+      } else {
+        return res.status(409).json({ message: `Cannot ${type}: no active shift found` });
+      }
+
+      // Fetch all entries for the open session by timestamp window (handles cross-midnight sessions
+      // where break-end / clock-out land on a later calendar date than the original clock-in).
+      const sessionStartRow = await pool.query(
+        `SELECT timestamp FROM time_entries
+         WHERE employee_id = $1 AND entry_date = $2 AND type = 'clock-in'
+         ORDER BY timestamp DESC LIMIT 1`,
+        [Number(employeeId), openDate]
+      );
+      const sessionStartTs = sessionStartRow.rows[0]?.timestamp;
+      const sessionEntries = sessionStartTs
+        ? await pool.query(
+            `SELECT type FROM time_entries
+             WHERE employee_id = $1 AND timestamp >= $2
+             ORDER BY timestamp ASC`,
+            [Number(employeeId), sessionStartTs]
+          )
+        : { rows: [] as any[] };
+      const types = sessionEntries.rows.map((r: any) => r.type);
+      const lastType = types.length > 0 ? types[types.length - 1] : null;
+
+      if (type === "clock-out" && (lastType === "clock-out" || !types.includes("clock-in"))) {
+        return res.status(409).json({ message: "Cannot clock out: employee is not clocked in" });
+      }
+      if (type === "break-start" && lastType !== "clock-in" && lastType !== "break-end") {
+        return res.status(409).json({ message: "Cannot start break: employee is not in an active shift or already on break" });
+      }
+      if (type === "break-end" && lastType !== "break-start") {
+        return res.status(409).json({ message: "Cannot end break: employee is not on break" });
+      }
+    }
+
+    if (type === "clock-in") {
+      const existingOpenDate = await storage.getOpenSessionDate(Number(employeeId));
+      if (existingOpenDate) {
+        const todayStr = format(actionTime, "yyyy-MM-dd");
+        let shouldAutoClose = false;
+        let autoCloseTime: Date;
+        let autoCloseDate: string;
+
+        if (existingOpenDate !== todayStr) {
+          // Open session is from a previous day — auto-close it at 23:59:59 of that day
+          shouldAutoClose = true;
+          autoCloseDate = existingOpenDate;
+          const prevDay = parseISO(existingOpenDate);
+          autoCloseTime = new Date(prevDay);
+          autoCloseTime.setHours(23, 59, 59, 0);
+        } else {
+          // Open session is from today — auto-close if a scheduled shift starts within 15 minutes,
+          // but NOT if that shift is part of a proximity pair (< 20 min from another shift)
           const shiftsToday = await storage.getShiftsByEmployeeAndDate(Number(employeeId), todayStr);
-          const now = new Date();
-          const nowMinutes = now.getHours() * 60 + now.getMinutes();
-          const hasNearbyShift = shiftsToday.some((s) => {
-            const [h, m] = s.startTime.split(":").map(Number);
-            return Math.abs(h * 60 + m - nowMinutes) <= 30;
+          const nowMinutes = actionTime.getHours() * 60 + actionTime.getMinutes();
+          const tmins = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+          const immediateShift = shiftsToday.find((s) => {
+            const diff = tmins(s.startTime) - nowMinutes;
+            return diff >= -5 && diff <= 15;
           });
-
-          if (!hasNearbyShift && !reClockAction) {
-            return res.status(200).json({
-              reClockDetected: true,
-              lastClockOutTime: lastClockOut.timestamp,
-              lastClockOutId: lastClockOut.id,
-              lastClockOutDate: lastClockOut.date,
-              minutesSince,
+          if (immediateShift) {
+            // Check if the upcoming shift is within 20 min of another shift (proximity pair)
+            const iStart = tmins(immediateShift.startTime);
+            const iEnd = tmins(immediateShift.endTime);
+            const iEndAdj = iEnd <= iStart ? iEnd + 1440 : iEnd;
+            const isProximityPair = shiftsToday.some((other) => {
+              if (other.id === immediateShift.id) return false;
+              const oStart = tmins(other.startTime);
+              const oEnd = tmins(other.endTime);
+              const oEndAdj = oEnd <= oStart ? oEnd + 1440 : oEnd;
+              const gapAfter = iStart - oEndAdj;
+              const gapBefore = oStart - iEndAdj;
+              return (gapAfter >= 0 && gapAfter < 20) || (gapBefore >= 0 && gapBefore < 20);
             });
-          }
-
-          if (reClockAction && reClockAction !== "new-shift") {
-            await storage.deleteTimeEntry(lastClockOut.id);
-            const clockOutDate = lastClockOut.date;
-
-            if (reClockAction === "break") {
-              await storage.createTimeEntryManual(Number(employeeId), "break-start", clockOutDate, new Date(lastClockOut.timestamp));
-              await storage.createTimeEntryManual(Number(employeeId), "break-end", clockOutDate, new Date());
+            if (!isProximityPair) {
+              shouldAutoClose = true;
+              autoCloseDate = todayStr;
+              autoCloseTime = actionTime;
             }
-
-            if (emp.ownerAccountId) {
-              const approval = await storage.createApprovalRequest({
-                employeeId: Number(employeeId),
-                ownerAccountId: emp.ownerAccountId,
-                type: "gap-classification",
-                requestData: JSON.stringify({
-                  action: reClockAction,
-                  gapStartTime: lastClockOut.timestamp,
-                  gapEndTime: new Date().toISOString(),
-                  minutesGap: minutesSince,
-                }),
-                entryDate: clockOutDate,
-              });
-
-              const settings = await storage.getNotificationSettings(emp.ownerAccountId);
-              if (settings.notifyApprovals) {
-                await storage.createNotification({
-                  accountId: emp.ownerAccountId,
-                  type: "approval-needed",
-                  title: "Gap Time Approval Needed",
-                  message: `${emp.name} re-clocked in after ${minutesSince} min and requested "${reClockAction === 'break' ? 'count as break' : 'count as working time'}".`,
-                  data: JSON.stringify({ approvalId: approval.id, employeeId: emp.id }),
-                });
-              }
-            }
-
-            return res.status(201).json({ reClockHandled: true, action: reClockAction });
           }
+        }
+
+        if (shouldAutoClose) {
+          await storage.createTimeEntryManual(
+            Number(employeeId),
+            "clock-out",
+            autoCloseDate!,
+            autoCloseTime!,
+            null,
+            "auto-closed",
+            false,
+            "auto-close"
+          );
+          broadcastEntryUpdate(Number(employeeId), { type: "clock-out", timestamp: autoCloseTime!.toISOString(), source: "auto-close" });
         }
       }
     }
 
-    const entry = await storage.createTimeEntry(Number(employeeId), type, date, notes || null);
+    if (type === "clock-in") {
+      const lastClockOut = await storage.getLastClockOutForEmployee(Number(employeeId));
+      if (lastClockOut) {
+        const minutesSince = differenceInMinutes(actionTime, new Date(lastClockOut.timestamp));
+        if (minutesSince < 2) {
+          await storage.deleteTimeEntry(lastClockOut.id);
+          broadcastEntryUpdate(Number(employeeId), { type: "delete", timestamp: actionTime.toISOString(), source: "auto-reclock" });
+          return res.status(201).json({ reClockHandled: true, action: "reopen", entryId: lastClockOut.id });
+        } else if (minutesSince <= 10) {
+          // Treat the gap as an unpaid break
+          await storage.deleteTimeEntry(lastClockOut.id);
+          await storage.createTimeEntryManual(
+            Number(employeeId),
+            "break-start",
+            lastClockOut.date as string,
+            new Date(lastClockOut.timestamp),
+            null,
+            null,
+            true,
+            "auto-reclock"
+          );
+          const entry = await storage.createTimeEntryManual(
+            Number(employeeId),
+            "break-end",
+            lastClockOut.date as string,
+            actionTime,
+            null,
+            null,
+            true,
+            "auto-reclock"
+          );
+          broadcastEntryUpdate(Number(employeeId), { type: "break-end", timestamp: actionTime.toISOString(), source: "auto-reclock" });
+          return res.status(201).json({ reClockHandled: true, action: "unpaid-break", gapMinutes: minutesSince, entryId: entry.id });
+        }
+      }
+    }
+
+    const entry = offlineTimestamp
+      ? await storage.createTimeEntryManual(Number(employeeId), type, date, actionTime, null, notes || null, false, "employee")
+      : await storage.createTimeEntry(Number(employeeId), type, date, notes || null);
 
     if (notes && notes.trim() && emp.ownerAccountId) {
       const settings = await storage.getNotificationSettings(emp.ownerAccountId);
@@ -370,21 +547,91 @@ export async function registerRoutes(
 
     if (emp.ownerAccountId) {
       const settings = await storage.getNotificationSettings(emp.ownerAccountId);
+      const tz = settings.timezone || "UTC";
+
+      // Compute "now" in the agency's local wall-clock minutes from a UTC timestamp.
+      const localMinutesInTz = (d: Date): { minutes: number; dateStr: string } => {
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: tz,
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", hour12: false,
+        }).formatToParts(d);
+        const map: Record<string, string> = {};
+        for (const p of parts) map[p.type] = p.value;
+        const hh = parseInt(map.hour || "0", 10);
+        const mm = parseInt(map.minute || "0", 10);
+        return {
+          minutes: hh * 60 + mm,
+          dateStr: `${map.year}-${map.month}-${map.day}`,
+        };
+      };
+      const tmins = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+
+      // Helper: pull recent entries for this employee within a window of "now" so we can dedup
+      // alerts using actual timestamps (not entry_date, which is timezone-fragile).
+      const recentEntriesInWindow = async (entryType: string): Promise<Date[]> => {
+        const since = new Date(actionTime.getTime() - 36 * 60 * 60 * 1000); // 36h back covers any overnight shift
+        const r = await pool.query(
+          `SELECT timestamp FROM time_entries
+           WHERE employee_id = $1 AND type = $2 AND id <> $3 AND timestamp >= $4`,
+          [Number(employeeId), entryType, entry.id, since.toISOString()]
+        );
+        return r.rows.map((row: any) => new Date(row.timestamp));
+      };
+
+      // For an event time, return wall-clock minutes-since-shift-start, accounting for overnight shifts.
+      // Returns null if the event isn't reasonably attributable to that shift.
+      const minutesFromShiftStart = (eventTime: Date, shift: { startTime: string; endTime: string }): number | null => {
+        const shiftStart = tmins(shift.startTime);
+        const shiftEnd = tmins(shift.endTime);
+        const shiftEndAdj = shiftEnd <= shiftStart ? shiftEnd + 1440 : shiftEnd;
+        const eventLocal = localMinutesInTz(eventTime).minutes;
+        // Try same-day mapping and next-day mapping; pick whichever lands closest to the shift window.
+        const candidates = [eventLocal, eventLocal + 1440, eventLocal - 1440];
+        let best: number | null = null;
+        for (const c of candidates) {
+          if (c < shiftStart - 60 || c > shiftEndAdj + 120) continue;
+          const delta = c - shiftStart;
+          if (best === null || Math.abs(delta) < Math.abs(best - shiftStart)) {
+            best = c;
+          }
+        }
+        return best === null ? null : best - shiftStart;
+      };
+
       if (type === "clock-in" && settings.notifyLate) {
-        const todayStr = format(new Date(), "yyyy-MM-dd");
-        const shiftsToday = await storage.getShiftsByEmployeeAndDate(Number(employeeId), todayStr);
-        if (shiftsToday.length > 0) {
-          const now = new Date();
-          const nowMinutes = now.getHours() * 60 + now.getMinutes();
-          for (const shift of shiftsToday) {
-            const [h, m] = shift.startTime.split(":").map(Number);
-            const shiftStartMinutes = h * 60 + m;
-            if (nowMinutes > shiftStartMinutes + settings.lateThresholdMinutes) {
+        const localNow = localMinutesInTz(actionTime);
+        // Check shifts on today's local date AND yesterday's (for overnight shifts that started yesterday)
+        const yesterday = new Date(actionTime.getTime() - 24 * 60 * 60 * 1000);
+        const yLocal = localMinutesInTz(yesterday);
+        const shiftsTodayResult = await storage.getShiftsByEmployeeAndDate(Number(employeeId), localNow.dateStr);
+        const shiftsYesterdayResult = await storage.getShiftsByEmployeeAndDate(Number(employeeId), yLocal.dateStr);
+        const candidateShifts = [...shiftsTodayResult, ...shiftsYesterdayResult];
+        if (candidateShifts.length > 0) {
+          const priorClockInTimes = await recentEntriesInWindow("clock-in");
+
+          for (const shift of candidateShifts) {
+            const shiftStart = tmins(shift.startTime);
+            const shiftEnd = tmins(shift.endTime);
+            const shiftDurMinutes = (shiftEnd <= shiftStart ? shiftEnd + 1440 : shiftEnd) - shiftStart;
+
+            // Only attribute this clock-in to a shift if it falls in/around the shift window
+            const offsetFromStart = minutesFromShiftStart(actionTime, shift);
+            if (offsetFromStart === null) continue;
+
+            // Skip if any prior clock-in already maps to the same shift window (already worked)
+            const alreadyWorked = priorClockInTimes.some((t) => {
+              const off = minutesFromShiftStart(t, shift);
+              return off !== null && off >= -30 && off <= shiftDurMinutes;
+            });
+            if (alreadyWorked) continue;
+
+            if (offsetFromStart > settings.lateThresholdMinutes) {
               await storage.createNotification({
                 accountId: emp.ownerAccountId,
                 type: "employee-late",
                 title: "Late Clock-In",
-                message: `${emp.name} clocked in ${nowMinutes - shiftStartMinutes} minutes after their scheduled shift start (${shift.startTime.slice(0, 5)}).`,
+                message: `${emp.name} clocked in ${offsetFromStart} minutes after their scheduled shift start (${shift.startTime.slice(0, 5)}).`,
                 data: JSON.stringify({ employeeId: emp.id, shiftId: shift.id }),
               });
               break;
@@ -394,19 +641,40 @@ export async function registerRoutes(
       }
 
       if (type === "clock-out" && settings.notifyEarlyClockOut) {
-        const shiftsOnDate = await storage.getShiftsByEmployeeAndDate(Number(employeeId), date);
-        if (shiftsOnDate.length > 0) {
-          const now = new Date();
-          const nowMinutes = now.getHours() * 60 + now.getMinutes();
-          for (const shift of shiftsOnDate) {
-            const [h, m] = shift.endTime.split(":").map(Number);
-            const shiftEndMinutes = h * 60 + m;
-            if (shiftEndMinutes > nowMinutes + settings.earlyClockOutThresholdMinutes) {
+        const localNow = localMinutesInTz(actionTime);
+        const yesterday = new Date(actionTime.getTime() - 24 * 60 * 60 * 1000);
+        const yLocal = localMinutesInTz(yesterday);
+        const sessShifts = await storage.getShiftsByEmployeeAndDate(Number(employeeId), date);
+        const sessShiftsAlt = date !== localNow.dateStr ? await storage.getShiftsByEmployeeAndDate(Number(employeeId), localNow.dateStr) : [];
+        const sessShiftsYest = await storage.getShiftsByEmployeeAndDate(Number(employeeId), yLocal.dateStr);
+        const candidateShifts = [...sessShifts, ...sessShiftsAlt, ...sessShiftsYest];
+        if (candidateShifts.length > 0) {
+          const priorClockOutTimes = await recentEntriesInWindow("clock-out");
+
+          for (const shift of candidateShifts) {
+            const shiftStart = tmins(shift.startTime);
+            const shiftEnd = tmins(shift.endTime);
+            const shiftEndAdj = shiftEnd <= shiftStart ? shiftEnd + 1440 : shiftEnd;
+            const shiftDurMinutes = shiftEndAdj - shiftStart;
+
+            const offsetFromStart = minutesFromShiftStart(actionTime, shift);
+            if (offsetFromStart === null) continue;
+
+            // Skip if a prior clock-out already maps within this shift window (already closed)
+            const alreadyClosed = priorClockOutTimes.some((t) => {
+              const off = minutesFromShiftStart(t, shift);
+              return off !== null && off >= 0 && off <= shiftDurMinutes + 60;
+            });
+            if (alreadyClosed) continue;
+
+            // Early = clock-out is more than threshold minutes BEFORE the shift end (relative to shift start)
+            const earlyByMinutes = shiftDurMinutes - offsetFromStart;
+            if (earlyByMinutes > settings.earlyClockOutThresholdMinutes) {
               await storage.createNotification({
                 accountId: emp.ownerAccountId,
                 type: "early-clock-out",
                 title: "Early Clock-Out",
-                message: `${emp.name} clocked out ${shiftEndMinutes - nowMinutes} minutes before their scheduled shift end (${shift.endTime.slice(0, 5)}).`,
+                message: `${emp.name} clocked out ${earlyByMinutes} minutes before their scheduled shift end (${shift.endTime.slice(0, 5)}).`,
                 data: JSON.stringify({ employeeId: emp.id, shiftId: shift.id }),
               });
               break;
@@ -416,12 +684,18 @@ export async function registerRoutes(
       }
     }
 
+    broadcastEntryUpdate(Number(employeeId), {
+      type: entry.type,
+      timestamp: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : String(entry.timestamp),
+      source: "employee",
+    });
+
     res.status(201).json(entry);
   });
 
   router.patch("/api/steepin/entries/:id", requireRole("admin", "manager"), async (req, res) => {
     const id = parseInt(req.params.id);
-    const updateData: any = {};
+    const updateData: any = { source: "manager" };
     if (req.body.timestamp) {
       updateData.timestamp = new Date(req.body.timestamp);
     }
@@ -436,6 +710,11 @@ export async function registerRoutes(
     }
     const entry = await storage.updateTimeEntry(id, updateData);
     if (!entry) return res.status(404).json({ message: "Entry not found" });
+    broadcastEntryUpdate(entry.employeeId, {
+      type: entry.type,
+      timestamp: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : String(entry.timestamp),
+      source: "manager",
+    });
     res.json(entry);
   });
 
@@ -445,6 +724,11 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Employee ID, type, and date are required" });
     }
     const entry = await storage.createTimeEntryManual(Number(employeeId), type, date, timestamp ? new Date(timestamp) : new Date(), role || null, null, isUnpaid === true);
+    broadcastEntryUpdate(Number(employeeId), {
+      type: entry.type,
+      timestamp: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : String(entry.timestamp),
+      source: "manager",
+    });
     res.status(201).json(entry);
   });
 
@@ -459,20 +743,46 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Access denied" });
     }
     await storage.deleteTimeEntriesByEmployeeAndDate(employeeId, date);
+    broadcastEntryUpdate(employeeId, { type: "delete", timestamp: new Date().toISOString(), source: "manager" });
     res.status(204).send();
   });
 
   router.delete("/api/steepin/entries/:id", requireRole("admin", "manager"), async (req, res) => {
-    await storage.deleteTimeEntry(Number(req.params.id));
+    const entryId = Number(req.params.id);
+    const employeeIdParam = req.query.employeeId ? Number(req.query.employeeId) : null;
+    await storage.deleteTimeEntry(entryId);
+    if (employeeIdParam) {
+      broadcastEntryUpdate(employeeIdParam, { type: "delete", timestamp: new Date().toISOString(), source: "manager" });
+    }
     res.status(204).send();
   });
 
   router.post("/api/steepin/entries/delete-batch", requireRole("admin", "manager"), async (req, res) => {
-    const { ids } = req.body;
+    const { ids, employeeId, date } = req.body;
+    if (employeeId && date) {
+      const ownerAccountId = req.session.userId!;
+      const empIds = await storage.getEmployeeIdsByOwner(ownerAccountId);
+      if (!empIds.includes(Number(employeeId))) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      await storage.deleteTimeEntriesByEmployeeAndDate(Number(employeeId), String(date));
+      broadcastEntryUpdate(Number(employeeId), { type: "delete", timestamp: new Date().toISOString(), source: "manager" });
+      return res.status(204).send();
+    }
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ message: "No IDs provided" });
     }
-    await storage.batchDeleteTimeEntriesByIds(ids.map(Number), req.session.userId!);
+    const numericIds = ids.map(Number);
+    const ownerAccountId = req.session.userId!;
+    const affectedRows = await pool.query<{ employee_id: number }>(
+      "SELECT DISTINCT employee_id FROM time_entries WHERE id = ANY($1) AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $2)",
+      [numericIds, ownerAccountId]
+    );
+    const affectedEmployeeIds = affectedRows.rows.map(r => r.employee_id);
+    await storage.batchDeleteTimeEntriesByIds(numericIds, ownerAccountId);
+    for (const empId of affectedEmployeeIds) {
+      broadcastEntryUpdate(empId, { type: "delete", timestamp: new Date().toISOString(), source: "manager" });
+    }
     res.status(204).send();
   });
 
@@ -869,9 +1179,33 @@ export async function registerRoutes(
       return res.json({ auth: { authenticated: false } });
     }
     const accountId = req.session.userId;
+    const isSteepInSession = req.session.steepinMode ?? false;
+
+    // Start employees query first; if in SteepIn mode, kick off the recent-entries
+    // query as soon as employee IDs are known so it overlaps with the remaining
+    // queries below instead of running sequentially after them.
+    const employeesPromise = storage.getEmployees(accountId);
+    const recentEntriesPromise: Promise<any> | null = isSteepInSession
+      ? employeesPromise.then(async (emps) => {
+          const activeEmps = emps.filter(
+            (e: any) => e.status === "active" && !e.hiddenFromSteepin,
+          );
+          const empIds = activeEmps.map((e) => e.id);
+          if (empIds.length === 0) return { rows: [] as any[] };
+          return pool.query(
+            `SELECT id, employee_id, type, timestamp, entry_date::text as date, source 
+             FROM time_entries 
+             WHERE employee_id = ANY($1) 
+             AND timestamp > NOW() - INTERVAL '36 hours'
+             ORDER BY employee_id, timestamp ASC`,
+            [empIds],
+          );
+        })
+      : null;
+
     const [account, employees, roles, breakPolicy, notificationCount] = await Promise.all([
       storage.getAccount(accountId),
-      storage.getEmployees(accountId),
+      employeesPromise,
       storage.getCustomRoles(accountId),
       storage.getBreakPolicy(accountId),
       storage.getUnreadNotificationCount(accountId),
@@ -887,7 +1221,10 @@ export async function registerRoutes(
       agencyName: account.agencyName ?? null,
       email: account.email ?? null,
     };
-    const isSteepIn = req.session.steepinMode ?? false;
+    const isSteepIn = isSteepInSession;
+    const steepinEmployees = isSteepIn
+      ? employees.filter((e: any) => e.status === "active" && !e.hiddenFromSteepin)
+      : employees;
     const response: any = {
       auth: {
         authenticated: true,
@@ -895,33 +1232,189 @@ export async function registerRoutes(
         employee: null,
         steepinMode: isSteepIn,
       },
-      employees,
+      employees: steepinEmployees,
       roles,
       breakPolicy,
       notificationCount,
     };
+    response.steepinThemeSettings = {
+      mode: account.steepinThemeMode || "light",
+      dayStartHour: account.steepinDayStartHour ?? 7,
+      nightStartHour: account.steepinNightStartHour ?? 19,
+    };
+
     if (isSteepIn) {
       const todayStr = format(new Date(), "yyyy-MM-dd");
-      const activeEmps = employees.filter((e: any) => e.status === "active");
-      const entryResults = await Promise.all(
-        activeEmps.map(async (emp: any) => {
-          let entries = await storage.getTimeEntriesByEmployeeAndDate(emp.id, todayStr);
-          const lastType = entries.length > 0 ? entries[entries.length - 1].type : null;
-          const hasOpenSession = lastType === "clock-in" || lastType === "break-start" || lastType === "break-end";
-          if (!hasOpenSession) {
-            const openDate = await storage.getOpenSessionDate(emp.id);
-            if (openDate && openDate !== todayStr) {
-              entries = await storage.getTimeEntriesByEmployeeAndDate(emp.id, openDate);
+      const activeEmps = steepinEmployees;
+      
+      const empIds = activeEmps.map(e => e.id);
+      if (empIds.length > 0 && recentEntriesPromise) {
+        // Awaiting a promise that was started earlier in parallel with the other bootstrap queries
+        const recentEntries = await recentEntriesPromise;
+        
+        const entriesByEmp: Record<number, any[]> = {};
+        empIds.forEach(id => entriesByEmp[id] = []);
+        recentEntries.rows.forEach(row => {
+          entriesByEmp[row.employee_id].push({
+            id: row.id,
+            employeeId: row.employee_id,
+            type: row.type,
+            timestamp: row.timestamp,
+            date: row.date,
+            source: row.source
+          });
+        });
+
+        const finalMap: Record<number, any[]> = {};
+        empIds.forEach(id => {
+          const allRecent = entriesByEmp[id];
+          const todayEntries = allRecent.filter(e => e.date === todayStr);
+          
+          if (todayEntries.length > 0) {
+            finalMap[id] = todayEntries;
+          } else if (allRecent.length > 0) {
+            // Check if the absolute latest is an open session from yesterday
+            const latest = allRecent[allRecent.length - 1];
+            if (latest.type !== 'clock-out') {
+              finalMap[id] = allRecent.filter(e => e.date === latest.date);
+            } else {
+              finalMap[id] = [];
             }
+          } else {
+            finalMap[id] = [];
           }
-          return { employeeId: emp.id, entries };
-        })
-      );
-      response.steepinEntries = Object.fromEntries(
-        entryResults.map((r) => [r.employeeId.toString(), r.entries])
-      );
+        });
+
+        response.steepinEntries = finalMap;
+      } else {
+        response.steepinEntries = {};
+      }
     }
     res.json(response);
+  });
+
+  router.patch("/api/settings/steepin-theme", requireRole("admin", "manager"), async (req, res) => {
+    const { mode, dayStartHour, nightStartHour } = req.body;
+    const accountId = req.session.userId!;
+    const validModes = ["light", "dark", "auto"];
+    if (mode && !validModes.includes(mode)) {
+      return res.status(400).json({ message: "Invalid theme mode" });
+    }
+    const updates: any = {};
+    if (mode) updates.steepinThemeMode = mode;
+    if (dayStartHour !== undefined) updates.steepinDayStartHour = Math.max(0, Math.min(23, Number(dayStartHour)));
+    if (nightStartHour !== undefined) updates.steepinNightStartHour = Math.max(0, Math.min(23, Number(nightStartHour)));
+    await pool.query(
+      `UPDATE accounts SET steepin_theme_mode = COALESCE($1, steepin_theme_mode), steepin_day_start_hour = COALESCE($2, steepin_day_start_hour), steepin_night_start_hour = COALESCE($3, steepin_night_start_hour) WHERE id = $4`,
+      [updates.steepinThemeMode || null, updates.steepinDayStartHour ?? null, updates.steepinNightStartHour ?? null, accountId]
+    );
+    const result = {
+      mode: updates.steepinThemeMode || mode,
+      dayStartHour: updates.steepinDayStartHour ?? dayStartHour,
+      nightStartHour: updates.steepinNightStartHour ?? nightStartHour,
+    };
+    res.json(result);
+  });
+
+  // === GLOBAL PAY CONFIG ===
+  router.get("/api/settings/global-pay", requireRole("admin", "manager"), async (req, res) => {
+    const accountId = req.session.userId!;
+    const result = await pool.query(
+      `SELECT global_special_day_enabled, global_special_day_of_week, global_special_day_rate, global_custom_pay_days FROM accounts WHERE id = $1`,
+      [accountId]
+    );
+    const row = result.rows[0];
+    res.json({
+      specialDayEnabled: row?.global_special_day_enabled ?? false,
+      specialDayOfWeek: row?.global_special_day_of_week ?? null,
+      specialDayRate: row?.global_special_day_rate ?? null,
+      customPayDays: row?.global_custom_pay_days ?? null,
+    });
+  });
+
+  router.patch("/api/settings/global-pay", requireRole("admin", "manager"), async (req, res) => {
+    const accountId = req.session.userId!;
+    const { specialDayEnabled, specialDayOfWeek, specialDayRate, customPayDays } = req.body;
+    await pool.query(
+      `UPDATE accounts SET
+        global_special_day_enabled = COALESCE($1, global_special_day_enabled),
+        global_special_day_of_week = $2,
+        global_special_day_rate = $3,
+        global_custom_pay_days = $4
+      WHERE id = $5`,
+      [
+        specialDayEnabled ?? false,
+        specialDayOfWeek ?? null,
+        specialDayRate ?? null,
+        customPayDays ?? null,
+        accountId,
+      ]
+    );
+    res.json({
+      specialDayEnabled: specialDayEnabled ?? false,
+      specialDayOfWeek: specialDayOfWeek ?? null,
+      specialDayRate: specialDayRate ?? null,
+      customPayDays: customPayDays ?? null,
+    });
+  });
+
+  // === KIOSK DEVICES ===
+  router.post("/api/devices/register", requireAuth, async (req, res) => {
+    const { deviceId, deviceName } = req.body;
+    if (!deviceId || typeof deviceId !== "string") {
+      return res.status(400).json({ message: "deviceId is required" });
+    }
+    const name = (typeof deviceName === "string" && deviceName.trim()) ? deviceName.trim() : "Unknown Device";
+    const ownerAccountId = req.session.userId!;
+    const device = await storage.registerKioskDevice(ownerAccountId, deviceId, name);
+    res.json(device);
+  });
+
+  router.get("/api/devices/check", requireAuth, async (req, res) => {
+    const { deviceId } = req.query;
+    if (!deviceId || typeof deviceId !== "string") {
+      return res.status(400).json({ message: "deviceId is required" });
+    }
+    const ownerAccountId = req.session.userId!;
+    const status = await storage.getKioskDeviceStatus(ownerAccountId, deviceId);
+    res.json({ isLocked: status?.isLocked ?? false });
+  });
+
+  router.get("/api/devices", requireRole("admin", "manager"), async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    const devices = await storage.getKioskDevices(ownerAccountId);
+    res.json(devices);
+  });
+
+  router.patch("/api/devices/:id/lock", requireRole("admin", "manager"), async (req, res) => {
+    const { isLocked } = req.body;
+    const ownerAccountId = req.session.userId!;
+    const device = await storage.updateKioskDeviceLock(Number(req.params.id), ownerAccountId, !!isLocked);
+    if (!device) return res.status(404).json({ message: "Device not found" });
+    res.json(device);
+  });
+
+  router.patch("/api/devices/:id/rename", requireRole("admin", "manager"), async (req, res) => {
+    const { deviceName } = req.body;
+    if (!deviceName || typeof deviceName !== "string" || !deviceName.trim()) {
+      return res.status(400).json({ message: "deviceName is required" });
+    }
+    const ownerAccountId = req.session.userId!;
+    const device = await storage.renameKioskDevice(Number(req.params.id), ownerAccountId, deviceName.trim());
+    if (!device) return res.status(404).json({ message: "Device not found" });
+    res.json(device);
+  });
+
+  router.delete("/api/devices/:id", requireRole("admin", "manager"), async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    await storage.deleteKioskDevice(Number(req.params.id), ownerAccountId);
+    res.json({ success: true });
+  });
+
+  // === ADMIN ===
+  router.get("/api/admin/accounts", requireRole("admin"), async (_req, res) => {
+    const allAccounts = await storage.getAllAccounts();
+    res.json(allAccounts);
   });
 
   app.use(router);

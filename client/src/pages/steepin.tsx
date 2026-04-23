@@ -1,16 +1,24 @@
-import { useState, useMemo, useEffect, useCallback, memo } from "react";
+import { memo, useState, useMemo, useEffect, useRef, useCallback, useDeferredValue } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useRefreshOnVisibility } from "@/hooks/use-refresh-on-visibility";
+import { useEntriesSync } from "@/hooks/use-entries-sync";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
 import type { Employee, TimeEntry } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
+import {
+  addToQueue,
+  shouldQueueAction,
+  processQueue,
+  getQueue,
+  cacheEntries,
+  getCachedEntries,
+} from "@/lib/offline-queue";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { EmployeeAvatar } from "@/components/employee-avatar";
 import {
   Dialog,
   DialogContent,
@@ -20,123 +28,388 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info, Delete, StickyNote,
-  Fingerprint, Sparkles, UserCheck
+  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info, StickyNote, WifiOff, CloudUpload, RefreshCw,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
-// Animated counter for smooth number transitions
-function AnimatedDigit({ digit, delay = 0 }: { digit: string; delay?: number }) {
-  return (
-    <span 
-      className="inline-block animate-in zoom-in-50 duration-200"
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      {digit}
-    </span>
-  );
+const STEEPIN_CACHE_KEY = "leaflog_steepin_employees";
+const THEME_CACHE_KEY = "leaflog_steepin_theme";
+const STEEPIN_AUTH_CACHE_KEY = "leaflog_steepin_auth";
+
+interface SteepinTheme {
+  mode: "light" | "dark" | "auto";
+  dayStartHour: number;
+  nightStartHour: number;
 }
 
-// Modern PinPad with progressive reveal
-interface PinPadProps {
-  value: string;
-  onChange: (v: string) => void;
-  maxLength?: number;
-  isVerifying?: boolean;
+function getCachedTheme(): SteepinTheme {
+  try {
+    const raw = localStorage.getItem(THEME_CACHE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { mode: "light", dayStartHour: 7, nightStartHour: 19 };
 }
 
-const PinPad = memo(function PinPad({ value, onChange, maxLength = 6, isVerifying }: PinPadProps) {
-  const press = useCallback((d: string) => {
-    if (value.length < maxLength) onChange(value + d);
-  }, [value, maxLength, onChange]);
+function resolveTheme(settings: SteepinTheme): "light" | "dark" {
+  if (settings.mode === "light") return "light";
+  if (settings.mode === "dark") return "dark";
+  const hour = new Date().getHours();
+  const { dayStartHour, nightStartHour } = settings;
+  if (dayStartHour < nightStartHour) {
+    return hour >= dayStartHour && hour < nightStartHour ? "light" : "dark";
+  }
+  return hour >= dayStartHour || hour < nightStartHour ? "light" : "dark";
+}
 
-  const back = useCallback(() => onChange(value.slice(0, -1)), [value, onChange]);
+const THEME_COLORS = {
+  light: {
+    bg: "#F0EDE6",
+    bgImage: "/steepin-bg-watercolor.webp",
+    cardBgImage: "/employee-card-bg.webp",
+    initials: "#3D5038",
+    name: "#111111",
+    role: "#3D5038",
+    headerText: "#3D5038",
+    timeText: "#3D5038",
+    searchBg: "bg-white/60",
+    searchBorder: "border-[#C5C5C5]",
+    searchPlaceholder: "placeholder:text-[#7A7A7A]",
+    searchFocusBg: "focus:bg-white/80",
+    buttonBg: "bg-white/60",
+    buttonBorder: "border-[#4A5D45]/30",
+    buttonText: "text-[#3D5038]",
+    buttonHoverBg: "hover:bg-[#4A5D45]/10",
+    buttonHoverText: "hover:text-[#2E3F2B]",
+    exitBg: "bg-[#8B2635]/5",
+    exitBorder: "border-[#8B2635]/25",
+    exitText: "text-[#8B2635]",
+    exitHoverBg: "hover:bg-[#8B2635]/10",
+    exitHoverText: "hover:text-[#7A1F2D]",
+    shiftBg: "bg-white/70",
+    shiftBorder: "border-[#8B9E8B]/25",
+    shiftLabel: "#3D5038",
+    entryName: "#1A1A1A",
+    entryTime: "#5A5A5A",
+    managerBg: "bg-white/70",
+    managerBorder: "border-[#8B6BAD]/20",
+    managerLabel: "#5A3D7A",
+    dialogBg: "bg-[#F5F5F0]",
+    dialogTitle: "#1A1A1A",
+    dialogDesc: "#8C8C8C",
+    pinDot: "bg-[#4A5D45]",
+    pinPlaceholder: "#6B6B6B",
+    pinBtnBg: "bg-white",
+    pinBtnBorder: "border-[#C5C5C5]",
+    pinBtnText: "#1A1A1A",
+    pinBtnHover: "[@media(hover:hover)]:hover:bg-[#F5F5F0]",
+    pinBackText: "#6B6B6B",
+    actionBtnBg: "bg-white/80",
+    actionBtnBorder: "border-[#8B9E8B]/40",
+    actionBtnText: "text-[#3D5038]",
+    actionBtnHoverBg: "hover:bg-white/90",
+    actionBtnHoverBorder: "hover:border-[#4A5D45]/50",
+    confirmBtnBg: "bg-[#4A5D45]",
+    confirmBtnHover: "hover:bg-[#3A4D35]",
+    noteInputBg: "bg-white/50",
+    noteInputBorder: "border-[#D9D9D9]",
+    noteLabelColor: "#4A5D45",
+    skeletonBg: "bg-white/40",
+    skeletonCardBg: "bg-white/30",
+    offlineAmberBg: "bg-amber-100",
+    offlineAmberText: "text-amber-800",
+    offlineAmberBorder: "border-amber-300",
+    offlineSyncBg: "bg-blue-50",
+    offlineSyncText: "text-blue-700",
+    offlineSyncBorder: "border-blue-200",
+    leafNameDisplay: "#1A1A1A",
+    leafRoleDisplay: "#5A6B55",
+    cardShadow: "shadow-[0_2px_12px_rgba(0,0,0,0.08)]",
+    cardHoverShadow: "hover:shadow-[0_8px_28px_rgba(0,0,0,0.14)]",
+    cardBorderColor: "border-black/8",
+  },
+  dark: {
+    bg: "#1F1A17",
+    bgImage: "/steepin-bg-watercolor-dark.webp",
+    cardBgImage: "/employee-card-bg-dark.webp",
+    initials: "#D4A574",
+    name: "#E8E4E0",
+    role: "#B8956E",
+    headerText: "#D4A574",
+    timeText: "#B8956E",
+    searchBg: "bg-[#2A2220]/80",
+    searchBorder: "border-[#5A4035]",
+    searchPlaceholder: "placeholder:text-[#7B6B5B]",
+    searchFocusBg: "focus:bg-[#2A2220]",
+    buttonBg: "bg-[#2A2220]/60",
+    buttonBorder: "border-[#6B4A35]/40",
+    buttonText: "text-[#D4A574]",
+    buttonHoverBg: "hover:bg-[#3A2E28]/60",
+    buttonHoverText: "hover:text-[#E0B888]",
+    exitBg: "bg-[#3D1A1A]/40",
+    exitBorder: "border-[#8B2635]/30",
+    exitText: "text-[#E88090]",
+    exitHoverBg: "hover:bg-[#4D2A2A]/50",
+    exitHoverText: "hover:text-[#F0A0B0]",
+    shiftBg: "bg-[#2A2220]/70",
+    shiftBorder: "border-[#6B4A35]/30",
+    shiftLabel: "#B8956E",
+    entryName: "#E0E0E0",
+    entryTime: "#8B7B6B",
+    managerBg: "bg-[#2A2840]/60",
+    managerBorder: "border-[#6B5BAD]/25",
+    managerLabel: "#B8A8D8",
+    dialogBg: "bg-[#252018]",
+    dialogTitle: "#E8E4E0",
+    dialogDesc: "#7B6B5B",
+    pinDot: "bg-[#B8956E]",
+    pinPlaceholder: "#7B6B5B",
+    pinBtnBg: "bg-[#2A2220]",
+    pinBtnBorder: "border-[#5A4035]",
+    pinBtnText: "#D8D0C8",
+    pinBtnHover: "[@media(hover:hover)]:hover:bg-[#3A2E28]",
+    pinBackText: "#7B6B5B",
+    actionBtnBg: "bg-[#2A2220]/80",
+    actionBtnBorder: "border-[#6B4A35]/40",
+    actionBtnText: "text-[#D4A574]",
+    actionBtnHoverBg: "hover:bg-[#3A2E28]/80",
+    actionBtnHoverBorder: "hover:border-[#8B6045]/60",
+    confirmBtnBg: "bg-[#6B4A35]",
+    confirmBtnHover: "hover:bg-[#7B5A45]",
+    noteInputBg: "bg-[#2A2220]/60",
+    noteInputBorder: "border-[#5A4035]",
+    noteLabelColor: "#B8956E",
+    skeletonBg: "bg-[#2A2220]/60",
+    skeletonCardBg: "bg-[#2A2220]/40",
+    offlineAmberBg: "bg-amber-900/40",
+    offlineAmberText: "text-amber-300",
+    offlineAmberBorder: "border-amber-700",
+    offlineSyncBg: "bg-blue-900/30",
+    offlineSyncText: "text-blue-300",
+    offlineSyncBorder: "border-blue-700",
+    leafNameDisplay: "#E8E4E0",
+    leafRoleDisplay: "#D4A574",
+    cardShadow: "shadow-[0_2px_12px_rgba(0,0,0,0.3)]",
+    cardHoverShadow: "hover:shadow-[0_8px_28px_rgba(0,0,0,0.5)]",
+    cardBorderColor: "border-white/8",
+  },
+} as const;
 
-  // Handle keyboard input
+// Pre-seed query cache from localStorage synchronously at module load.
+// Return visits show employees with zero wait — no skeleton needed.
+try {
+  const raw = localStorage.getItem(STEEPIN_CACHE_KEY);
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      queryClient.setQueryData(["/api/steepin/employees"], parsed);
+    }
+  }
+} catch {}
+
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.matchMedia(query).matches;
+    }
+    return false;
+  });
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (isVerifying) return;
-      if (e.key >= '0' && e.key <= '9') {
-        if (value.length < maxLength) onChange(value + e.key);
-      } else if (e.key === 'Backspace') {
-        onChange(value.slice(0, -1));
-      } else if (e.key === 'Enter' && value.length >= 4) {
-        // Allow form submission via enter
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [value, maxLength, onChange, isVerifying]);
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, [query]);
+  return matches;
+}
+
+// Performance Optimization: Memoized Background
+const BackgroundVector = memo(({ isDark }: { isDark: boolean }) => {
+  const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
+  return (
+    <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+      <img
+        src={t.bgImage}
+        alt=""
+        className="absolute inset-0 w-full h-full object-cover object-center transform-gpu"
+        style={{ minWidth: "100%", minHeight: "100%", filter: isDark ? "saturate(1.4) contrast(1.08)" : "saturate(1.25) contrast(1.05)" }}
+        draggable={false}
+        decoding="async"
+      />
+      {isDark && (
+        <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.15)" }} />
+      )}
+    </div>
+  );
+});
+BackgroundVector.displayName = "BackgroundVector";
+
+const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Employee; onClick: (e: Employee) => void; isDark: boolean; isMobile?: boolean }) => {
+  const initial = emp.name.charAt(0).toUpperCase();
+  const borderColor = isDark ? "rgba(170,100,55,0.75)" : "rgba(70,110,65,0.65)";
+  const circleBorder = isDark ? "rgba(180,110,60,0.8)" : "rgba(70,110,65,0.7)";
+  const glassBg = isDark ? "rgba(40,28,20,0.68)" : "rgba(242,247,238,0.76)";
+  const nameColor = isDark ? "#F0E0CC" : "#2E4028";
+  const defaultSubtitleColor = isDark ? "#E0A860" : "#4A7245";
+  const initialColor = isDark ? "#EEBC80" : "#2E4028";
+  const hasRole = !!(emp.role && emp.role.trim());
+  const subtitleText = hasRole ? emp.role : "Loose leaf";
+  const subtitleColor = hasRole ? (emp.color || defaultSubtitleColor) : defaultSubtitleColor;
+
+  if (isMobile) {
+    return (
+      <button
+        onClick={() => onClick(emp)}
+        className="group w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors duration-150 active:scale-[0.98]"
+        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, contain: "layout paint" }}
+        data-testid={`card-employee-${emp.id}`}
+      >
+        <div
+          className="w-14 h-14 rounded-full flex items-center justify-center shrink-0"
+          style={{ border: `1.5px solid ${circleBorder}`, backgroundColor: "transparent" }}
+        >
+          <span className="text-xl font-light tracking-wide" style={{ color: initialColor, fontFamily: "Georgia, 'Times New Roman', serif" }}>{initial}</span>
+        </div>
+        <div className="text-left min-w-0">
+          <h3 className="text-base font-medium tracking-wide truncate" style={{ color: nameColor }}>{emp.name}</h3>
+          <p className="text-sm font-light tracking-wider" style={{ color: subtitleColor }}>{subtitleText}</p>
+        </div>
+      </button>
+    );
+  }
 
   return (
-    <div className="flex flex-col items-center gap-6 py-2 select-none">
-      {/* Progressive dot display - only show dots for entered digits */}
-      <div className="flex gap-3 min-h-[20px]">
-        {value.length > 0 && (
-          <div className="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {Array.from({ length: value.length }, (_, i) => (
-              <div
-                key={i}
-                className="w-4 h-4 rounded-full bg-primary shadow-sm animate-in zoom-in-50 duration-200"
-                style={{ animationDelay: `${i * 30}ms` }}
-              />
-            ))}
-          </div>
+    <button
+      onClick={() => onClick(emp)}
+      className="group relative w-full rounded-xl transition-[transform,background-color] duration-150 active:scale-[0.97] hover:scale-[1.02] transform-gpu"
+      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', contain: "layout" }}
+      data-testid={`card-employee-${emp.id}`}
+    >
+      <div className="h-full w-full flex flex-col items-center justify-center"
+        style={{ gap: 'clamp(0.2rem, 1.5vh, 1rem)', padding: 'clamp(0.5rem, 2vh, 1.25rem)' }}>
+        <div
+          className="rounded-full flex items-center justify-center shrink-0"
+          style={{
+            width: 'clamp(3rem, 17vh, 6rem)',
+            height: 'clamp(3rem, 17vh, 6rem)',
+            border: `1.5px solid ${circleBorder}`,
+            backgroundColor: "transparent",
+          }}
+        >
+          <span style={{ fontSize: 'clamp(1.1rem, 7vh, 2.5rem)', color: initialColor, fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 300, letterSpacing: '0.05em' }}>{initial}</span>
+        </div>
+        <div className="text-center shrink-0">
+          <h3 style={{ fontSize: 'clamp(0.7rem, 3.5vh, 1.1rem)', color: nameColor, fontWeight: 500, letterSpacing: '0.05em', lineHeight: 1.2, margin: 0 }}>
+            {emp.name}
+          </h3>
+          <p style={{ fontSize: 'clamp(0.6rem, 2.5vh, 0.82rem)', color: subtitleColor, fontWeight: 300, letterSpacing: '0.1em', marginTop: '0.2em' }}>
+            {subtitleText}
+          </p>
+        </div>
+      </div>
+    </button>
+  );
+});
+EmployeeCard.displayName = "EmployeeCard";
+
+const GhostCard = memo(({ isDark, isMobile = false }: { isDark: boolean; isMobile?: boolean }) => {
+  const borderColor = isDark ? "rgba(170,100,55,0.6)" : "rgba(70,110,65,0.5)";
+  const circleBorder = isDark ? "rgba(180,110,60,0.65)" : "rgba(70,110,65,0.55)";
+  const glassBg = isDark ? "rgba(40,28,20,0.55)" : "rgba(242,247,238,0.68)";
+
+  if (isMobile) {
+    return (
+      <div
+        className="w-full flex items-center gap-4 px-5 py-4 rounded-xl"
+        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, contain: "layout paint" }}
+      >
+        <div className="w-14 h-14 rounded-full shrink-0" style={{ border: `1.5px solid ${circleBorder}` }} />
+        <div className="space-y-2 flex-1">
+          <div className="h-4 w-24 rounded-full" style={{ backgroundColor: isDark ? "rgba(160,100,55,0.25)" : "rgba(70,110,65,0.18)" }} />
+          <div className="h-3 w-16 rounded-full" style={{ backgroundColor: isDark ? "rgba(160,100,55,0.18)" : "rgba(70,110,65,0.13)" }} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="w-full rounded-xl flex flex-col items-center justify-center"
+      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', gap: 'clamp(0.2rem, 1.5vh, 1rem)', padding: 'clamp(0.5rem, 2vh, 1.25rem)', contain: "layout paint" }}
+    >
+      <div
+        className="rounded-full shrink-0"
+        style={{ width: 'clamp(3rem, 17vh, 6rem)', height: 'clamp(3rem, 17vh, 6rem)', border: `1.5px solid ${circleBorder}` }}
+      />
+    </div>
+  );
+});
+GhostCard.displayName = "GhostCard";
+
+const PinPad = memo(({ value, onChange, maxLength = 6, isDark = false }: { value: string; onChange: (v: string) => void; maxLength?: number; isDark?: boolean }) => {
+  const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
+  const press = (d: string) => { 
+    if (value.length < maxLength) {
+      onChange(value + d);
+      if (typeof window !== "undefined" && window.navigator && window.navigator.vibrate) {
+        window.navigator.vibrate(10);
+      }
+    }
+  };
+  const back = () => {
+    onChange(value.slice(0, -1));
+    if (typeof window !== "undefined" && window.navigator && window.navigator.vibrate) {
+      window.navigator.vibrate(5);
+    }
+  };
+  return (
+    <div className="flex flex-col items-center gap-6 py-4 select-none">
+      <div className="flex gap-4 h-4 items-center">
+        {Array.from({ length: value.length }, (_, i) => (
+          <div
+            key={i}
+            className={`w-3.5 h-3.5 rounded-full ${t.pinDot} animate-in zoom-in duration-200`}
+          />
+        ))}
+        {value.length === 0 && (
+          <span className="text-sm font-light italic animate-pulse tracking-widest uppercase" style={{ color: t.pinPlaceholder }}>Enter Passcode</span>
         )}
       </div>
-      
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-4">
         {["1","2","3","4","5","6","7","8","9"].map((d) => (
           <button
             key={d}
             type="button"
             onClick={() => press(d)}
-            disabled={isVerifying}
-            className={cn(
-              "w-[72px] h-[60px] rounded-2xl text-xl font-semibold transition-all duration-150",
-              "bg-card border-2 border-border/50 shadow-sm",
-              "hover:border-primary/50 hover:shadow-md hover:scale-[1.02]",
-              "active:scale-95 active:shadow-inner",
-              "disabled:opacity-50 disabled:cursor-not-allowed"
-            )}
+            className={`w-20 h-16 rounded-2xl border ${t.pinBtnBorder} ${t.pinBtnBg} text-2xl font-light ${t.pinBtnHover} active:scale-90 transition-[transform,background-color] duration-75 shadow-sm flex items-center justify-center`}
+            style={{ color: t.pinBtnText }}
           >
             {d}
           </button>
         ))}
-        <div className="w-[72px] h-[60px]" />
+        <div />
         <button
+          key="0"
           type="button"
           onClick={() => press("0")}
-          disabled={isVerifying}
-          className={cn(
-            "w-[72px] h-[60px] rounded-2xl text-xl font-semibold transition-all duration-150",
-            "bg-card border-2 border-border/50 shadow-sm",
-            "hover:border-primary/50 hover:shadow-md hover:scale-[1.02]",
-            "active:scale-95 active:shadow-inner",
-            "disabled:opacity-50 disabled:cursor-not-allowed"
-          )}
+          className={`w-20 h-16 rounded-2xl border ${t.pinBtnBorder} ${t.pinBtnBg} text-2xl font-light ${t.pinBtnHover} active:scale-90 transition-[transform,background-color] duration-75 shadow-sm flex items-center justify-center`}
+          style={{ color: t.pinBtnText }}
         >
           0
         </button>
         <button
+          key="back"
           type="button"
           onClick={back}
-          disabled={isVerifying || value.length === 0}
-          className={cn(
-            "w-[72px] h-[60px] rounded-2xl transition-all duration-150",
-            "bg-muted border-2 border-border/50 shadow-sm",
-            "hover:bg-muted/80 hover:shadow-md",
-            "active:scale-95 active:shadow-inner",
-            "disabled:opacity-30 disabled:cursor-not-allowed",
-            "flex items-center justify-center"
-          )}
+          className={`w-20 h-16 rounded-2xl border ${t.pinBtnBorder} ${t.pinBtnBg} ${t.pinBtnHover} active:scale-90 transition-[transform,background-color] duration-75 shadow-sm flex items-center justify-center`}
+          style={{ color: t.pinBackText }}
         >
-          <Delete className="w-5 h-5 text-muted-foreground" />
+          <ArrowLeft className="w-6 h-6" />
         </button>
       </div>
     </div>
   );
 });
+PinPad.displayName = "PinPad";
 
 interface BreakPolicy {
   paidBreakMinutes: number | null;
@@ -144,220 +417,6 @@ interface BreakPolicy {
 }
 
 type ActionType = "clock-in" | "clock-out" | "break-start" | "break-end";
-
-// Action button with animations and visual feedback
-interface ActionButtonProps {
-  type: ActionType;
-  onClick: () => void;
-  disabled: boolean;
-  isLoading?: boolean;
-  currentStatus?: string;
-}
-
-const ActionButton = memo(function ActionButton({ 
-  type, onClick, disabled, isLoading, currentStatus 
-}: ActionButtonProps) {
-  const configs: Record<ActionType, {
-    icon: React.ReactNode;
-    label: string;
-    sublabel: string;
-    gradient: string;
-    shadowColor: string;
-    iconBg: string;
-  }> = {
-    "clock-in": {
-      icon: <LogIn className="w-7 h-7" />,
-      label: "Clock In",
-      sublabel: "Start your shift",
-      gradient: "from-emerald-500 to-teal-600",
-      shadowColor: "shadow-emerald-500/30",
-      iconBg: "bg-emerald-400/20",
-    },
-    "clock-out": {
-      icon: <LogOut className="w-7 h-7" />,
-      label: "Clock Out",
-      sublabel: "End your shift",
-      gradient: "from-rose-500 to-pink-600",
-      shadowColor: "shadow-rose-500/30",
-      iconBg: "bg-rose-400/20",
-    },
-    "break-start": {
-      icon: <Coffee className="w-7 h-7" />,
-      label: "Start Break",
-      sublabel: "Take a break",
-      gradient: "from-amber-500 to-orange-600",
-      shadowColor: "shadow-amber-500/30",
-      iconBg: "bg-amber-400/20",
-    },
-    "break-end": {
-      icon: <Timer className="w-7 h-7" />,
-      label: "End Break",
-      sublabel: "Resume work",
-      gradient: "from-blue-500 to-indigo-600",
-      shadowColor: "shadow-blue-500/30",
-      iconBg: "bg-blue-400/20",
-    },
-  };
-
-  const config = configs[type];
-  const isActive = !disabled && !isLoading;
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled || isLoading}
-      className={cn(
-        "relative overflow-hidden rounded-2xl p-4 transition-all duration-300",
-        "flex flex-col items-center gap-2 text-white",
-        "bg-gradient-to-br",
-        config.gradient,
-        config.shadowColor,
-        isActive && "shadow-lg hover:shadow-xl hover:scale-[1.02] hover:-translate-y-0.5",
-        isActive && "active:scale-95 active:translate-y-0",
-        disabled && "opacity-40 grayscale cursor-not-allowed"
-      )}
-    >
-      {/* Shine effect */}
-      <div className="absolute inset-0 bg-gradient-to-br from-white/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-      
-      {/* Icon container */}
-      <div className={cn(
-        "relative flex items-center justify-center w-14 h-14 rounded-xl",
-        config.iconBg,
-        "backdrop-blur-sm"
-      )}>
-        {config.icon}
-      </div>
-      
-      {/* Text */}
-      <div className="relative text-center">
-        <div className="font-semibold text-sm">{config.label}</div>
-        <div className="text-[10px] text-white/80">{config.sublabel}</div>
-      </div>
-
-      {/* Active indicator pulse */}
-      {isActive && (
-        <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-white/60 animate-pulse" />
-      )}
-    </button>
-  );
-});
-
-// Time display component - memoized to prevent re-renders
-const TimeDisplay = memo(function TimeDisplay() {
-  const [time, setTime] = useState(new Date());
-
-  useEffect(() => {
-    const interval = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono bg-muted/50 px-3 py-1.5 rounded-full">
-      <Clock className="w-3.5 h-3.5" />
-      <span>{format(time, "HH:mm:ss")}</span>
-    </div>
-  );
-});
-
-// Employee card for the grid
-const EmployeeCard = memo(function EmployeeCard({ 
-  employee, onClick 
-}: { 
-  employee: Employee; 
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "group relative flex flex-col items-center gap-3 p-5 rounded-2xl",
-        "bg-card border-2 border-border/40",
-        "transition-all duration-300 ease-out",
-        "hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5",
-        "hover:-translate-y-1 hover:scale-[1.02]",
-        "active:scale-[0.98] active:translate-y-0"
-      )}
-    >
-      {/* Hover glow effect */}
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-      
-      <div className="relative">
-        <EmployeeAvatar name={employee.name} color={employee.color} size="lg" />
-        {/* Selection indicator */}
-        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 scale-50 group-hover:scale-100">
-          <UserCheck className="w-3 h-3" />
-        </div>
-      </div>
-      
-      <div className="relative text-center">
-        <div className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors">
-          {employee.name}
-        </div>
-        <div className="text-[11px] text-muted-foreground mt-0.5">
-          {employee.role || "Team Member"}
-        </div>
-      </div>
-    </button>
-  );
-});
-
-// Success animation overlay
-function SuccessOverlay({ 
-  isVisible, 
-  action,
-  employeeName 
-}: { 
-  isVisible: boolean; 
-  action: ActionType | null;
-  employeeName: string;
-}) {
-  if (!isVisible || !action) return null;
-
-  const configs: Record<ActionType, { icon: React.ReactNode; color: string; label: string }> = {
-    "clock-in": { 
-      icon: <LogIn className="w-8 h-8" />, 
-      color: "text-emerald-500",
-      label: "Clocked In" 
-    },
-    "clock-out": { 
-      icon: <LogOut className="w-8 h-8" />, 
-      color: "text-rose-500",
-      label: "Clocked Out" 
-    },
-    "break-start": { 
-      icon: <Coffee className="w-8 h-8" />, 
-      color: "text-amber-500",
-      label: "Break Started" 
-    },
-    "break-end": { 
-      icon: <Timer className="w-8 h-8" />, 
-      color: "text-blue-500",
-      label: "Break Ended" 
-    },
-  };
-
-  const config = configs[action];
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="flex flex-col items-center gap-4 animate-in zoom-in-95 duration-300">
-        <div className={cn(
-          "w-20 h-20 rounded-full flex items-center justify-center",
-          "bg-card border-2 border-border shadow-xl",
-          config.color
-        )}>
-          {config.icon}
-        </div>
-        <div className="text-center">
-          <div className="text-xl font-bold">{config.label}</div>
-          <div className="text-sm text-muted-foreground">{employeeName}</div>
-          <div className="text-lg font-mono mt-1">{format(new Date(), "HH:mm")}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function SteepInPage() {
   const { data: authState, isLoading: authLoading } = useQuery<any>({
@@ -368,6 +427,7 @@ export default function SteepInPage() {
   const [, setLocation] = useLocation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [passcode, setPasscode] = useState("");
   const [passcodeDialogOpen, setPasscodeDialogOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<ActionType | null>(null);
@@ -375,16 +435,41 @@ export default function SteepInPage() {
   const [exitUsername, setExitUsername] = useState("");
   const [exitPassword, setExitPassword] = useState("");
   const [noteText, setNoteText] = useState("");
-  const [reClockData, setReClockData] = useState<{ lastClockOutTime: string; lastClockOutId: number; lastClockOutDate: string; minutesSince: number } | null>(null);
-  const [reClockDialogOpen, setReClockDialogOpen] = useState(false);
-  const [reClockPasscode, setReClockPasscode] = useState("");
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [deviceLocked, setDeviceLocked] = useState(true);
+  const [introDialogOpen, setIntroDialogOpen] = useState(false);
+  const lockPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
+  const lastMutationTsRef = useRef<number>(0);
+  const isSmallScreen = useMediaQuery("(min-width: 640px)");
+  const cacheTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCacheRef = useRef<{ employeeId: number; entries: TimeEntry[] } | null>(null);
+
+  const [liveTime, setLiveTime] = useState(() => format(new Date(), "HH:mm"));
+  useEffect(() => {
+    const tick = () => setLiveTime(format(new Date(), "HH:mm"));
+    const id = setInterval(tick, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  const [themeSettings] = useState<SteepinTheme>(getCachedTheme);
+  const [isDark, setIsDark] = useState(() => resolveTheme(getCachedTheme()) === "dark");
+
+  useEffect(() => {
+    if (themeSettings.mode !== "auto") {
+      setIsDark(resolveTheme(themeSettings) === "dark");
+      return;
+    }
+    const check = () => setIsDark(resolveTheme(themeSettings) === "dark");
+    check();
+    const interval = setInterval(check, 60000);
+    return () => clearInterval(interval);
+  }, [themeSettings]);
+
+  const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
 
   const user = authState?.user;
   const isActive = !!authState?.authenticated && !!authState?.steepinMode;
 
-  // Optimized queries with better caching
   const { data: employees, isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/steepin/employees"],
     queryFn: async () => {
@@ -394,59 +479,381 @@ export default function SteepInPage() {
       return Array.isArray(data) ? data : [];
     },
     enabled: isActive,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000,
+    initialData: authState?.employees,
+    staleTime: 300000,
   });
 
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
+  const hasEmployees = !!(employees && employees.length > 0);
+
+  const { 
+    data: entries = [], 
+    isLoading: entriesLoading, 
+    isFetching: entriesFetching,
+    refetch: refetchEntries,
+    dataUpdatedAt: entriesUpdatedAt,
+  } = useQuery<TimeEntry[]>({
     queryKey: ["/api/steepin/entries", selectedEmployee?.id?.toString() || ""],
     queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: isActive && !!selectedEmployee,
-    staleTime: 30 * 1000, // 30 seconds
+    initialData: () => {
+      if (selectedEmployee && authState?.steepinEntries) {
+        return authState.steepinEntries[selectedEmployee.id.toString()];
+      }
+      if (selectedEmployee) {
+        return getCachedEntries(selectedEmployee.id) as TimeEntry[] | undefined;
+      }
+      return undefined;
+    },
+    staleTime: 60000,
+    // Retry failed fetches when coming back online
+    retry: (failureCount, error: any) => {
+      // Don't retry if offline - will be handled by visibility/online handlers
+      if (!navigator.onLine) return false;
+      // Retry up to 3 times when online
+      return failureCount < 3;
+    },
+    retryDelay: 1000,
   });
 
   const { data: breakPolicy } = useQuery<BreakPolicy>({
     queryKey: ["/api/settings/break-policy"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: isActive,
-    staleTime: 5 * 60 * 1000,
+  });
+
+  // Persist fresh employees to localStorage so next visit is instant
+  useEffect(() => {
+    if (employees && Array.isArray(employees) && employees.length > 0) {
+      try {
+        localStorage.setItem(STEEPIN_CACHE_KEY, JSON.stringify(employees));
+      } catch {}
+    }
+  }, [employees]);
+
+  // Persist auth state so offline reloads keep SteepIn mode active
+  useEffect(() => {
+    if (authState?.authenticated && authState?.steepinMode) {
+      try {
+        localStorage.setItem(STEEPIN_AUTH_CACHE_KEY, JSON.stringify(authState));
+      } catch {}
+    }
+  }, [authState]);
+
+  useEffect(() => {
+    if (cacheTimeoutRef.current) {
+      clearTimeout(cacheTimeoutRef.current);
+      cacheTimeoutRef.current = null;
+    }
+
+    if (!selectedEmployee) return;
+
+    if (
+      pendingCacheRef.current &&
+      pendingCacheRef.current.employeeId !== selectedEmployee.id
+    ) {
+      cacheEntries(pendingCacheRef.current.employeeId, pendingCacheRef.current.entries);
+      pendingCacheRef.current = null;
+    }
+
+    pendingCacheRef.current = { employeeId: selectedEmployee.id, entries };
+    cacheTimeoutRef.current = setTimeout(() => {
+      if (pendingCacheRef.current) {
+        cacheEntries(pendingCacheRef.current.employeeId, pendingCacheRef.current.entries);
+        pendingCacheRef.current = null;
+      }
+      cacheTimeoutRef.current = null;
+    }, 150);
+
+    return () => {
+      if (cacheTimeoutRef.current) {
+        clearTimeout(cacheTimeoutRef.current);
+        cacheTimeoutRef.current = null;
+      }
+    };
+  }, [selectedEmployee, entries]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingCacheRef.current) {
+        cacheEntries(pendingCacheRef.current.employeeId, pendingCacheRef.current.entries);
+        pendingCacheRef.current = null;
+      }
+    };
+  }, []);
+
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingCount, setPendingCount] = useState(() => getQueue().length);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  // Refresh entries when app becomes visible (user returns to device)
+  // MULTI-DEVICE STALE STATE FIX:
+  // When an employee switches between devices (e.g., clocks in on Device A, 
+  // starts break on Device B, then returns to Device A to end break), 
+  // Device A would show stale cached data unless refreshed.
+  // 
+  // This hook triggers a refresh when:
+  // 1. The app becomes visible again (user returns to this device)
+  // 2. The connection comes back online
+  // 3. It's been at least 3 seconds since the last refresh (throttling)
+  //
+  // Offline mode is preserved:
+  // - No refresh attempts when offline
+  // - Initial data still comes from localStorage cache
+  // - Optimistic UI updates continue to work
+  // Tracks the time the currently-selected employee was opened. We compare this
+  // against `entriesUpdatedAt` to decide whether the data we're showing reflects
+  // a fresh server fetch made AFTER the selection — anything older might be stale
+  // from another device and could let the user fire a conflicting action.
+  const [selectedAt, setSelectedAt] = useState<number>(0);
+  const prevSelectedEmpRef = useRef<number | null>(null);
+  useEffect(() => {
+    const empId = selectedEmployee?.id ?? null;
+    if (empId && empId !== prevSelectedEmpRef.current) {
+      setSelectedAt(Date.now());
+      if (isActive && navigator.onLine) {
+        // Always refetch on selection so we never trust the cached snapshot
+        // for actionable decisions — another device may have updated the
+        // employee's status while this kiosk was idle.
+        refetchEntries();
+      }
+    }
+    prevSelectedEmpRef.current = empId;
+  }, [selectedEmployee, isActive, refetchEntries]);
+
+  // True when we're online with an employee selected but haven't yet received a
+  // server response newer than the moment they were selected. Used to lock the
+  // action buttons so users can't act on stale cached state.
+  const isVerifyingStatus =
+    isOnline &&
+    !!selectedEmployee &&
+    selectedAt > 0 &&
+    (entriesFetching || !entriesUpdatedAt || entriesUpdatedAt < selectedAt);
+
+  const handleVisibleRefresh = useCallback(async () => {
+    if (!selectedEmployee || !isActive) return;
+    if (!navigator.onLine) return;
+
+    try {
+      await refetchEntries();
+    } catch (error) {
+      console.debug("[SteepIn] Refresh failed:", error);
+    }
+  }, [selectedEmployee, isActive, refetchEntries]);
+
+  useRefreshOnVisibility({
+    onVisible: handleVisibleRefresh,
+    minInterval: 3000,
+    enabled: isActive && isOnline && !!selectedEmployee,
+  });
+
+  const { isConnected: isSyncConnected } = useEntriesSync({
+    employeeId: selectedEmployee?.id ?? null,
+    onUpdateDetected: async () => {
+      console.debug("[SteepIn] SSE update detected, refreshing...");
+      await refetchEntries();
+      if (Date.now() - lastMutationTsRef.current > 3000) {
+        toast({
+          title: "Status Updated",
+          description: "Employee status was updated from another device",
+          duration: 2000,
+        });
+      }
+    },
+    enabled: isActive && isOnline && !!selectedEmployee,
   });
 
   useEffect(() => {
+    if (!isActive || !isOnline) return;
+    const queue = getQueue();
+    if (queue.length === 0) return;
+
+    const syncActions = async () => {
+      let conflictCount = 0;
+      const count = await processQueue((action, success, errorMessage) => {
+        if (!success && errorMessage) {
+          conflictCount++;
+          toast({
+            title: "Action Failed",
+            description: errorMessage,
+            variant: "destructive",
+          });
+        }
+      });
+      setPendingCount(getQueue().length);
+      if (count > 0 && conflictCount === 0) {
+        toast({
+          title: "Synced",
+          description: `${count} queued action${count > 1 ? "s" : ""} uploaded`,
+        });
+      }
+    };
+    syncActions();
+  }, [isActive, isOnline]);
+
+  useEffect(() => {
     if (!authLoading && !isActive) {
+      // When offline with cached employees, keep SteepIn open — the auth
+      // server is unreachable but the device was a valid kiosk.
+      if (!isOnline && hasEmployees) return;
       setLocation("/login");
     }
-  }, [authLoading, isActive, setLocation]);
+  }, [authLoading, isActive, isOnline, hasEmployees, setLocation]);
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    function getOrCreateDeviceId(): string {
+      let id = localStorage.getItem("leaflog_device_id");
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem("leaflog_device_id", id);
+      }
+      return id;
+    }
+
+    function getDeviceName(): string {
+      const ua = navigator.userAgent;
+      if (/iPhone/.test(ua)) return "iPhone";
+      if (/iPad/.test(ua)) return "iPad";
+      if (/Android/.test(ua)) return "Android Device";
+      if (/Windows/.test(ua)) return "Windows PC";
+      if (/Macintosh/.test(ua)) return "Mac";
+      if (/Linux/.test(ua)) return "Linux PC";
+      return "Unknown Device";
+    }
+
+    const deviceId = getOrCreateDeviceId();
+    const deviceName = getDeviceName();
+
+    apiRequest("POST", "/api/devices/register", { deviceId, deviceName })
+      .then(() => {
+        const introKey = "leaflog_steepin_intro_shown";
+        if (!localStorage.getItem(introKey)) {
+          localStorage.setItem(introKey, "1");
+          setIntroDialogOpen(true);
+        }
+      })
+      .catch(() => {});
+
+    async function checkLock() {
+      try {
+        const res = await apiRequest("GET", `/api/devices/check?deviceId=${encodeURIComponent(deviceId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setDeviceLocked(!!data.isLocked);
+        }
+      } catch (_) {}
+    }
+
+    checkLock();
+    lockPollRef.current = setInterval(checkLock, 30000);
+
+    return () => {
+      if (lockPollRef.current) clearInterval(lockPollRef.current);
+    };
+  }, [isActive]);
 
   const actionMutation = useMutation({
-    mutationFn: async ({ employeeId, type, passcode, notes, reClockAction, skipReClockCheck }: { employeeId: number; type: ActionType; passcode: string; notes?: string; reClockAction?: string; skipReClockCheck?: boolean }) => {
-      const res = await apiRequest("POST", "/api/steepin/action", { employeeId, type, passcode, notes: notes || undefined, reClockAction, skipReClockCheck });
-      return res.json();
+    mutationFn: async ({ employeeId, type, passcode, notes }: { employeeId: number; type: ActionType; passcode: string; notes?: string }) => {
+      try {
+        const res = await apiRequest("POST", "/api/steepin/action", { employeeId, type, passcode, notes: notes || undefined });
+        lastMutationTsRef.current = Date.now();
+        return res.json();
+      } catch (error) {
+        if (!shouldQueueAction(error)) throw error;
+
+        const emp = employees?.find((e) => e.id === employeeId);
+        if (!emp || emp.accessCode !== passcode) {
+          throw new Error("Invalid passcode");
+        }
+
+        const now = new Date();
+        addToQueue({
+          employeeId,
+          type,
+          passcode,
+          notes: notes || undefined,
+          timestamp: now.toISOString(),
+          date: now.toISOString().split("T")[0],
+        });
+
+        const optimisticEntry: TimeEntry = {
+          id: -Date.now(),
+          employeeId,
+          type,
+          timestamp: now.toISOString(),
+          date: now.toISOString().split("T")[0],
+          notes: notes || null,
+          source: "employee",
+          isUnpaid: false,
+        };
+        queryClient.setQueryData(
+          ["/api/steepin/entries", employeeId.toString()],
+          (old: TimeEntry[] | undefined) => [...(old || []), optimisticEntry],
+        );
+
+        setPendingCount((c) => c + 1);
+        return { _queued: true, type };
+      }
     },
     onSuccess: (data, variables) => {
-      if (data.reClockDetected) {
-        setReClockData(data);
-        setReClockPasscode(variables.passcode);
-        setPasscodeDialogOpen(false);
+      if (data._queued) {
+        const labels: Record<ActionType, string> = {
+          "clock-in": "Clocked In",
+          "clock-out": "Clocked Out",
+          "break-start": "Break Started",
+          "break-end": "Break Ended",
+        };
+        toast({
+          title: `${labels[variables.type]} (queued)`,
+          description: `${selectedEmployee?.name} - will sync when online`,
+        });
         setPasscode("");
-        setReClockDialogOpen(true);
+        setPasscodeDialogOpen(false);
+        setPendingAction(null);
+        setNoteText("");
         return;
       }
       if (data.reClockHandled) {
         queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
-        toast({ title: "Shift Resumed", description: `Gap handled as "${data.action === 'break' ? 'break' : 'working time'}" — awaiting manager approval.` });
-        setReClockDialogOpen(false);
-        setReClockData(null);
-        setReClockPasscode("");
-        setNoteText("");
+        const labels: Record<string, string> = {
+          reopen: "Shift Reopened",
+          "unpaid-break": "Break Recorded",
+        };
+        toast({
+          title: labels[data.action] || "Updated",
+          description: `${selectedEmployee?.name} - ${format(new Date(), "HH:mm")}`,
+        });
+        setPasscode("");
+        setPasscodeDialogOpen(false);
         setPendingAction(null);
+        setNoteText("");
         return;
       }
-      
-      // Show success animation
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 1500);
-      
+      const optimistic: TimeEntry = {
+        id: data.id ?? -Date.now(),
+        employeeId: data.employeeId ?? variables.employeeId,
+        type: data.type ?? variables.type,
+        timestamp: data.timestamp ?? new Date().toISOString(),
+        date: data.date ?? new Date().toISOString().split("T")[0],
+        notes: data.notes ?? variables.notes ?? null,
+        source: data.source ?? "employee",
+        isUnpaid: data.isUnpaid ?? false,
+      };
+      queryClient.setQueryData(
+        ["/api/steepin/entries", variables.employeeId.toString()],
+        (old: TimeEntry[] | undefined) => [...(old || []), optimistic],
+      );
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
       const labels: Record<ActionType, string> = {
         "clock-in": "Clocked In",
@@ -460,17 +867,45 @@ export default function SteepInPage() {
       setPendingAction(null);
       setNoteText("");
     },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-      setPasscode("");
+    onError: (err: any) => {
+      // Check if it's a conflict (409) - stale state
+      const isConflict = err.message?.includes("409");
+      if (isConflict) {
+        toast({
+          title: "Session Conflict",
+          description: "Your session was updated on another device. Refreshing...",
+          variant: "destructive",
+        });
+        // Force refresh to get current state
+        if (selectedEmployee) {
+          queryClient.invalidateQueries({
+            queryKey: ["/api/steepin/entries", selectedEmployee.id.toString()],
+          });
+        }
+        // 409 means the action is no longer valid — close the dialog so the
+        // user is not stranded on an empty pin pad waiting to retry.
+        setPasscode("");
+        setPasscodeDialogOpen(false);
+        setPendingAction(null);
+        setNoteText("");
+      } else {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+        // For other errors (e.g. wrong passcode), keep the dialog open and just
+        // clear the entered passcode so the user can retry immediately.
+        setPasscode("");
+      }
     },
   });
 
   const exitMutation = useMutation({
     mutationFn: async () => {
-      await exitSteepIn(exitUsername, exitPassword);
+      await apiRequest("POST", "/api/auth/steepin-exit", { 
+        username: exitUsername, 
+        password: exitPassword 
+      });
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       setExitDialogOpen(false);
       setExitUsername("");
       setExitPassword("");
@@ -484,493 +919,504 @@ export default function SteepInPage() {
 
   const currentShiftEntries = useMemo(() => {
     if (!entries.length) return [];
+    const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     let lastClockInIndex = -1;
-    for (let i = entries.length - 1; i >= 0; i--) {
-      if (entries[i].type === "clock-in") {
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      if (sorted[i].type === "clock-in") {
         lastClockInIndex = i;
         break;
       }
     }
     if (lastClockInIndex === -1) return [];
-    return entries.slice(lastClockInIndex);
+    const shiftSlice = sorted.slice(lastClockInIndex);
+    const clockOutIndex = shiftSlice.findIndex(e => e.type === "clock-out");
+    const shiftEntries = clockOutIndex !== -1
+      ? shiftSlice.slice(0, clockOutIndex + 1)
+      : shiftSlice;
+    return shiftEntries;
   }, [entries]);
+
+  const isShiftActive = useMemo(() => {
+    if (!currentShiftEntries.length) return false;
+    return !currentShiftEntries.some(e => e.type === "clock-out");
+  }, [currentShiftEntries]);
+
+  const managerEdits = useMemo(() => {
+    if (!isShiftActive || !currentShiftEntries.length) return [];
+    return currentShiftEntries.filter(e => (e as any).source === "manager");
+  }, [currentShiftEntries, isShiftActive]);
 
   const currentStatus = useMemo(() => {
-    if (!entries.length) return "not-started";
-    const last = entries[entries.length - 1];
+    if (!isShiftActive) return "not-started";
+    if (!currentShiftEntries.length) return "not-started";
+    const last = currentShiftEntries[currentShiftEntries.length - 1];
     return last.type;
-  }, [entries]);
+  }, [isShiftActive, currentShiftEntries]);
+
+  const searchIndex = useMemo(() => {
+    if (!employees || !Array.isArray(employees)) return [];
+    return employees.map((e) => ({
+      employee: e,
+      nameLower: e.name.toLowerCase(),
+      roleLower: (e.role || "").toLowerCase(),
+    }));
+  }, [employees]);
 
   const filteredEmployees = useMemo(() => {
-    if (!employees || !Array.isArray(employees)) return [];
-    const query = searchQuery.toLowerCase().trim();
-    if (!query) return employees;
-    return employees.filter(
-      (e) =>
-        e.name.toLowerCase().includes(query) ||
-        (e.role && e.role.toLowerCase().includes(query))
-    );
-  }, [employees, searchQuery]);
+    if (!searchIndex.length) return [];
+    const query = deferredSearchQuery.toLowerCase();
+    if (!query) return searchIndex.map((item) => item.employee);
+    return searchIndex
+      .filter((item) => item.nameLower.includes(query) || item.roleLower.includes(query))
+      .map((item) => item.employee);
+  }, [searchIndex, deferredSearchQuery]);
 
-  if (authLoading || !isActive) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-primary/10 animate-pulse" />
-          <Skeleton className="w-48 h-4 rounded-full" />
+  const handleSelectEmployee = useCallback((emp: Employee) => {
+    setSelectedEmployee(emp);
+  }, []);
+
+  const ghostBorderColor = isDark ? "rgba(170,100,55,0.5)" : "rgba(70,110,65,0.45)";
+  const ghostSearchBg = isDark ? "rgba(40,28,20,0.55)" : "rgba(242,247,238,0.68)";
+
+  const PageSkeleton = (
+    <div className="h-screen flex flex-col font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
+      <BackgroundVector isDark={isDark} />
+      <div className="px-8 mb-12 pt-8 relative z-10">
+        <div className="max-w-2xl mx-auto">
+          <div className="h-14 w-full rounded-full" style={{ backgroundColor: ghostSearchBg, border: `1.5px solid ${ghostBorderColor}` }} />
         </div>
       </div>
-    );
+      <div className="flex-1 px-6 sm:px-12 pb-12 relative z-10">
+        {isSmallScreen ? (
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <GhostCard key={i} isDark={isDark} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3 max-w-lg mx-auto">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <GhostCard key={i} isDark={isDark} isMobile />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // Offline-first: if we have cached employees, skip the skeleton entirely.
+  // The real page renders with cached data while auth validates in the background.
+  if (hasEmployees) {
+    // Auth confirmed not in SteepIn mode and no cached employees to fall back on
+    if (!authLoading && !isActive) return PageSkeleton;
+    // Fall through to render the real page with cached employees
+  } else {
+    // No cached employees — must wait for auth + employee fetch
+    if (authLoading) return PageSkeleton;
+    if (!isActive) return PageSkeleton;
   }
 
-  const handleAction = useCallback((type: ActionType) => {
+  const handleAction = (type: ActionType) => {
     if (!selectedEmployee) return;
     setPendingAction(type);
     setPasscodeDialogOpen(true);
-  }, [selectedEmployee]);
+  };
 
-  const submitPasscode = useCallback((e: React.FormEvent) => {
+  const submitPasscode = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmployee || !pendingAction || passcode.length < 4 || passcode.length > 6) return;
     actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode, notes: noteText.trim() || undefined });
-  }, [selectedEmployee, pendingAction, passcode, noteText, actionMutation]);
+  };
 
-  const handleReClockChoice = useCallback((action: "new-shift" | "break" | "working") => {
-    if (!selectedEmployee || !reClockData) return;
-    if (action === "new-shift") {
-      actionMutation.mutate({ employeeId: selectedEmployee.id, type: "clock-in", passcode: reClockPasscode, skipReClockCheck: true, notes: noteText.trim() || undefined });
-      setReClockDialogOpen(false);
-      setReClockData(null);
-      setReClockPasscode("");
-    } else {
-      actionMutation.mutate({ employeeId: selectedEmployee.id, type: "clock-in", passcode: reClockPasscode, reClockAction: action });
-    }
-  }, [selectedEmployee, reClockData, reClockPasscode, noteText, actionMutation]);
-
-  const handleExitSteepIn = useCallback(async (e: React.FormEvent) => {
+  const handleExitSteepIn = async (e: React.FormEvent) => {
     e.preventDefault();
     exitMutation.mutate();
-  }, [exitMutation]);
+  };
 
-  const handleBack = useCallback(() => {
-    setSelectedEmployee(null);
-    setPasscode("");
-    setNoteText("");
-  }, []);
-
-  // Employee selection view
   if (selectedEmployee) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
-        {/* Header */}
-        <header className="flex items-center justify-between gap-4 p-4 border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleBack}
-            className="gap-2 hover:bg-muted"
-            data-testid="button-steepin-back"
-          >
-            <ArrowLeft className="w-4 h-4" /> Back
-          </Button>
-          
-          <TimeDisplay />
-          
-          <div className="w-[70px]" />
+      <div className="h-screen flex flex-col font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
+        <BackgroundVector isDark={isDark} />
+
+        <header className="flex items-center justify-between gap-3 pt-3 pb-2 px-6 relative z-10 shrink-0">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedEmployee(null)}
+              className={`${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} text-lg font-medium border ${t.buttonBorder} ${t.buttonBg} px-6 rounded-xl transition-[background-color,color] duration-150 shadow-sm`}
+              data-testid="button-steepin-back"
+            >
+              <ArrowLeft className="w-5 h-5 mr-2" /> Back
+            </Button>
+            {!isOnline && (
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${t.offlineAmberBg} ${t.offlineAmberText} border ${t.offlineAmberBorder}`}
+                data-testid="status-offline-indicator-detail"
+              >
+                <WifiOff className="w-3.5 h-3.5" />
+                <span>Offline</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-xl font-light tracking-widest uppercase" style={{ color: t.timeText }} data-testid="text-steepin-time">
+              {liveTime}
+            </div>
+            {/* Live sync indicator */}
+            {isOnline && isSyncConnected && (
+              <div 
+                className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-300"
+                title="Cross-device sync active"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                Live
+              </div>
+            )}
+            {/* Manual refresh button - only show when online */}
+            {isOnline && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => refetchEntries()}
+                disabled={entriesFetching}
+                className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-all duration-200`}
+                title={entriesUpdatedAt ? `Last updated: ${format(entriesUpdatedAt, "HH:mm:ss")}` : "Refresh"}
+              >
+                <RefreshCw className={`w-4 h-4 ${entriesFetching ? "animate-spin" : ""}`} />
+              </Button>
+            )}
+          </div>
+          <div className="w-[80px]" />
         </header>
 
-        {/* Main content */}
-        <div className="flex-1 flex items-center justify-center p-4">
-          <div className="w-full max-w-md space-y-6">
-            {/* Employee header card */}
-            <div className="text-center space-y-4">
-              <div className="relative inline-block">
-                <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse" />
-                <EmployeeAvatar name={selectedEmployee.name} color={selectedEmployee.color} size="lg" />
-                <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg">
-                  <Fingerprint className="w-3.5 h-3.5" />
-                </div>
-              </div>
-              <div>
-                <h2 className="text-xl font-bold" data-testid="text-steepin-employee-name">
-                  {selectedEmployee.name}
-                </h2>
-                <p className="text-sm text-muted-foreground">{selectedEmployee.role || "Team Member"}</p>
-              </div>
-              
-              {/* Status badge */}
-              <div className={cn(
-                "inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium",
-                currentStatus === "clock-in" && "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-                currentStatus === "break-start" && "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-                currentStatus === "clock-out" && "bg-muted text-muted-foreground",
-                currentStatus === "not-started" && "bg-muted text-muted-foreground"
-              )}>
-                <div className={cn(
-                  "w-2 h-2 rounded-full",
-                  currentStatus === "clock-in" && "bg-emerald-500 animate-pulse",
-                  currentStatus === "break-start" && "bg-amber-500 animate-pulse",
-                  (currentStatus === "clock-out" || currentStatus === "not-started") && "bg-muted-foreground"
-                )} />
-                {currentStatus === "clock-in" && "Currently Working"}
-                {currentStatus === "break-start" && "On Break"}
-                {currentStatus === "clock-out" && "Clocked Out"}
-                {currentStatus === "not-started" && "Not Started"}
-              </div>
+        <div className="flex-1 overflow-y-auto px-4 pb-8 pt-3 relative z-10" style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain", touchAction: "pan-y" } as React.CSSProperties}>
+          <div className="w-full max-w-lg mx-auto" style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(1rem, 4vh, 2rem)' }}>
+            <div className="text-center">
+              <h2 style={{ fontSize: 'clamp(1.3rem, 6vh, 2rem)', fontWeight: 500, color: t.leafNameDisplay, margin: 0 }} data-testid="text-steepin-employee-name">{selectedEmployee.name}</h2>
+              <p style={{ fontSize: 'clamp(0.9rem, 3.5vh, 1.15rem)', fontStyle: 'italic', marginTop: '0.25em', color: t.leafRoleDisplay }}>{selectedEmployee.role ? selectedEmployee.role : "Loose leaf"}</p>
             </div>
 
-            {/* Action buttons grid */}
-            {entriesLoading ? (
-              <div className="grid grid-cols-2 gap-4">
-                <Skeleton className="h-28 rounded-2xl" />
-                <Skeleton className="h-28 rounded-2xl" />
-                <Skeleton className="h-28 rounded-2xl" />
-                <Skeleton className="h-28 rounded-2xl" />
+            {(entriesLoading && entries.length === 0) ? (
+              <div className="grid grid-cols-2" style={{ gap: 'clamp(0.5rem, 2vh, 1.5rem)' }}>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="rounded-xl" style={{ height: 'clamp(3.5rem, 18vh, 6rem)', backgroundColor: isDark ? "rgba(35,25,20,0.2)" : "rgba(255,255,255,0.18)", border: `1.5px solid ${isDark ? "rgba(140,80,45,0.2)" : "rgba(107,130,100,0.15)"}` }} />
+                ))}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4">
-                <ActionButton
-                  type="clock-in"
-                  onClick={() => handleAction("clock-in")}
-                  disabled={currentStatus === "clock-in" || currentStatus === "break-start" || actionMutation.isPending}
-                  isLoading={actionMutation.isPending && pendingAction === "clock-in"}
-                  currentStatus={currentStatus}
-                />
-                <ActionButton
-                  type="clock-out"
-                  onClick={() => handleAction("clock-out")}
-                  disabled={(currentStatus !== "clock-in" && currentStatus !== "break-end") || actionMutation.isPending}
-                  isLoading={actionMutation.isPending && pendingAction === "clock-out"}
-                  currentStatus={currentStatus}
-                />
-                <ActionButton
-                  type="break-start"
-                  onClick={() => handleAction("break-start")}
-                  disabled={(currentStatus !== "clock-in" && currentStatus !== "break-end") || actionMutation.isPending}
-                  isLoading={actionMutation.isPending && pendingAction === "break-start"}
-                  currentStatus={currentStatus}
-                />
-                <ActionButton
-                  type="break-end"
-                  onClick={() => handleAction("break-end")}
-                  disabled={currentStatus !== "break-start" || actionMutation.isPending}
-                  isLoading={actionMutation.isPending && pendingAction === "break-end"}
-                  currentStatus={currentStatus}
-                />
+              <div className="space-y-3">
+                {isVerifyingStatus ? (
+                  <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium ${t.offlineAmberBg} ${t.offlineAmberText} border ${t.offlineAmberBorder}`}>
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0 animate-spin" />
+                    <span>Verifying current status…</span>
+                  </div>
+                ) : !isOnline ? (
+                  <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium ${t.offlineAmberBg} ${t.offlineAmberText} border ${t.offlineAmberBorder}`}>
+                    <WifiOff className="w-3.5 h-3.5 shrink-0" />
+                    <span>Offline — current status unknown. All actions are available.</span>
+                  </div>
+                ) : entriesUpdatedAt && Date.now() - entriesUpdatedAt > 5 * 60 * 1000 ? (
+                  // Show warning if data is older than 5 minutes (even when online)
+                  <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium ${t.offlineAmberBg} ${t.offlineAmberText} border ${t.offlineAmberBorder}`}>
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                    <span>Data may be outdated — last updated {Math.round((Date.now() - entriesUpdatedAt) / 60000)}m ago</span>
+                  </div>
+                ) : null}
+                <div className="grid grid-cols-2" style={{ gap: 'clamp(0.5rem, 2vh, 1.5rem)' }}>
+                  <Button
+                    size="lg"
+                    className="flex flex-col gap-2 text-base font-medium rounded-2xl transition-[transform] duration-150 hover:scale-[1.02] active:scale-[0.98] shadow-sm"
+                    style={{ backgroundColor: "#10B981", color: "white", height: 'clamp(3.5rem, 18vh, 6rem)' }}
+                    disabled={isVerifyingStatus || (isOnline ? (currentStatus === "clock-in" || currentStatus === "break-start" || currentStatus === "break-end" || actionMutation.isPending) : actionMutation.isPending)}
+                    onClick={() => handleAction("clock-in")}
+                    data-testid="button-clock-in"
+                  >
+                    <LogIn className="w-6 h-6" />
+                    Clock In
+                  </Button>
+                  <Button
+                    size="lg"
+                    className="flex flex-col gap-2 text-base font-medium rounded-2xl transition-[transform] duration-150 hover:scale-[1.02] active:scale-[0.98] shadow-sm"
+                    style={{ backgroundColor: "#EF4444", color: "white", height: 'clamp(3.5rem, 18vh, 6rem)' }}
+                    disabled={isVerifyingStatus || (isOnline ? ((currentStatus !== "clock-in" && currentStatus !== "break-end" && currentStatus !== "break-start") || actionMutation.isPending) : actionMutation.isPending)}
+                    onClick={() => handleAction("clock-out")}
+                    data-testid="button-clock-out"
+                  >
+                    <LogOut className="w-6 h-6" />
+                    Clock Out
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className={`flex flex-col gap-2 text-base font-medium rounded-2xl ${t.actionBtnBg} ${t.actionBtnBorder} ${t.actionBtnText} ${t.actionBtnHoverBg} ${t.actionBtnHoverBorder} transition-[transform,background-color,border-color] duration-150 hover:scale-[1.02] active:scale-[0.98] shadow-sm`}
+                    style={{ height: 'clamp(3.5rem, 18vh, 6rem)' }}
+                    disabled={isVerifyingStatus || (isOnline ? ((currentStatus !== "clock-in" && currentStatus !== "break-end") || actionMutation.isPending) : actionMutation.isPending)}
+                    onClick={() => handleAction("break-start")}
+                    data-testid="button-break-start"
+                  >
+                    <Coffee className="w-6 h-6" />
+                    Start Break
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className={`flex flex-col gap-2 text-base font-medium rounded-2xl ${t.actionBtnBg} ${t.actionBtnBorder} ${t.actionBtnText} ${t.actionBtnHoverBg} ${t.actionBtnHoverBorder} transition-[transform,background-color,border-color] duration-150 hover:scale-[1.02] active:scale-[0.98] shadow-sm`}
+                    style={{ height: 'clamp(3.5rem, 18vh, 6rem)' }}
+                    disabled={isVerifyingStatus || (isOnline ? (currentStatus !== "break-start" || actionMutation.isPending) : actionMutation.isPending)}
+                    onClick={() => handleAction("break-end")}
+                    data-testid="button-break-end"
+                  >
+                    <Timer className="w-6 h-6" />
+                    End Break
+                  </Button>
+                </div>
               </div>
             )}
 
-            {/* Current shift timeline */}
-            {currentShiftEntries.length > 0 && (
-              <Card className="p-5 border-2 border-border/40">
-                <div className="flex items-center gap-2 mb-4">
-                  <Sparkles className="w-4 h-4 text-primary" />
-                  <h3 className="text-sm font-semibold">Current Shift</h3>
-                </div>
+            {isShiftActive && currentShiftEntries.some(e => (e as any).source !== "manager" && e.type !== "shift-reopened") && (
+              <div className={`${t.shiftBg} rounded-2xl p-6 border ${t.shiftBorder} shadow-sm`}>
+                <h3 className="text-sm font-semibold uppercase tracking-widest mb-4" style={{ color: t.shiftLabel }} data-testid="heading-current-shift">Current Shift</h3>
                 <div className="space-y-3">
-                  {currentShiftEntries.map((entry, index) => {
-                    const typeLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-                      "clock-in": { label: "Clock In", color: "#10B981", icon: <LogIn className="w-3 h-3" /> },
-                      "clock-out": { label: "Clock Out", color: "#EF4444", icon: <LogOut className="w-3 h-3" /> },
-                      "break-start": { label: "Break Start", color: "#F59E0B", icon: <Coffee className="w-3 h-3" /> },
-                      "break-end": { label: "Break End", color: "#3B82F6", icon: <Timer className="w-3 h-3" /> },
+                  {currentShiftEntries.filter(e => e.type !== "shift-reopened" && (e as any).source !== "manager").map((entry) => {
+                    const typeLabels: Record<string, { label: string; color: string }> = {
+                      "clock-in": { label: "Clock In", color: "#10B981" },
+                      "clock-out": { label: "Clock Out", color: "#EF4444" },
+                      "break-start": { label: "Break Start", color: "#F59E0B" },
+                      "break-end": { label: "Break End", color: "#3B82F6" },
                     };
-                    const info = typeLabels[entry.type] || { label: entry.type, color: "#6B7280", icon: <Clock className="w-3 h-3" /> };
-                    const isLast = index === currentShiftEntries.length - 1;
+                    const info = typeLabels[entry.type] || { label: entry.type, color: "#6B7280" };
                     return (
-                      <div key={entry.id} className="flex items-center gap-3" data-testid={`time-entry-${entry.id}`}>
-                        <div className="relative flex flex-col items-center">
-                          <div 
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-white"
-                            style={{ backgroundColor: info.color }}
-                          >
-                            {info.icon}
-                          </div>
-                          {!isLast && (
-                            <div className="w-0.5 h-6 bg-border mt-1" />
-                          )}
+                      <div key={entry.id} className="flex items-center justify-between text-sm" data-testid={`time-entry-${entry.id}`}>
+                        <div className="flex items-center gap-3">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: info.color }} />
+                          <span className="font-medium" style={{ color: t.entryName }}>{info.label}</span>
                         </div>
-                        <div className="flex-1 flex items-center justify-between">
-                          <span className="text-sm font-medium">{info.label}</span>
-                          <span className="text-sm text-muted-foreground font-mono bg-muted/50 px-2 py-0.5 rounded">
-                            {format(new Date(entry.timestamp), "HH:mm")}
-                          </span>
-                        </div>
+                        <span className="font-mono" style={{ color: t.entryTime }}>
+                          {format(new Date(entry.timestamp), "HH:mm")}
+                        </span>
                       </div>
                     );
                   })}
                 </div>
-              </Card>
+              </div>
+            )}
+
+            {managerEdits.length > 0 && (
+              <div className={`${t.managerBg} rounded-2xl p-6 border ${t.managerBorder} shadow-sm`}>
+                <h3 className="text-sm font-semibold uppercase tracking-widest mb-4" style={{ color: t.managerLabel }} data-testid="heading-manager-edits">Live Manager Edits</h3>
+                <div className="space-y-3">
+                  {managerEdits.map((entry) => {
+                    const typeLabels: Record<string, { label: string; color: string }> = {
+                      "clock-in": { label: "Shift Start Edited", color: "#10B981" },
+                      "clock-out": { label: "Shift End Added", color: "#EF4444" },
+                      "break-start": { label: "Break Added", color: "#F59E0B" },
+                      "break-end": { label: "Break Ended", color: "#3B82F6" },
+                      "shift-reopened": { label: "Shift Reopened", color: "#8B5CF6" },
+                    };
+                    const info = typeLabels[entry.type] || { label: entry.type, color: "#6B7280" };
+                    return (
+                      <div key={entry.id} className="flex items-center justify-between text-sm" data-testid={`manager-edit-${entry.id}`}>
+                        <div className="flex items-center gap-3">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: info.color }} />
+                          <span className="font-medium" style={{ color: t.entryName }}>{info.label}</span>
+                        </div>
+                        <span className="font-mono" style={{ color: t.entryTime }}>
+                          {format(new Date(entry.timestamp), "HH:mm")}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Success overlay */}
-        <SuccessOverlay 
-          isVisible={showSuccess} 
-          action={pendingAction} 
-          employeeName={selectedEmployee.name} 
-        />
-
-        {/* Passcode dialog */}
         <Dialog open={passcodeDialogOpen} onOpenChange={(open) => {
           if (!actionMutation.isPending) {
             setPasscodeDialogOpen(open);
-            if (!open) {
-              setPasscode("");
-              setNoteText("");
-            }
+            if (!open) setPasscode("");
           }
         }}>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className={`sm:max-w-md font-serif ${t.dialogBg}`}>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Fingerprint className="w-5 h-5 text-primary" />
-                Enter Passcode
-              </DialogTitle>
-              <DialogDescription>
-                Enter your 4-6 digit passcode to confirm
+              <DialogTitle className="text-2xl font-medium" style={{ color: t.dialogTitle }}>Enter Passcode</DialogTitle>
+              <DialogDescription className="italic" style={{ color: t.dialogDesc }}>
+                Please enter your 4-6 digit passcode to confirm this action.
               </DialogDescription>
             </DialogHeader>
-            
-            {pendingAction === "break-start" && (breakPolicy?.paidBreakMinutes || breakPolicy?.maxBreakMinutes) && (
-              <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-4 space-y-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
-                  <Info className="w-4 h-4" />
-                  Break Policy
+            <form onSubmit={submitPasscode} className="space-y-6">
+              <PinPad value={passcode} onChange={setPasscode} maxLength={6} isDark={isDark} />
+              <div className="space-y-2 px-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest" style={{ color: t.noteLabelColor }}>
+                    <StickyNote className="w-3.5 h-3.5" />
+                    <span>Add a note</span>
+                  </div>
+                  <span className="text-[10px]" style={{ color: t.dialogDesc }}>{noteText.length}/200</span>
                 </div>
-                {breakPolicy.paidBreakMinutes != null && breakPolicy.paidBreakMinutes > 0 && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    Paid break: <strong>{breakPolicy.paidBreakMinutes} min</strong>
-                  </p>
-                )}
-                {breakPolicy.maxBreakMinutes != null && breakPolicy.maxBreakMinutes > 0 && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    Maximum: <strong>{breakPolicy.maxBreakMinutes} min</strong>
-                  </p>
-                )}
-              </div>
-            )}
-            
-            <form onSubmit={submitPasscode} className="space-y-4" autoComplete="off" data-form-type="other">
-              {/* Honeypot fields to trick password managers */}
-              <input type="text" name="trap_code_1" tabIndex={-1} autoComplete="off" className="sr-only" aria-hidden="true" />
-              <input type="password" name="trap_code_2" tabIndex={-1} autoComplete="off" className="sr-only" aria-hidden="true" />
-              <PinPad 
-                value={passcode} 
-                onChange={setPasscode} 
-                maxLength={6} 
-                isVerifying={actionMutation.isPending}
-              />
-              
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <StickyNote className="w-3.5 h-3.5" />
-                  <span>Add a note (optional)</span>
+                <div className="relative group">
+                  <Textarea
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    placeholder="e.g. covering for Alex..."
+                    className={`h-24 text-sm resize-none ${t.noteInputBg} ${t.noteInputBorder} focus:border-[#4A5D45]/50 focus:ring-1 focus:ring-[#4A5D45]/20 rounded-xl placeholder:text-[#8C8C8C]/50 italic`}
+                    maxLength={200}
+                    data-testid="input-steepin-note"
+                  />
                 </div>
-                <Textarea
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="e.g. covering for Alex, running late..."
-                  className="h-16 text-sm resize-none rounded-xl"
-                  maxLength={200}
-                  data-testid="input-steepin-note"
-                  autoComplete="off"
-                  data-lpignore="true"
-                  data-1p-ignore=""
-                  data-bwignore=""
-                  data-form-type="other"
-                />
               </div>
-              
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex justify-end gap-4 pt-2">
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => { setPasscodeDialogOpen(false); setNoteText(""); setPasscode(""); }}
+                  onClick={() => { setPasscodeDialogOpen(false); setNoteText(""); }}
+                  className="font-light" style={{ color: t.dialogDesc }}
                   disabled={actionMutation.isPending}
                 >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
+                  className={`${t.confirmBtnBg} ${t.confirmBtnHover} text-white px-8 rounded-full font-light text-lg`}
                   disabled={passcode.length < 4 || actionMutation.isPending}
-                  className="gap-2"
                 >
-                  {actionMutation.isPending ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Verifying...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      Confirm
-                    </>
-                  )}
+                  {actionMutation.isPending ? "Verifying..." : "Confirm"}
                 </Button>
               </div>
             </form>
           </DialogContent>
         </Dialog>
 
-        {/* ReClock dialog */}
-        <Dialog open={reClockDialogOpen} onOpenChange={(open) => {
-          if (!open) {
-            setReClockDialogOpen(false);
-            setReClockData(null);
-            setReClockPasscode("");
-          }
-        }}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Clock className="w-5 h-5 text-primary" />
-                Welcome Back
-              </DialogTitle>
-              <DialogDescription>
-                You clocked out {reClockData?.minutesSince} minutes ago. What would you like to do?
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 py-2">
-              <button
-                className={cn(
-                  "w-full p-4 rounded-xl border-2 border-border/50 text-left transition-all duration-200",
-                  "hover:border-primary/50 hover:bg-primary/5 hover:shadow-md",
-                  "active:scale-[0.98]",
-                  actionMutation.isPending && "opacity-50 cursor-not-allowed"
-                )}
-                onClick={() => handleReClockChoice("new-shift")}
-                disabled={actionMutation.isPending}
-                data-testid="button-reclock-new-shift"
-              >
-                <div className="font-semibold text-sm mb-1">Start a New Shift</div>
-                <div className="text-xs text-muted-foreground">Begin a fresh shift (default)</div>
-              </button>
-              <button
-                className={cn(
-                  "w-full p-4 rounded-xl border-2 border-border/50 text-left transition-all duration-200",
-                  "hover:border-amber-500/50 hover:bg-amber-500/5 hover:shadow-md",
-                  "active:scale-[0.98]",
-                  actionMutation.isPending && "opacity-50 cursor-not-allowed"
-                )}
-                onClick={() => handleReClockChoice("break")}
-                disabled={actionMutation.isPending}
-                data-testid="button-reclock-break"
-              >
-                <div className="font-semibold text-sm mb-1">I Was on a Break</div>
-                <div className="text-xs text-muted-foreground">Count the gap as break time (needs approval)</div>
-              </button>
-              <button
-                className={cn(
-                  "w-full p-4 rounded-xl border-2 border-border/50 text-left transition-all duration-200",
-                  "hover:border-blue-500/50 hover:bg-blue-500/5 hover:shadow-md",
-                  "active:scale-[0.98]",
-                  actionMutation.isPending && "opacity-50 cursor-not-allowed"
-                )}
-                onClick={() => handleReClockChoice("working")}
-                disabled={actionMutation.isPending}
-                data-testid="button-reclock-working"
-              >
-                <div className="font-semibold text-sm mb-1">I Was Still Working</div>
-                <div className="text-xs text-muted-foreground">Count the gap as working time (needs approval)</div>
-              </button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     );
   }
 
-  // Employee list view
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="flex items-center justify-between gap-4 p-4 border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/20">
-            <Clock className="w-5 h-5 text-primary-foreground" />
-          </div>
-          <div>
-            <h1 className="text-base font-bold">SteepIn</h1>
-            <p className="text-[11px] text-muted-foreground">Select your name to clock in/out</p>
-          </div>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setExitDialogOpen(true)}
-          className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-          data-testid="button-exit-steepin-list"
-        >
-          Exit
-        </Button>
-      </header>
+    <div className="h-screen flex flex-col font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
+      <BackgroundVector isDark={isDark} />
+      
+      {((!isOnline || pendingCount > 0) || !deviceLocked) && (
+        <header className="flex items-center gap-3 pt-3 pb-2 px-6 relative z-10 shrink-0">
+          {(!isOnline || pendingCount > 0) && (
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${
+                !isOnline
+                  ? `${t.offlineAmberBg} ${t.offlineAmberText} border ${t.offlineAmberBorder}`
+                  : `${t.offlineSyncBg} ${t.offlineSyncText} border ${t.offlineSyncBorder}`
+              }`}
+              data-testid="status-offline-indicator"
+            >
+              {!isOnline ? (
+                <>
+                  <WifiOff className="w-3.5 h-3.5" />
+                  <span>Offline</span>
+                </>
+              ) : (
+                <>
+                  <CloudUpload className="w-3.5 h-3.5 animate-pulse" />
+                  <span>Syncing {pendingCount}</span>
+                </>
+              )}
+            </div>
+          )}
+          {!deviceLocked && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`${t.exitText} ${t.exitHoverBg} ${t.exitHoverText} text-xl font-light border ${t.exitBorder} ${t.exitBg} px-6 rounded-xl transition-[background-color,color] duration-150`}
+              onClick={() => setExitDialogOpen(true)}
+              data-testid="button-exit-steepin-list"
+            >
+              Exit
+            </Button>
+          )}
+        </header>
+      )}
 
-      {/* Exit dialog */}
       <Dialog open={exitDialogOpen} onOpenChange={setExitDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={`sm:max-w-md font-serif ${t.dialogBg}`}>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <LogOut className="w-5 h-5 text-muted-foreground" />
-              Exit SteepIn
-            </DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-2xl font-medium" style={{ color: t.dialogTitle }}>Exit SteepIn</DialogTitle>
+            <DialogDescription className="italic" style={{ color: t.dialogDesc }}>
               Manager credentials are required to deactivate SteepIn mode.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleExitSteepIn} className="space-y-4" autoComplete="off" data-form-type="other">
-            <input type="text" name="trap_usr2" tabIndex={-1} autoComplete="username" className="sr-only" aria-hidden="true" />
-            <input type="password" name="trap_pw2" tabIndex={-1} autoComplete="current-password" className="sr-only" aria-hidden="true" />
+          <form 
+            onSubmit={handleExitSteepIn} 
+            className="space-y-6" 
+            autoComplete="off" 
+            data-form-type="other"
+            noValidate
+          >
+            <div className="sr-only" aria-hidden="true">
+              <input type="text" name="user_name_login" tabIndex={-1} autoComplete="username" />
+              <input type="password" name="password_login" tabIndex={-1} autoComplete="current-password" />
+              <input type="email" name="email_address" tabIndex={-1} autoComplete="email" />
+            </div>
+
             <div className="space-y-2">
-              <label className="text-sm font-medium">Username</label>
+              <label className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-70" style={{ color: t.noteLabelColor }}>
+                {"U S E R N A M E".split("").map((char, i) => <span key={i}>{char}</span>)}
+              </label>
               <Input
-                name={`mgr_id_${Date.now()}`}
+                name={`u_${Math.random().toString(36).substring(7)}`}
                 value={exitUsername}
                 onChange={(e) => setExitUsername(e.target.value)}
-                placeholder="Manager username"
+                placeholder="Enter manager id"
                 required
                 autoComplete="off"
                 data-lpignore="true"
                 data-1p-ignore=""
                 data-bwignore=""
-                data-form-type="other"
-                onFocus={(e) => { e.target.removeAttribute("readonly"); }}
+                spellCheck={false}
+                className={`${t.noteInputBg} ${t.noteInputBorder} focus:border-[#4A5D45]/50 focus:ring-1 focus:ring-[#4A5D45]/20 rounded-xl h-12`}
+                style={{ color: t.dialogTitle }}
+                onFocus={(e) => { 
+                  e.target.removeAttribute("readonly");
+                  e.target.setAttribute("autocomplete", "off");
+                }}
                 readOnly
-                className="rounded-xl"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Password</label>
+              <label className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-70" style={{ color: t.noteLabelColor }}>
+                {"P A S S W O R D".split("").map((char, i) => <span key={i}>{char}</span>)}
+              </label>
               <Input
                 type="password"
-                name={`mgr_key_${Date.now()}`}
+                name={`p_${Math.random().toString(36).substring(7)}`}
                 value={exitPassword}
                 onChange={(e) => setExitPassword(e.target.value)}
-                placeholder="Manager password"
+                placeholder="Enter manager key"
                 required
                 autoComplete="new-password"
                 data-lpignore="true"
                 data-1p-ignore=""
                 data-bwignore=""
-                data-form-type="other"
-                onFocus={(e) => { e.target.removeAttribute("readonly"); }}
+                spellCheck={false}
+                className={`${t.noteInputBg} ${t.noteInputBorder} focus:border-[#4A5D45]/50 focus:ring-1 focus:ring-[#4A5D45]/20 rounded-xl h-12`}
+                style={{ color: t.dialogTitle }}
+                onFocus={(e) => { 
+                  e.target.removeAttribute("readonly");
+                  e.target.setAttribute("autocomplete", "new-password");
+                }}
                 readOnly
-                className="rounded-xl"
               />
             </div>
-            <div className="flex justify-end gap-3 pt-2">
+            <div className="flex justify-end gap-4 pt-2">
               <Button
                 type="button"
                 variant="ghost"
+                className="font-light" style={{ color: t.dialogDesc }}
                 onClick={() => setExitDialogOpen(false)}
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
+                className={`${t.confirmBtnBg} ${t.confirmBtnHover} text-white px-8 rounded-full font-light text-lg`}
                 disabled={exitMutation.isPending}
-                variant="destructive"
               >
                 {exitMutation.isPending ? "Exiting..." : "Exit SteepIn"}
               </Button>
@@ -979,53 +1425,94 @@ export default function SteepInPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Search */}
-      <div className="p-4 border-b bg-muted/30">
-        <div className="relative max-w-md mx-auto">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+      <Dialog open={introDialogOpen} onOpenChange={setIntroDialogOpen}>
+        <DialogContent className={`sm:max-w-md font-serif ${t.dialogBg}`}>
+          <DialogHeader>
+            <DialogTitle className="text-xl font-medium flex items-center gap-2" style={{ color: t.dialogTitle }}>
+              <Info className="w-5 h-5" style={{ color: t.noteLabelColor }} />
+              Welcome to SteepIn
+            </DialogTitle>
+            <DialogDescription className="italic" style={{ color: t.dialogDesc }}>
+              A few tips to get started
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: isDark ? "#2A2220" : "#F0F0E8" }}>
+                <span className="text-sm font-bold" style={{ color: t.noteLabelColor }}>1</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium" style={{ color: t.leafNameDisplay }}>Lock this device</p>
+                <p className="text-xs mt-0.5" style={{ color: t.dialogDesc }}>In Settings, go to Location Management and lock this device to prevent employees from exiting SteepIn mode.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: isDark ? "#2A2220" : "#F0F0E8" }}>
+                <span className="text-sm font-bold" style={{ color: t.noteLabelColor }}>2</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium" style={{ color: t.leafNameDisplay }}>Theme settings</p>
+                <p className="text-xs mt-0.5" style={{ color: t.dialogDesc }}>Choose between light, dark, or auto-schedule themes from Settings to match your venue's ambiance.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: isDark ? "#2A2220" : "#F0F0E8" }}>
+                <span className="text-sm font-bold" style={{ color: t.noteLabelColor }}>3</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium" style={{ color: t.leafNameDisplay }}>Works offline</p>
+                <p className="text-xs mt-0.5" style={{ color: t.dialogDesc }}>Employees can clock in/out even without internet. Actions queue up and sync automatically when reconnected.</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button
+              onClick={() => setIntroDialogOpen(false)}
+              className={`${t.confirmBtnBg} ${t.confirmBtnHover} text-white px-8 rounded-full font-light text-lg`}
+              data-testid="button-dismiss-intro"
+            >
+              Got it
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className="flex-1 overflow-y-auto pt-5 px-6 sm:px-12 pb-12 relative z-10" style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain", touchAction: "pan-y" } as React.CSSProperties}>
+        <div className="relative max-w-2xl mx-auto mb-8">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: isDark ? "#7B6B5B" : "#6B6B6B" }} />
           <Input
             placeholder="Search by name or role..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 rounded-xl border-2 h-11"
+            className={`pl-12 h-14 ${t.searchBg} ${t.searchBorder} rounded-full text-lg font-light ${t.searchPlaceholder} shadow-sm ${t.searchFocusBg} transition-[background-color] duration-150`}
+            style={{ color: t.leafNameDisplay }}
             data-testid="input-steepin-search"
           />
         </div>
-      </div>
-
-      {/* Employee grid */}
-      <div className="flex-1 overflow-auto p-4">
         {empsLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <Skeleton key={i} className="h-32 rounded-2xl" />
+          isSmallScreen ? (
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <GhostCard key={i} isDark={isDark} />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3 max-w-lg mx-auto">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <GhostCard key={i} isDark={isDark} isMobile />
+              ))}
+            </div>
+          )
+        ) : isSmallScreen ? (
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+            {filteredEmployees.map((emp) => (
+              <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} />
             ))}
           </div>
-        ) : filteredEmployees.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <Search className="w-8 h-8 text-muted-foreground/50" />
-            </div>
-            <p className="text-muted-foreground">No employees found</p>
-            {searchQuery && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => setSearchQuery("")}
-                className="mt-2"
-              >
-                Clear search
-              </Button>
-            )}
-          </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
+          <div className="space-y-3 max-w-lg mx-auto">
             {filteredEmployees.map((emp) => (
-              <EmployeeCard
-                key={emp.id}
-                employee={emp}
-                onClick={() => setSelectedEmployee(emp)}
-              />
+              <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} isMobile />
             ))}
           </div>
         )}
