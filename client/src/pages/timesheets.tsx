@@ -28,6 +28,7 @@ import CsvImporter from "@/components/csv-importer";
 import type { Employee, TimeEntry, CustomRole, ApprovalRequest, Shift } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { calculateDayPay, formatCurrency, hasPayConfig } from "@/lib/pay-utils";
 
 interface EmployeeWorkday {
   employee: Employee;
@@ -43,20 +44,48 @@ interface EmployeeWorkday {
   status: "working" | "on-break" | "completed" | "incomplete";
 }
 
+function getBreakPairs(entries: TimeEntry[], clockIn?: Date | null, clockOut?: Date | null): { start: TimeEntry; end: TimeEntry | null }[] {
+  let filtered = [...entries]
+    .filter(e => e.type === "break-start" || e.type === "break-end")
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  if (clockIn || clockOut) {
+    const clockOutBound = clockOut ? clockOut.getTime() + 60000 : null;
+    filtered = filtered.filter(e => {
+      const t = new Date(e.timestamp).getTime();
+      if (clockIn && t < clockIn.getTime()) return false;
+      if (clockOutBound && t > clockOutBound) return false;
+      return true;
+    });
+  }
+  const pairs: { start: TimeEntry; end: TimeEntry | null }[] = [];
+  let pendingStart: TimeEntry | null = null;
+  for (const e of filtered) {
+    if (e.type === "break-start") {
+      if (pendingStart) pairs.push({ start: pendingStart, end: null });
+      pendingStart = e;
+    } else if (e.type === "break-end" && pendingStart) {
+      pairs.push({ start: pendingStart, end: e });
+      pendingStart = null;
+    }
+  }
+  if (pendingStart) pairs.push({ start: pendingStart, end: null });
+  return pairs;
+}
+
 function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], accountPaidBreakMinutes?: number | null): EmployeeWorkday[] {
   const paidBreakMinutes = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : accountPaidBreakMinutes;
   const sorted = [...dayEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   const workdays: EmployeeWorkday[] = [];
-  let currentWorkday: Partial<EmployeeWorkday> & { lastClockIn: Date | null; lastBreakStart: Date | null; onBreak: boolean; hasUnfinishedBreak: boolean; currentBreakIsUnpaid: boolean } | null = null;
+  let currentWorkday: Partial<EmployeeWorkday> & { lastClockIn: Date | null; lastBreakStart: Date | null; onBreak: boolean; hasUnfinishedBreak: boolean; currentBreakIsUnpaid: boolean; hasRealClockIn: boolean } | null = null;
 
   for (let i = 0; i < sorted.length; i++) {
     const entry = sorted[i];
     const ts = new Date(entry.timestamp);
+    ts.setSeconds(0, 0);
     
     if (entry.type === "clock-in") {
       if (currentWorkday && !currentWorkday.clockOut) {
-        // New clock-in while previous session is still open — finalize it as incomplete
         currentWorkday.status = "incomplete";
         workdays.push(finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes));
         currentWorkday = null;
@@ -76,6 +105,26 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], accou
         lastBreakStart: null,
         onBreak: false,
         currentBreakIsUnpaid: false,
+        hasRealClockIn: true,
+      };
+    }
+
+    if (!currentWorkday && entry.type !== "clock-in") {
+      currentWorkday = {
+        employee: emp,
+        entries: [],
+        clockIn: null,
+        clockOut: null,
+        totalWorkedMinutes: 0,
+        totalBreakMinutes: 0,
+        forcedUnpaidBreakMinutes: 0,
+        hasUnfinishedBreak: false,
+        status: "incomplete",
+        lastClockIn: null,
+        lastBreakStart: null,
+        onBreak: false,
+        currentBreakIsUnpaid: false,
+        hasRealClockIn: false,
       };
     }
 
@@ -89,27 +138,27 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], accou
           currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastClockIn);
           currentWorkday.lastClockIn = null;
         } else if (currentWorkday.lastBreakStart) {
-          // Break is open at clock-out time. Check if a break-end exists later in the
-          // sorted entries (before the next clock-in). This happens when "Reopen Shift"
-          // inserts a break-end with a timestamp after the user's re-added clock-out.
           let hasOutOfOrderBreakEnd = false;
+          let outOfOrderBreakEndIdx = -1;
           for (let j = i + 1; j < sorted.length; j++) {
             if (sorted[j].type === "clock-in") break;
-            if (sorted[j].type === "break-end") { hasOutOfOrderBreakEnd = true; break; }
+            if (sorted[j].type === "break-end") { hasOutOfOrderBreakEnd = true; outOfOrderBreakEndIdx = j; break; }
           }
           if (hasOutOfOrderBreakEnd) {
-            // Treat the break as ending at clock-out; count break time normally.
             currentWorkday.totalBreakMinutes! += differenceInMinutes(ts, currentWorkday.lastBreakStart);
             currentWorkday.lastBreakStart = null;
             currentWorkday.onBreak = false;
+            if (outOfOrderBreakEndIdx >= 0) {
+              currentWorkday.entries!.push(sorted[outOfOrderBreakEndIdx]);
+            }
           } else {
-            // Genuine unfinished break — don't count the gap as worked or break time.
             currentWorkday.hasUnfinishedBreak = true;
+            currentWorkday.totalWorkedMinutes! += differenceInMinutes(ts, currentWorkday.lastBreakStart);
             currentWorkday.lastBreakStart = null;
             currentWorkday.onBreak = false;
           }
         }
-        currentWorkday.status = "completed";
+        currentWorkday.status = currentWorkday.hasRealClockIn ? "completed" : "incomplete";
         const finalized = finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes);
         workdays.push(finalized);
         currentWorkday = null;
@@ -126,7 +175,9 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], accou
         break;
       case "break-end":
         currentWorkday.onBreak = false;
-        currentWorkday.status = "working";
+        if (currentWorkday.hasRealClockIn) {
+          currentWorkday.status = "working";
+        }
         if (currentWorkday.lastBreakStart) {
           const breakDuration = differenceInMinutes(ts, currentWorkday.lastBreakStart);
           currentWorkday.totalBreakMinutes! += breakDuration;
@@ -136,43 +187,51 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], accou
           currentWorkday.lastBreakStart = null;
           currentWorkday.currentBreakIsUnpaid = false;
         }
-        currentWorkday.lastClockIn = ts;
+        if (currentWorkday.hasRealClockIn) {
+          currentWorkday.lastClockIn = ts;
+        }
         break;
     }
   }
 
   // Handle open session
   if (currentWorkday) {
-    const lastClockInRef = currentWorkday.lastClockIn || currentWorkday.clockIn;
-    const hoursElapsed = lastClockInRef ? differenceInMinutes(new Date(), lastClockInRef) / 60 : 25;
-    
-    if (hoursElapsed >= 24) {
-      // Session was never closed — mark as incomplete, don't calculate worked time
+    if (!currentWorkday.hasRealClockIn) {
       currentWorkday.status = "incomplete";
     } else {
-      if (currentWorkday.lastClockIn) {
-        currentWorkday.totalWorkedMinutes! += differenceInMinutes(new Date(), currentWorkday.lastClockIn);
-      }
-      if (currentWorkday.lastBreakStart && currentWorkday.onBreak) {
-        currentWorkday.totalBreakMinutes! += differenceInMinutes(new Date(), currentWorkday.lastBreakStart);
+      const lastClockInRef = currentWorkday.lastClockIn || currentWorkday.clockIn;
+      const hoursElapsed = lastClockInRef ? differenceInMinutes(new Date(), lastClockInRef) / 60 : 25;
+      
+      if (hoursElapsed >= 24) {
+        currentWorkday.status = "incomplete";
+      } else {
+        if (currentWorkday.lastClockIn) {
+          currentWorkday.totalWorkedMinutes! += differenceInMinutes(new Date(), currentWorkday.lastClockIn);
+        }
+        if (currentWorkday.lastBreakStart && currentWorkday.onBreak) {
+          currentWorkday.totalBreakMinutes! += differenceInMinutes(new Date(), currentWorkday.lastBreakStart);
+        }
       }
     }
     workdays.push(finalizeWorkday(emp, currentWorkday as any, paidBreakMinutes));
   }
 
-  return workdays.length > 0 ? workdays : [{
-    employee: emp,
-    entries: [],
-    clockIn: null,
-    clockOut: null,
-    totalWorkedMinutes: 0,
-    totalBreakMinutes: 0,
-    forcedUnpaidBreakMinutes: 0,
-    unpaidBreakMinutes: 0,
-    netWorkedMinutes: 0,
-    hasUnfinishedBreak: false,
-    status: "completed"
-  }];
+  if (workdays.length === 0 && sorted.length > 0) {
+    return [{
+      employee: emp,
+      entries: sorted,
+      clockIn: null,
+      clockOut: null,
+      totalWorkedMinutes: 0,
+      totalBreakMinutes: 0,
+      forcedUnpaidBreakMinutes: 0,
+      unpaidBreakMinutes: 0,
+      netWorkedMinutes: 0,
+      hasUnfinishedBreak: false,
+      status: "incomplete" as const
+    }];
+  }
+  return workdays;
 }
 
 function finalizeWorkday(emp: Employee, wd: any, paidBreakMinutes?: number | null): EmployeeWorkday {
@@ -200,6 +259,66 @@ function finalizeWorkday(emp: Employee, wd: any, paidBreakMinutes?: number | nul
   };
 }
 
+function normalizeEntryDates(entries: TimeEntry[]): TimeEntry[] {
+  const byEmployee = new Map<number, TimeEntry[]>();
+  entries.forEach(e => {
+    const list = byEmployee.get(e.employeeId) || [];
+    list.push(e);
+    byEmployee.set(e.employeeId, list);
+  });
+
+  const result: TimeEntry[] = [];
+
+  byEmployee.forEach((empEntries) => {
+    const sorted = [...empEntries].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    let currentSessionDate: string | null = null;
+
+    for (const entry of sorted) {
+      if (entry.type === "shift-reopened") {
+        result.push(entry);
+        continue;
+      }
+
+      const entryDate = typeof entry.date === "string"
+        ? entry.date.substring(0, 10)
+        : format(new Date(entry.date), "yyyy-MM-dd");
+
+      if (entry.type === "clock-in") {
+        currentSessionDate = entryDate;
+        result.push(entry);
+      } else if (entry.type === "clock-out") {
+        if (currentSessionDate && entryDate !== currentSessionDate) {
+          result.push({ ...entry, date: currentSessionDate });
+        } else {
+          result.push(entry);
+        }
+        currentSessionDate = null;
+      } else {
+        if (currentSessionDate && entryDate !== currentSessionDate) {
+          result.push({ ...entry, date: currentSessionDate });
+        } else {
+          result.push(entry);
+        }
+      }
+    }
+  });
+
+  return result;
+}
+
+function getRelevantSessions(sessions: EmployeeWorkday[], dateStr: string) {
+  const prevDay = format(addDays(parseISO(dateStr), -1), "yyyy-MM-dd");
+  const nextDay = format(addDays(parseISO(dateStr), 1), "yyyy-MM-dd");
+  return sessions.filter(session => {
+    if (!session.clockIn) return false;
+    const sessionDate = format(session.clockIn, "yyyy-MM-dd");
+    return sessionDate === dateStr || sessionDate === prevDay || sessionDate === nextDay;
+  });
+}
+
 function buildWorkdaysForDate(
   entries: TimeEntry[],
   employees: Employee[],
@@ -214,6 +333,7 @@ function buildWorkdaysForDate(
 
   const grouped = new Map<number, TimeEntry[]>();
   entries.forEach(entry => {
+    if (entry.type === "shift-reopened") return;
     const entryDateStr = typeof entry.date === "string" ? entry.date.substring(0, 10) : format(new Date(entry.date), "yyyy-MM-dd");
     if (entryDateStr !== dateStr) return;
     const list = grouped.get(entry.employeeId) || [];
@@ -593,7 +713,8 @@ async function exportPDF(
   }
 
   const safeLabel = rangeLabel.replace(/[^a-zA-Z0-9-]/g, "_");
-  doc.save(`timesheets_${safeLabel}.pdf`);
+  const ts = Date.now();
+  doc.save(`timesheets_${safeLabel}_${ts}.pdf`);
 }
 
 export default function Timesheets() {
@@ -641,10 +762,16 @@ export default function Timesheets() {
   const [editingBreak, setEditingBreak] = useState<{ start: TimeEntry | null, end: TimeEntry | null } | null>(null);
   const [editBreakStart, setEditBreakStart] = useState<string>("");
   const [editBreakEnd, setEditBreakEnd] = useState<string>("");
+  const [deletingBreak, setDeletingBreak] = useState<{ start: TimeEntry; end: TimeEntry | null } | null>(null);
+  const [breakOverlapWarning, setBreakOverlapWarning] = useState<{ conflicting: { start: TimeEntry; end: TimeEntry | null } } | null>(null);
   const [shiftWarning, setShiftWarning] = useState<{
     title: string;
     description: string;
     actions: { label: string; variant?: "default" | "destructive" | "outline"; onClick: () => void }[];
+  } | null>(null);
+  const [mergeDialog, setMergeDialog] = useState<{
+    conflictSession: EmployeeWorkday;
+    mergedClockOutTs: string;
   } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
@@ -689,8 +816,6 @@ export default function Timesheets() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
-      toast({ title: "Success", description: "Time updated successfully" });
-      setEditingEntry(null);
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -714,7 +839,7 @@ export default function Timesheets() {
 
   const reopenShiftMutation = useMutation({
     mutationFn: async ({ clockOutEntryId, employeeId, clockOutDate, clockOutTimestamp, gapOption }: {
-      clockOutEntryId: number; employeeId: number; clockOutDate: string; clockOutTimestamp: string; gapOption: "break" | "unpaid-break" | "worked";
+      clockOutEntryId: number; employeeId: number; clockOutDate: string; clockOutTimestamp: string; gapOption: "break" | "unpaid-break" | "worked" | "none";
     }) => {
       if (gapOption === "break" || gapOption === "unpaid-break") {
         const isUnpaid = gapOption === "unpaid-break";
@@ -723,6 +848,7 @@ export default function Timesheets() {
         await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-end", date: clockOutDate, timestamp: nowIso });
       }
       await apiRequest("DELETE", `/api/steepin/entries/${clockOutEntryId}`);
+      await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "shift-reopened", date: clockOutDate, timestamp: new Date().toISOString() });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
@@ -735,7 +861,6 @@ export default function Timesheets() {
   const deleteTimesheetMutation = useMutation({
     mutationFn: async (data: { employeeId: number; date: string; entries: TimeEntry[] }) => {
       const ids = data.entries.map(e => e.id);
-      if (ids.length === 0) return;
       await apiRequest("POST", "/api/steepin/entries/delete-batch", { ids });
     },
     onSuccess: () => {
@@ -762,14 +887,16 @@ export default function Timesheets() {
     setSelectedMonth(startOfMonth(next));
   };
 
+  const normalizedEntries = useMemo(() => normalizeEntryDates(entries), [entries]);
+
   const workdays = useMemo(
-    () => buildWorkdaysForDate(entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes),
-    [entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]
+    () => buildWorkdaysForDate(normalizedEntries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes),
+    [normalizedEntries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]
   );
 
   const monthWorkdays = useMemo(
-    () => buildWorkdaysForRange(entries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, null, paidBreakMinutes),
-    [entries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, paidBreakMinutes]
+    () => buildWorkdaysForRange(normalizedEntries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, null, paidBreakMinutes),
+    [normalizedEntries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, paidBreakMinutes]
   );
 
   const [selectedWorkday, setSelectedWorkday] = useState<EmployeeWorkday | null>(null);
@@ -782,13 +909,12 @@ export default function Timesheets() {
   const viewingWorkday = useMemo(() => {
     if (!selectedWorkday) return null;
     const dateToUse = viewingDate || selectedDay;
-    const dayWorkdays = buildWorkdaysForDate(entries, employees, dateToUse, selectedRole, employeeSearch, paidBreakMinutes);
-    // Find matching session by clockIn time
+    const dayWorkdays = buildWorkdaysForDate(normalizedEntries, employees, dateToUse, selectedRole, employeeSearch, paidBreakMinutes);
     return dayWorkdays.find(w => 
       w.employee.id === selectedWorkday.employee.id && 
       w.clockIn?.getTime() === selectedWorkday.clockIn?.getTime()
     ) || null;
-  }, [selectedWorkday, viewingDate, entries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]);
+  }, [selectedWorkday, viewingDate, normalizedEntries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]);
 
   const activeDay = viewingDate || selectedDay;
 
@@ -796,6 +922,37 @@ export default function Timesheets() {
     if (viewMode === "week") return workdays.reduce((s, w) => s + w.netWorkedMinutes, 0);
     return monthWorkdays.reduce((s, d) => s + d.workdays.reduce((ss, w) => ss + w.netWorkedMinutes, 0), 0);
   }, [viewMode, workdays, monthWorkdays]);
+
+  const totalPay = useMemo(() => {
+    const anyHasPay = employees.some(e => hasPayConfig(e));
+    if (!anyHasPay) return null;
+
+    const source = viewMode === "week"
+      ? weekDays.map(day => ({ date: day, workdays: buildWorkdaysForDate(normalizedEntries, employees, day, selectedRole, employeeSearch, paidBreakMinutes) }))
+      : monthWorkdays;
+
+    const weekKeyForDate = (d: Date) => {
+      const ws = startOfWeek(d, { weekStartsOn: 1 });
+      return format(ws, "yyyy-MM-dd");
+    };
+
+    const weeklyHoursMap = new Map<string, number>();
+    let total = 0;
+    source.forEach(({ date, workdays: dayWds }) => {
+      const dateStr = format(date, "yyyy-MM-dd");
+      const weekKey = weekKeyForDate(date);
+      dayWds.forEach(wd => {
+        if (!hasPayConfig(wd.employee)) return;
+        const empWeekKey = `${wd.employee.id}:${weekKey}`;
+        const weekHrs = weeklyHoursMap.get(empWeekKey) || 0;
+        const dayHrs = wd.netWorkedMinutes / 60;
+        const pay = calculateDayPay(wd.employee, dateStr, dayHrs, weekHrs);
+        total += pay;
+        weeklyHoursMap.set(empWeekKey, weekHrs + dayHrs);
+      });
+    });
+    return total;
+  }, [viewMode, workdays, monthWorkdays, weekDays, normalizedEntries, employees, selectedRole, employeeSearch, paidBreakMinutes]);
 
   const statusConfig: Record<string, { label: string; color: string }> = {
     working: { label: "Working", color: "#10B981" },
@@ -845,7 +1002,12 @@ export default function Timesheets() {
     }
     
     if (editingEntry.id) {
-      updateEntryMutation.mutate({ id: editingEntry.id, timestamp: newTimestamp.toISOString() });
+      updateEntryMutation.mutate({ id: editingEntry.id, timestamp: newTimestamp.toISOString() }, {
+        onSuccess: () => {
+          toast({ title: "Success", description: "Time updated successfully" });
+          setEditingEntry(null);
+        }
+      });
     } else {
       // Handling "Add End" case where id is missing
       addEntryMutation.mutate({
@@ -874,95 +1036,127 @@ export default function Timesheets() {
       ? new Date(`${clockOutDateStr}T${editShiftClockOut}:00`).toISOString()
       : null;
 
-    const doSave = (finalClockOutTs: string | null, mergeSession: EmployeeWorkday | null) => {
-      if (clockInEntry) {
-        updateEntryMutation.mutate({ id: clockInEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockIn}:00`).toISOString() });
+    const doSave = (finalClockOutTs: string | null) => {
+      const finalize = () => {
+        setEditingShift(null);
+        setShiftWarning(null);
+        toast({ title: "Shift updated", description: "Shift times have been saved." });
+      };
+
+      if (clockInEntry && finalClockOutTs) {
+        updateEntryMutation.mutate(
+          { id: clockInEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockIn}:00`).toISOString() },
+          {
+            onSuccess: () => {
+              if (clockOutEntry) {
+                updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: finalClockOutTs }, { onSuccess: finalize });
+              } else {
+                addEntryMutation.mutate(
+                  { employeeId: editingShift!.employee.id, type: "clock-out", date: dateStr, timestamp: finalClockOutTs },
+                  { onSuccess: finalize }
+                );
+              }
+            }
+          }
+        );
+      } else if (clockInEntry) {
+        updateEntryMutation.mutate(
+          { id: clockInEntry.id, timestamp: new Date(`${dateStr}T${editShiftClockIn}:00`).toISOString() },
+          { onSuccess: finalize }
+        );
+      } else {
+        finalize();
       }
-      if (finalClockOutTs) {
-        if (clockOutEntry) {
-          updateEntryMutation.mutate({ id: clockOutEntry.id, timestamp: finalClockOutTs });
-        } else {
-          addEntryMutation.mutate({ employeeId: editingShift!.employee.id, type: "clock-out", date: dateStr, timestamp: finalClockOutTs });
-        }
-      }
-      if (mergeSession) {
-        mergeSession.entries.forEach(e => deleteEntryMutation.mutate(e.id));
-      }
-      setEditingShift(null);
-      setShiftWarning(null);
     };
 
-    if (!clockOutTimestamp) {
-      doSave(null, null);
+    const originalClockInTs = editingShift.clockIn!.getTime();
+    const newClockInTs = new Date(`${dateStr}T${editShiftClockIn}:00`).getTime();
+    const clockOutTs = clockOutTimestamp ? new Date(clockOutTimestamp).getTime() : Infinity;
+
+    const empEntries = normalizedEntries.filter(e => e.employeeId === editingShift.employee.id);
+    const allSessions = processEntriesForEmployee(editingShift.employee, empEntries, paidBreakMinutes);
+    const relevantSessions = getRelevantSessions(allSessions, dateStr);
+    const origEnd = editingShift.clockOut?.getTime() ?? null;
+    const conflictSession = relevantSessions.find(session => {
+      if (!session.clockIn || session.clockIn.getTime() === originalClockInTs) return false;
+      const sStart = session.clockIn.getTime();
+      if (origEnd && sStart >= originalClockInTs && sStart <= origEnd) return false;
+      const sEnd = session.clockOut ? session.clockOut.getTime() : Date.now();
+      return newClockInTs < sEnd && clockOutTs > sStart;
+    });
+
+    if (conflictSession) {
+      const mergedEnd = conflictSession.clockOut && clockOutTimestamp
+        ? new Date(Math.max(conflictSession.clockOut.getTime(), new Date(clockOutTimestamp).getTime()))
+        : (conflictSession.clockOut || (clockOutTimestamp ? new Date(clockOutTimestamp) : null));
+      if (mergedEnd) {
+        setMergeDialog({
+          conflictSession,
+          mergedClockOutTs: mergedEnd.toISOString(),
+        });
+        return;
+      }
+      const conflictLabel = conflictSession.clockOut
+        ? `${format(conflictSession.clockIn!, "HH:mm")} – ${format(conflictSession.clockOut, "HH:mm")}`
+        : `${format(conflictSession.clockIn!, "HH:mm")} (still open)`;
+      toast({
+        title: "Conflicting Timesheet",
+        description: `Cannot save because the edited times would overlap with an existing shift from ${conflictLabel}. Please adjust the times or delete the conflicting shift first.`,
+        variant: "destructive",
+      });
       return;
     }
 
-    const clockInTs = editingShift.clockIn!.getTime();
-    const clockOutTs = new Date(clockOutTimestamp).getTime();
-    const durationHours = (clockOutTs - clockInTs) / (1000 * 60 * 60);
+    if (!clockOutTimestamp) {
+      doSave(null);
+      return;
+    }
 
-    const empEntries = entries.filter(e => e.employeeId === editingShift.employee.id);
-    const allSessions = processEntriesForEmployee(editingShift.employee, empEntries, paidBreakMinutes);
-    const overlapSession = allSessions.find(session =>
-      session.clockIn &&
-      session.clockIn.getTime() !== clockInTs &&
-      session.clockIn.getTime() > clockInTs &&
-      session.clockIn.getTime() < clockOutTs
-    );
+    const durationHours = (clockOutTs - newClockInTs) / (1000 * 60 * 60);
 
-    const showLongShiftWarning = (onConfirm: () => void) => {
+    if (durationHours > 15) {
       setShiftWarning({
         title: "Very Long Shift",
         description: `This shift would be ${durationHours.toFixed(1)} hours. Are you sure this is correct?`,
         actions: [
-          { label: "Yes, Confirm", onClick: onConfirm },
+          { label: "Yes, Confirm", onClick: () => doSave(clockOutTimestamp) },
           { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
         ],
       });
+      return;
+    }
+
+    doSave(clockOutTimestamp);
+  };
+
+  const handleConfirmMerge = () => {
+    if (!mergeDialog || !editingShift) return;
+    const conflictClockOutEntry = mergeDialog.conflictSession.entries.find(e => e.type === "clock-out");
+    const finalizeMerge = () => {
+      const idsToDelete = editingShift.entries.map(e => e.id);
+      apiRequest("POST", "/api/steepin/entries/delete-batch", { ids: idsToDelete })
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+          setMergeDialog(null);
+          setEditingShift(null);
+          toast({ title: "Shifts combined", description: "The overlapping shifts have been merged into one." });
+        })
+        .catch((err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }));
     };
-
-    if (overlapSession) {
-      const mergedClockOutTs = overlapSession.clockOut?.toISOString() ?? clockOutTimestamp;
-      const mergedDurationHours = overlapSession.clockOut
-        ? (overlapSession.clockOut.getTime() - clockInTs) / (1000 * 60 * 60)
-        : durationHours;
-      const overlapLabel = overlapSession.clockOut
-        ? `${format(overlapSession.clockIn!, "HH:mm")} – ${format(overlapSession.clockOut, "HH:mm")}`
-        : `${format(overlapSession.clockIn!, "HH:mm")} (still open)`;
-
-      setShiftWarning({
-        title: "Overlapping Shift Detected",
-        description: `There is already a shift from ${overlapLabel} on the same day. Do you want to unite them into one session?`,
-        actions: [
-          {
-            label: "Unite Shifts",
-            onClick: () => {
-              if (mergedDurationHours > 15) {
-                setShiftWarning({
-                  title: "Very Long Shift",
-                  description: `The combined shift would be ${mergedDurationHours.toFixed(1)} hours. Are you sure this is correct?`,
-                  actions: [
-                    { label: "Yes, Confirm", onClick: () => doSave(mergedClockOutTs, overlapSession) },
-                    { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
-                  ],
-                });
-              } else {
-                doSave(mergedClockOutTs, overlapSession);
-              }
-            },
-          },
-          { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
-        ],
-      });
-      return;
+    if (conflictClockOutEntry) {
+      updateEntryMutation.mutate(
+        { id: conflictClockOutEntry.id, timestamp: mergeDialog.mergedClockOutTs },
+        { onSuccess: finalizeMerge }
+      );
+    } else {
+      const conflictClockInEntry = mergeDialog.conflictSession.entries.find(e => e.type === "clock-in");
+      if (conflictClockInEntry) {
+        addEntryMutation.mutate(
+          { employeeId: editingShift.employee.id, type: "clock-out", date: conflictClockInEntry.date as string, timestamp: mergeDialog.mergedClockOutTs },
+          { onSuccess: finalizeMerge }
+        );
+      }
     }
-
-    if (durationHours > 15) {
-      showLongShiftWarning(() => doSave(clockOutTimestamp, null));
-      return;
-    }
-
-    doSave(clockOutTimestamp, null);
   };
 
   const handleSaveBreakEdit = () => {
@@ -971,39 +1165,82 @@ export default function Timesheets() {
     // Validation: Break end must be after break start
     if (editBreakStart && editBreakEnd) {
       if (editBreakEnd <= editBreakStart) {
-        toast({
-          title: "Invalid Time",
-          description: "Break end must be after break start.",
-          variant: "destructive"
-        });
+        toast({ title: "Invalid Time", description: "Break end must be after break start.", variant: "destructive" });
         return;
       }
     }
 
-    // Validation: Break must be within session
+    // Validation: Break must be within clock-in / clock-out with 1-minute buffer
     if (viewingWorkday) {
-      const clockIn = viewingWorkday.clockIn ? format(viewingWorkday.clockIn, "HH:mm") : null;
-      const clockOut = viewingWorkday.clockOut ? format(viewingWorkday.clockOut, "HH:mm") : null;
-
-      if (clockIn && (editBreakStart < clockIn || editBreakEnd < clockIn)) {
-        toast({ title: "Invalid Time", description: "Break cannot start before clock in.", variant: "destructive" });
+      const clockInStr = viewingWorkday.clockIn ? format(viewingWorkday.clockIn, "HH:mm") : null;
+      const clockOutStr = viewingWorkday.clockOut ? format(viewingWorkday.clockOut, "HH:mm") : null;
+      if (clockInStr && editBreakStart && editBreakStart <= clockInStr) {
+        toast({ title: "Invalid Time", description: "Break must start at least 1 minute after clock-in.", variant: "destructive" });
         return;
       }
-      if (clockOut && (editBreakStart > clockOut || editBreakEnd > clockOut)) {
-        toast({ title: "Invalid Time", description: "Break cannot end after clock out.", variant: "destructive" });
+      if (clockOutStr && editBreakEnd && editBreakEnd >= clockOutStr) {
+        toast({ title: "Invalid Time", description: "Break must end at least 1 minute before clock-out.", variant: "destructive" });
+        return;
+      }
+      if (clockOutStr && editBreakStart && editBreakStart >= clockOutStr) {
+        toast({ title: "Invalid Time", description: "Break start cannot be at or after clock-out.", variant: "destructive" });
         return;
       }
     }
 
-    if (editingBreak.start && /^\d{2}:\d{2}$/.test(editBreakStart)) {
-      const dateStr = editingBreak.start.date;
-      updateEntryMutation.mutate({ id: editingBreak.start.id, timestamp: new Date(`${dateStr}T${editBreakStart}:00`).toISOString() });
+    // Validation: Must not overlap or touch other existing breaks
+    if (viewingWorkday) {
+      const otherBreaks = getBreakPairs(viewingWorkday.entries, viewingWorkday.clockIn, viewingWorkday.clockOut)
+        .filter(p => p.start.id !== editingBreak.start?.id);
+      for (const other of otherBreaks) {
+        const otherStart = format(new Date(other.start.timestamp), "HH:mm");
+        const otherEnd = other.end ? format(new Date(other.end.timestamp), "HH:mm") : null;
+        if (otherEnd) {
+          const newStart = editBreakStart || format(new Date(editingBreak.start!.timestamp), "HH:mm");
+          const newEnd = editBreakEnd || (editingBreak.end ? format(new Date(editingBreak.end.timestamp), "HH:mm") : null);
+          if (newEnd && newStart <= otherEnd && newEnd >= otherStart) {
+            toast({ title: "Invalid Time", description: "This break overlaps with another break in the same shift.", variant: "destructive" });
+            return;
+          }
+        }
+      }
     }
-    if (editingBreak.end && /^\d{2}:\d{2}$/.test(editBreakEnd)) {
-      const dateStr = editingBreak.end.date;
-      updateEntryMutation.mutate({ id: editingBreak.end.id, timestamp: new Date(`${dateStr}T${editBreakEnd}:00`).toISOString() });
+
+    const closeAndToast = () => {
+      setEditingBreak(null);
+      toast({ title: "Success", description: "Break time updated" });
+    };
+
+    const hasStart = editingBreak.start && /^\d{2}:\d{2}$/.test(editBreakStart);
+    const hasEnd = editingBreak.end && /^\d{2}:\d{2}$/.test(editBreakEnd);
+
+    if (hasStart && hasEnd) {
+      const startDateStr = editingBreak.start!.date;
+      const endDateStr = editingBreak.end!.date;
+      updateEntryMutation.mutate(
+        { id: editingBreak.start!.id, timestamp: new Date(`${startDateStr}T${editBreakStart}:00`).toISOString() },
+        {
+          onSuccess: () => {
+            updateEntryMutation.mutate(
+              { id: editingBreak.end!.id, timestamp: new Date(`${endDateStr}T${editBreakEnd}:00`).toISOString() },
+              { onSuccess: closeAndToast }
+            );
+          }
+        }
+      );
+    } else if (hasStart) {
+      const dateStr = editingBreak.start!.date;
+      updateEntryMutation.mutate(
+        { id: editingBreak.start!.id, timestamp: new Date(`${dateStr}T${editBreakStart}:00`).toISOString() },
+        { onSuccess: closeAndToast }
+      );
+    } else if (hasEnd) {
+      const dateStr = editingBreak.end!.date;
+      updateEntryMutation.mutate(
+        { id: editingBreak.end!.id, timestamp: new Date(`${dateStr}T${editBreakEnd}:00`).toISOString() },
+        { onSuccess: closeAndToast }
+      );
     }
-    setEditingBreak(null);
   };
 
   const [addingNewBreak, setAddingNewBreak] = useState<EmployeeWorkday | null>(null);
@@ -1013,23 +1250,56 @@ export default function Timesheets() {
   const handleAddNewBreak = () => {
     if (!addingNewBreak || !newBreakStartTime || !newBreakEndTime) return;
     if (!/^\d{2}:\d{2}$/.test(newBreakStartTime) || !/^\d{2}:\d{2}$/.test(newBreakEndTime)) return;
-    const dateStr = addingNewBreak.entries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
-    addEntryMutation.mutate(
-      { employeeId: addingNewBreak.employee.id, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newBreakStartTime}:00`).toISOString() },
-      {
-        onSuccess: () => {
-          addEntryMutation.mutate(
-            { employeeId: addingNewBreak!.employee.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${newBreakEndTime}:00`).toISOString() },
-            {
-              onSuccess: () => {
-                setAddingNewBreak(null); setNewBreakStartTime(""); setNewBreakEndTime(""); setSelectedWorkday(null);
-                toast({ title: "Success", description: "Break added" });
-              }
-            }
-          );
-        }
+    if (newBreakEndTime <= newBreakStartTime) {
+      toast({ title: "Invalid Time", description: "Break end must be after break start.", variant: "destructive" });
+      return;
+    }
+
+    // Validate break is within clock-in / clock-out with 1-minute buffer
+    const clockInStr = addingNewBreak.clockIn ? format(addingNewBreak.clockIn, "HH:mm") : null;
+    const clockOutStr = addingNewBreak.clockOut ? format(addingNewBreak.clockOut, "HH:mm") : null;
+    if (clockInStr && newBreakStartTime <= clockInStr) {
+      toast({ title: "Invalid Time", description: "Break must start at least 1 minute after clock-in.", variant: "destructive" });
+      return;
+    }
+    if (clockOutStr && newBreakEndTime >= clockOutStr) {
+      toast({ title: "Invalid Time", description: "Break must end at least 1 minute before clock-out.", variant: "destructive" });
+      return;
+    }
+    if (clockOutStr && newBreakStartTime >= clockOutStr) {
+      toast({ title: "Invalid Time", description: "Break cannot start at or after clock-out.", variant: "destructive" });
+      return;
+    }
+
+    const existingBreaks = getBreakPairs(addingNewBreak.entries, addingNewBreak.clockIn, addingNewBreak.clockOut);
+    for (const other of existingBreaks) {
+      const otherStart = format(new Date(other.start.timestamp), "HH:mm");
+      const otherEnd = other.end ? format(new Date(other.end.timestamp), "HH:mm") : null;
+      if (otherEnd && newBreakStartTime <= otherEnd && newBreakEndTime >= otherStart) {
+        setAddingNewBreak(null);
+        setNewBreakStartTime("");
+        setNewBreakEndTime("");
+        setTimeout(() => setBreakOverlapWarning({ conflicting: other }), 200);
+        return;
       }
-    );
+    }
+
+    const dateStr = addingNewBreak.entries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
+    const empId = addingNewBreak.employee.id;
+    const startTs = new Date(`${dateStr}T${newBreakStartTime}:00`).toISOString();
+    const endTs = new Date(`${dateStr}T${newBreakEndTime}:00`).toISOString();
+    setAddingNewBreak(null);
+    setNewBreakStartTime("");
+    setNewBreakEndTime("");
+    Promise.all([
+      apiRequest("POST", "/api/steepin/entries", { employeeId: empId, type: "break-start", date: dateStr, timestamp: startTs }),
+      apiRequest("POST", "/api/steepin/entries", { employeeId: empId, type: "break-end", date: dateStr, timestamp: endTs }),
+    ])
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+        toast({ title: "Break added", description: "The break has been recorded." });
+      })
+      .catch((err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }));
   };
 
   const handleAddClockOut = () => {
@@ -1056,70 +1326,46 @@ export default function Timesheets() {
     const clockOutTs = clockOutDateTime.getTime();
     const durationHours = (clockOutTs - clockInTs) / (1000 * 60 * 60);
 
-    const empEntries = entries.filter(e => e.employeeId === emp.id);
+    const empEntries = normalizedEntries.filter(e => e.employeeId === emp.id);
     const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
-    const overlapSession = allSessions.find(session =>
-      session.clockIn &&
-      session.clockIn.getTime() !== clockInTs &&
-      session.clockIn.getTime() > clockInTs &&
-      session.clockIn.getTime() < clockOutTs
-    );
+    const relevantSessions = getRelevantSessions(allSessions, dateStr);
+    const conflictSession = relevantSessions.find(session => {
+      if (!session.clockIn || session.clockIn.getTime() === clockInTs) return false;
+      const sStart = session.clockIn.getTime();
+      const sEnd = session.clockOut ? session.clockOut.getTime() : Infinity;
+      return clockInTs < sEnd && clockOutTs > sStart;
+    });
 
-    const doAdd = (finalTs: string, mergeSession: EmployeeWorkday | null) => {
-      addEntryMutation.mutate({ employeeId: emp.id, type: "clock-out", date: dateStr, timestamp: finalTs });
-      if (mergeSession) mergeSession.entries.forEach(e => deleteEntryMutation.mutate(e.id));
-      setShiftWarning(null);
-    };
-
-    if (overlapSession) {
-      const mergedTs = overlapSession.clockOut?.toISOString() ?? clockOutTimestamp;
-      const mergedHours = overlapSession.clockOut
-        ? (overlapSession.clockOut.getTime() - clockInTs) / (1000 * 60 * 60)
-        : durationHours;
-      const label = overlapSession.clockOut
-        ? `${format(overlapSession.clockIn!, "HH:mm")} – ${format(overlapSession.clockOut, "HH:mm")}`
-        : `${format(overlapSession.clockIn!, "HH:mm")} (still open)`;
-
-      setShiftWarning({
-        title: "Overlapping Shift Detected",
-        description: `There is already a shift from ${label}. Do you want to unite them into one session?`,
-        actions: [
-          {
-            label: "Unite Shifts",
-            onClick: () => {
-              if (mergedHours > 15) {
-                setShiftWarning({
-                  title: "Very Long Shift",
-                  description: `The combined shift would be ${mergedHours.toFixed(1)} hours. Are you sure?`,
-                  actions: [
-                    { label: "Yes, Confirm", onClick: () => doAdd(mergedTs, overlapSession) },
-                    { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
-                  ],
-                });
-              } else {
-                doAdd(mergedTs, overlapSession);
-              }
-            },
-          },
-          { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
-        ],
+    if (conflictSession) {
+      const conflictLabel = conflictSession.clockOut
+        ? `${format(conflictSession.clockIn!, "HH:mm")} – ${format(conflictSession.clockOut, "HH:mm")}`
+        : `${format(conflictSession.clockIn!, "HH:mm")} (still open)`;
+      toast({
+        title: "Conflicting Timesheet",
+        description: `Cannot set this clock-out time because it would overlap with an existing shift from ${conflictLabel}. Please choose a different time or delete the conflicting shift first.`,
+        variant: "destructive",
       });
       return;
     }
+
+    const doAdd = (finalTs: string) => {
+      addEntryMutation.mutate({ employeeId: emp.id, type: "clock-out", date: dateStr, timestamp: finalTs });
+      setShiftWarning(null);
+    };
 
     if (durationHours > 15) {
       setShiftWarning({
         title: "Very Long Shift",
         description: `This shift would be ${durationHours.toFixed(1)} hours. Are you sure?`,
         actions: [
-          { label: "Yes, Confirm", onClick: () => doAdd(clockOutTimestamp, null) },
+          { label: "Yes, Confirm", onClick: () => doAdd(clockOutTimestamp) },
           { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
         ],
       });
       return;
     }
 
-    doAdd(clockOutTimestamp, null);
+    doAdd(clockOutTimestamp);
   };
 
   const handleAddTimesheet = async () => {
@@ -1138,7 +1384,7 @@ export default function Timesheets() {
       ? new Date(`${clockOutDateStr}T${newTimesheetClockOut}:00`).toISOString()
       : null;
 
-    const doAdd = async (finalClockOutTs: string | null, mergeSession: EmployeeWorkday | null) => {
+    const doAdd = async (finalClockOutTs: string | null) => {
       await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-in", date: dateStr, timestamp: clockInTimestamp, role: roleToSave });
       if (newTimesheetBreakStart && newTimesheetBreakEnd && /^\d{2}:\d{2}$/.test(newTimesheetBreakStart) && /^\d{2}:\d{2}$/.test(newTimesheetBreakEnd)) {
         await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${newTimesheetBreakStart}:00`).toISOString() });
@@ -1146,9 +1392,6 @@ export default function Timesheets() {
       }
       if (finalClockOutTs) {
         await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: finalClockOutTs });
-      }
-      if (mergeSession) {
-        mergeSession.entries.forEach(e => deleteEntryMutation.mutate(e.id));
       }
       toast({ title: "Success", description: "Timesheet added" });
       setAddingTimesheet(false);
@@ -1158,16 +1401,35 @@ export default function Timesheets() {
 
     if (!clockOutTimestamp) {
       const clockInTs = new Date(clockInTimestamp).getTime();
-      const empEntries = entries.filter(e => e.employeeId === empId);
+      const empEntries = normalizedEntries.filter(e => e.employeeId === empId);
       const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
+      const relevantSessions = getRelevantSessions(allSessions, dateStr);
 
-      const openSession = allSessions.find(session =>
+      const insideExistingShift = relevantSessions.find(session => {
+        if (!session.clockIn) return false;
+        const sStart = session.clockIn.getTime();
+        const sEnd = session.clockOut ? session.clockOut.getTime() : Infinity;
+        return clockInTs >= sStart && clockInTs < sEnd;
+      });
+      if (insideExistingShift) {
+        const conflictLabel = insideExistingShift.clockOut
+          ? `${format(insideExistingShift.clockIn!, "HH:mm")} – ${format(insideExistingShift.clockOut, "HH:mm")}`
+          : `${format(insideExistingShift.clockIn!, "HH:mm")} (still open)`;
+        toast({
+          title: "Conflicting Timesheet",
+          description: `Cannot add this shift because the clock-in time falls inside an existing shift from ${conflictLabel}. Please adjust the time or delete the conflicting shift first.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const openSession = relevantSessions.find(session =>
         session.clockIn &&
         (session.status === "working" || session.status === "on-break") &&
         session.clockIn.getTime() < clockInTs &&
         format(session.clockIn, "yyyy-MM-dd") === dateStr
       );
-      const hasNewerSession = !openSession && allSessions.some(session =>
+      const hasNewerSession = !openSession && relevantSessions.some(session =>
         session.clockIn && session.clockIn.getTime() > clockInTs
       );
 
@@ -1183,10 +1445,10 @@ export default function Timesheets() {
               onClick: async () => {
                 await addEntryMutation.mutateAsync({ employeeId: empId, type: "clock-out", date: dateStr, timestamp: clockInTimestamp });
                 setShiftWarning(null);
-                await doAdd(null, null);
+                await doAdd(null);
               },
             },
-            { label: "Add Anyway", variant: "outline", onClick: async () => { setShiftWarning(null); await doAdd(null, null); } },
+            { label: "Add Anyway", variant: "outline", onClick: async () => { setShiftWarning(null); await doAdd(null); } },
             { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
           ],
         });
@@ -1199,14 +1461,14 @@ export default function Timesheets() {
           description: "There are already newer sessions recorded for this employee. Without a clock-out, this session will be shown as 'Incomplete'. Would you like to add a clock-out time?",
           actions: [
             { label: "Add Clock Out", variant: "outline", onClick: () => setShiftWarning(null) },
-            { label: "Leave as Incomplete", onClick: async () => { await doAdd(null, null); } },
+            { label: "Leave as Incomplete", onClick: async () => { await doAdd(null); } },
             { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
           ],
         });
         return;
       }
 
-      await doAdd(null, null);
+      await doAdd(null);
       return;
     }
 
@@ -1214,47 +1476,24 @@ export default function Timesheets() {
     const clockOutTs = new Date(clockOutTimestamp).getTime();
     const durationHours = (clockOutTs - clockInTs) / (1000 * 60 * 60);
 
-    const empEntries = entries.filter(e => e.employeeId === empId);
+    const empEntries = normalizedEntries.filter(e => e.employeeId === empId);
     const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
-    const overlapSession = allSessions.find(session =>
-      session.clockIn &&
-      session.clockIn.getTime() > clockInTs &&
-      session.clockIn.getTime() < clockOutTs
-    );
+    const relevantSessions = getRelevantSessions(allSessions, dateStr);
+    const conflictSession = relevantSessions.find(session => {
+      if (!session.clockIn) return false;
+      const sStart = session.clockIn.getTime();
+      const sEnd = session.clockOut ? session.clockOut.getTime() : Infinity;
+      return clockInTs < sEnd && clockOutTs > sStart;
+    });
 
-    if (overlapSession) {
-      const mergedClockOutTs = overlapSession.clockOut && overlapSession.clockOut.getTime() > clockOutTs
-        ? overlapSession.clockOut.toISOString()
-        : clockOutTimestamp;
-      const mergedEndTs = overlapSession.clockOut ? Math.max(overlapSession.clockOut.getTime(), clockOutTs) : clockOutTs;
-      const mergedDurationHours = (mergedEndTs - clockInTs) / (1000 * 60 * 60);
-      const overlapLabel = overlapSession.clockOut
-        ? `${format(overlapSession.clockIn!, "HH:mm")} – ${format(overlapSession.clockOut, "HH:mm")}`
-        : `${format(overlapSession.clockIn!, "HH:mm")} (still open)`;
-
-      setShiftWarning({
-        title: "Overlapping Shift Detected",
-        description: `There is already a shift from ${overlapLabel}. Do you want to unite them into one session?`,
-        actions: [
-          {
-            label: "Unite Shifts",
-            onClick: async () => {
-              if (mergedDurationHours > 15) {
-                setShiftWarning({
-                  title: "Very Long Shift",
-                  description: `The combined shift would be ${mergedDurationHours.toFixed(1)} hours. Are you sure this is correct?`,
-                  actions: [
-                    { label: "Yes, Confirm", onClick: async () => { await doAdd(mergedClockOutTs, overlapSession); } },
-                    { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
-                  ],
-                });
-              } else {
-                await doAdd(mergedClockOutTs, overlapSession);
-              }
-            },
-          },
-          { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
-        ],
+    if (conflictSession) {
+      const conflictLabel = conflictSession.clockOut
+        ? `${format(conflictSession.clockIn!, "HH:mm")} – ${format(conflictSession.clockOut, "HH:mm")}`
+        : `${format(conflictSession.clockIn!, "HH:mm")} (still open)`;
+      toast({
+        title: "Conflicting Timesheet",
+        description: `Cannot add this shift because it overlaps with an existing shift from ${conflictLabel}. Please adjust the times or delete the conflicting shift first.`,
+        variant: "destructive",
       });
       return;
     }
@@ -1264,14 +1503,14 @@ export default function Timesheets() {
         title: "Very Long Shift",
         description: `This shift would be ${durationHours.toFixed(1)} hours. Are you sure this is correct?`,
         actions: [
-          { label: "Yes, Confirm", onClick: async () => { await doAdd(clockOutTimestamp, null); } },
+          { label: "Yes, Confirm", onClick: async () => { await doAdd(clockOutTimestamp); } },
           { label: "Cancel", variant: "outline", onClick: () => setShiftWarning(null) },
         ],
       });
       return;
     }
 
-    await doAdd(clockOutTimestamp, null);
+    await doAdd(clockOutTimestamp);
   };
 
   const handleExportPDF = async () => {
@@ -1291,7 +1530,7 @@ export default function Timesheets() {
         if (res.ok) shiftsData = await res.json();
       }
 
-      await exportPDF(start, end, rangeLabel, entries, employees, exportSelectedEmployeeIds, paidBreakMinutes, {
+      await exportPDF(start, end, rangeLabel, normalizedEntries, employees, exportSelectedEmployeeIds, paidBreakMinutes, {
         showScheduledComparison: exportShowScheduled,
         shifts: shiftsData,
       });
@@ -1320,7 +1559,7 @@ export default function Timesheets() {
         data-testid={`timesheet-card-${emp.id}`}
       >
         <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
-        <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+        <div className="flex-1 min-w-0 overflow-x-auto custom-scrollbar">
           <div className="flex items-center gap-4">
             <div className="flex-shrink-0 border-r pr-3 min-w-[80px]">
               <span className="text-xs font-semibold truncate block">{emp.name}</span>
@@ -1412,7 +1651,7 @@ export default function Timesheets() {
         </div>
 
         <div className="flex flex-col gap-3 bg-background rounded-lg border p-3 shadow-sm">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-1 bg-muted/30 rounded-lg p-1">
               <Button
                 variant={viewMode === "week" ? "secondary" : "ghost"}
@@ -1431,28 +1670,30 @@ export default function Timesheets() {
                 Month
               </Button>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-3 text-xs font-semibold gap-1.5"
-              onClick={() => {
-                setExportSelectedEmployeeIds(employees.map(e => e.id));
-                setExportDialogOpen(true);
-              }}
-              data-testid="button-export-pdf"
-            >
-              <FileDown className="w-3.5 h-3.5" /> Export PDF
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 text-xs relative"
-              onClick={() => setCsvImporterOpen(true)}
-              data-testid="button-import-csv"
-            >
-              <FileUp className="w-3.5 h-3.5" /> Import CSV
-              <span className="ml-1 text-[9px] font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 rounded px-1 py-0.5 leading-none">Experimental</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-xs font-semibold gap-1.5"
+                onClick={() => {
+                  setExportSelectedEmployeeIds(employees.map(e => e.id));
+                  setExportDialogOpen(true);
+                }}
+                data-testid="button-export-pdf"
+              >
+                <FileDown className="w-3.5 h-3.5" /> Export PDF
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs relative"
+                onClick={() => setCsvImporterOpen(true)}
+                data-testid="button-import-csv"
+              >
+                <FileUp className="w-3.5 h-3.5" /> Import CSV
+                <span className="ml-1 text-[9px] font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 rounded px-1 py-0.5 leading-none">Experimental</span>
+              </Button>
+            </div>
           </div>
 
           <div className="flex items-center justify-between border-t pt-2 mt-1">
@@ -1596,9 +1837,14 @@ export default function Timesheets() {
       </div>
 
       {(viewMode === "week" ? workdays.length > 0 : monthWorkdays.length > 0) && (
-        <div className="border-t bg-background sticky bottom-0 z-10 px-4 py-3 flex items-center justify-end gap-2 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <div className="border-t bg-background sticky bottom-0 z-10 px-4 py-3 flex items-center justify-end gap-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <span className="text-sm text-muted-foreground">Total:</span>
           <span className="text-lg font-bold" data-testid="text-total-hours">{formatHoursDecimal(totalHours)} h</span>
+          {totalPay !== null && totalPay > 0 && (
+            <Badge variant="secondary" className="text-sm font-bold px-2 py-0.5" data-testid="text-total-pay">
+              {formatCurrency(totalPay)}
+            </Badge>
+          )}
         </div>
       )}
 
@@ -1873,14 +2119,7 @@ export default function Timesheets() {
 
                 {(() => {
                   const dateStr = dayEntries.find(e => e.type === "clock-in")?.date as string || format(activeDay, "yyyy-MM-dd");
-                  const sortedEntries = [...dayEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                  const breakPairs: { start: TimeEntry; end: TimeEntry | null }[] = [];
-                  let pendingStart: TimeEntry | null = null;
-                  for (const e of sortedEntries) {
-                    if (e.type === "break-start") { pendingStart = e; }
-                    else if (e.type === "break-end" && pendingStart) { breakPairs.push({ start: pendingStart, end: e }); pendingStart = null; }
-                  }
-                  if (pendingStart) breakPairs.push({ start: pendingStart, end: null });
+                  const breakPairs = getBreakPairs(dayEntries, clockIn, clockOut);
                   if (breakPairs.length === 0) return null;
                   return (
                     <div className="space-y-2">
@@ -1889,45 +2128,65 @@ export default function Timesheets() {
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Break {breakPairs.length > 1 ? idx + 1 : ""}</span>
-                              {bp.start && !bp.end && (
+                              {!bp.end ? (
                                 <span className="text-[10px] bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium" data-testid={`status-unfinished-break-${idx}`}>Unfinished</span>
+                              ) : (
+                                <button
+                                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium border transition-colors ${bp.start.isUnpaid ? "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800" : "bg-muted text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 hover:border-red-200"}`}
+                                  title={bp.start.isUnpaid ? "Marked as unpaid — click to toggle" : "Mark as unpaid break"}
+                                  onClick={() => apiRequest("PATCH", `/api/steepin/entries/${bp.start.id}`, { isUnpaid: !bp.start.isUnpaid }).then(() => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }))}
+                                  data-testid={`button-toggle-unpaid-${idx}`}
+                                >
+                                  {bp.start.isUnpaid ? "Unpaid" : "Paid"}
+                                </button>
                               )}
-                              <button
-                                className={`text-[10px] px-1.5 py-0.5 rounded font-medium border transition-colors ${bp.start.isUnpaid ? "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800" : "bg-muted text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 hover:border-red-200"}`}
-                                title={bp.start.isUnpaid ? "Marked as unpaid — click to toggle" : "Mark as unpaid break"}
-                                onClick={() => apiRequest("PATCH", `/api/steepin/entries/${bp.start.id}`, { isUnpaid: !bp.start.isUnpaid }).then(() => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }))}
-                                data-testid={`button-toggle-unpaid-${idx}`}
-                              >
-                                {bp.start.isUnpaid ? "Unpaid" : "Paid"}
-                              </button>
                             </div>
                             <div className="flex items-center gap-1">
-                              <Button variant="ghost" size="icon" className="h-6 w-6"
-                                onClick={() => {
-                                  setEditingBreak({ start: bp.start, end: bp.end });
-                                  setEditBreakStart(format(new Date(bp.start.timestamp), "HH:mm"));
-                                  setEditBreakEnd(bp.end ? format(new Date(bp.end.timestamp), "HH:mm") : "");
-                                }}
-                                data-testid={`button-edit-break-${idx}`}
-                              >
-                                <Edit2 className="w-3 h-3" />
-                              </Button>
+                              {bp.end && (
+                                <Button variant="ghost" size="icon" className="h-6 w-6"
+                                  onClick={() => {
+                                    setEditingBreak({ start: bp.start, end: bp.end });
+                                    setEditBreakStart(format(new Date(bp.start.timestamp), "HH:mm"));
+                                    setEditBreakEnd(format(new Date(bp.end.timestamp), "HH:mm"));
+                                  }}
+                                  data-testid={`button-edit-break-${idx}`}
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                </Button>
+                              )}
                               <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive"
-                                onClick={() => {
-                                  if (confirm("Delete this break?")) {
-                                    deleteEntryMutation.mutate(bp.start.id);
-                                    if (bp.end) deleteEntryMutation.mutate(bp.end.id);
-                                  }
-                                }}
+                                onClick={() => setDeletingBreak(bp)}
                                 data-testid={`button-delete-break-${idx}`}
                               >
                                 <Trash2 className="w-3 h-3" />
                               </Button>
                               {!bp.end && (
                                 <Button variant="outline" size="sm" className="h-6 text-xs px-2"
-                                  onClick={() => openClock(format(new Date(), "HH:mm"), (v) => {
-                                    addEntryMutation.mutate({ employeeId: emp.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${v}:00`).toISOString() });
-                                  })}
+                                  onClick={() => {
+                                    const breakStartStr = format(new Date(bp.start.timestamp), "HH:mm");
+                                    openClock(format(new Date(), "HH:mm"), (v) => {
+                                      if (v <= breakStartStr) {
+                                        toast({ title: "Invalid Time", description: "Break end must be after break start.", variant: "destructive" });
+                                        return;
+                                      }
+                                      const clockOutStr = clockOut ? format(clockOut, "HH:mm") : null;
+                                      if (clockOutStr && v >= clockOutStr) {
+                                        toast({ title: "Invalid Time", description: "Break must end at least 1 minute before clock-out.", variant: "destructive" });
+                                        return;
+                                      }
+                                      const otherBreaks = getBreakPairs(dayEntries, clockIn, clockOut)
+                                        .filter(p => p.start.id !== bp.start.id && p.end);
+                                      for (const other of otherBreaks) {
+                                        const otherStart = format(new Date(other.start.timestamp), "HH:mm");
+                                        const otherEnd = format(new Date(other.end!.timestamp), "HH:mm");
+                                        if (breakStartStr <= otherEnd && v >= otherStart) {
+                                          toast({ title: "Invalid Time", description: "This break would overlap with another break in the same shift.", variant: "destructive" });
+                                          return;
+                                        }
+                                      }
+                                      addEntryMutation.mutate({ employeeId: emp.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${v}:00`).toISOString() });
+                                    });
+                                  }}
                                   data-testid={`button-add-break-end-${idx}`}
                                 >
                                   <Plus className="w-3 h-3 mr-1" /> Add End
@@ -1989,7 +2248,7 @@ export default function Timesheets() {
                               clockOutDate: freshClockOut.date as string,
                             });
                           } else {
-                            deleteEntryMutation.mutate(freshClockOut.id);
+                            reopenShiftMutation.mutate({ clockOutEntryId: freshClockOut.id, employeeId: emp.id, clockOutDate: freshClockOut.date as string, clockOutTimestamp: freshClockOut.timestamp as string, gapOption: "none" });
                           }
                         }}
                         disabled={deleteEntryMutation.isPending || reopenShiftMutation.isPending}
@@ -2072,17 +2331,9 @@ export default function Timesheets() {
 
                 <Button variant="outline" size="sm" className="w-full"
                   onClick={() => {
-                    const dateStr = dayEntries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
-                    openClock(format(new Date(), "HH:mm"), (startVal) => {
-                      addEntryMutation.mutate(
-                        { employeeId: emp.id, type: "break-start", date: dateStr, timestamp: new Date(`${dateStr}T${startVal}:00`).toISOString() },
-                        { onSuccess: () => {
-                          openClock(format(new Date(), "HH:mm"), (endVal) => {
-                            addEntryMutation.mutate({ employeeId: emp.id, type: "break-end", date: dateStr, timestamp: new Date(`${dateStr}T${endVal}:00`).toISOString() });
-                          });
-                        }}
-                      );
-                    });
+                    setNewBreakStartTime("");
+                    setNewBreakEndTime("");
+                    setAddingNewBreak(viewingWorkday);
                   }}
                   data-testid="button-add-break"
                 >
@@ -2118,7 +2369,7 @@ export default function Timesheets() {
                           className="flex-1 h-8"
                           disabled={deleteTimesheetMutation.isPending}
                           onClick={() => {
-                            const date = dayEntries.find(e => e.type === "clock-in")?.date as string || format(activeDay, "yyyy-MM-dd");
+                            const date = (dayEntries.length > 0 ? dayEntries[0].date as string : null) || format(activeDay, "yyyy-MM-dd");
                             deleteTimesheetMutation.mutate({ employeeId: emp.id, date, entries: dayEntries });
                           }}
                           data-testid="button-delete-timesheet-confirm"
@@ -2189,6 +2440,119 @@ export default function Timesheets() {
         </DialogContent>
       </Dialog>
 
+      {/* Add Break Dialog */}
+      <Dialog open={!!addingNewBreak} onOpenChange={(open) => { if (!open) { setAddingNewBreak(null); setNewBreakStartTime(""); setNewBreakEndTime(""); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Add Break</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Break Start / Break End</Label>
+              <TimeRangeInput startValue={newBreakStartTime} endValue={newBreakEndTime} onStartChange={setNewBreakStartTime} onEndChange={setNewBreakEndTime} startTestId="input-new-break-start" endTestId="input-new-break-end" />
+            </div>
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button
+              onClick={handleAddNewBreak}
+              disabled={addEntryMutation.isPending || !newBreakStartTime || !newBreakEndTime}
+              className="w-full sm:w-auto px-8"
+              data-testid="button-save-new-break"
+            >
+              {addEntryMutation.isPending ? "Saving..." : "Add Break"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Break Overlap Warning Dialog */}
+      <Dialog open={!!breakOverlapWarning} onOpenChange={(open) => { if (!open) setBreakOverlapWarning(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Break Conflict</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-1">
+            The time you entered conflicts with an existing break{" "}
+            {breakOverlapWarning && (
+              <span className="font-medium text-foreground">
+                {format(new Date(breakOverlapWarning.conflicting.start.timestamp), "HH:mm")}
+                {breakOverlapWarning.conflicting.end
+                  ? ` – ${format(new Date(breakOverlapWarning.conflicting.end.timestamp), "HH:mm")}`
+                  : ""}
+              </span>
+            )}
+            . Would you like to edit that break instead?
+          </p>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setBreakOverlapWarning(null)}
+              data-testid="button-overlap-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!breakOverlapWarning) return;
+                const bp = breakOverlapWarning.conflicting;
+                setBreakOverlapWarning(null);
+                setEditingBreak({ start: bp.start, end: bp.end });
+                setEditBreakStart(format(new Date(bp.start.timestamp), "HH:mm"));
+                setEditBreakEnd(bp.end ? format(new Date(bp.end.timestamp), "HH:mm") : "");
+              }}
+              data-testid="button-overlap-edit-existing"
+            >
+              Edit Existing Break
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Break Confirmation Dialog */}
+      <Dialog open={!!deletingBreak} onOpenChange={(open) => { if (!open) setDeletingBreak(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Break</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-1">
+            Are you sure you want to delete this break?{" "}
+            {deletingBreak && (
+              <span className="font-medium text-foreground">
+                {format(new Date(deletingBreak.start.timestamp), "HH:mm")}
+                {deletingBreak.end ? ` – ${format(new Date(deletingBreak.end.timestamp), "HH:mm")}` : ""}
+              </span>
+            )}
+            {" "}This cannot be undone.
+          </p>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" onClick={() => setDeletingBreak(null)} data-testid="button-cancel-delete-break">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteEntryMutation.isPending}
+              onClick={() => {
+                if (!deletingBreak) return;
+                const startId = deletingBreak.start.id;
+                const endId = deletingBreak.end?.id;
+                const finish = () => {
+                  setDeletingBreak(null);
+                  toast({ title: "Break deleted" });
+                };
+                if (endId) {
+                  deleteEntryMutation.mutate(startId, {
+                    onSuccess: () => deleteEntryMutation.mutate(endId, { onSuccess: finish })
+                  });
+                } else {
+                  deleteEntryMutation.mutate(startId, { onSuccess: finish });
+                }
+              }}
+              data-testid="button-confirm-delete-break"
+            >
+              {deleteEntryMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Shift Warning / Confirmation Dialog */}
       <Dialog open={!!shiftWarning} onOpenChange={(open) => { if (!open) setShiftWarning(null); }}>
         <DialogContent className="max-w-sm">
@@ -2211,12 +2575,44 @@ export default function Timesheets() {
         </DialogContent>
       </Dialog>
 
+      {/* Merge Shifts Dialog */}
+      <Dialog open={!!mergeDialog} onOpenChange={(open) => { if (!open) setMergeDialog(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Combine Shifts?</DialogTitle>
+          </DialogHeader>
+          {mergeDialog && (
+            <div className="space-y-3 py-1">
+              <p className="text-sm text-muted-foreground">
+                The edited time overlaps with an existing shift from{" "}
+                <span className="font-medium text-foreground">
+                  {format(mergeDialog.conflictSession.clockIn!, "HH:mm")}
+                  {mergeDialog.conflictSession.clockOut ? ` – ${format(mergeDialog.conflictSession.clockOut, "HH:mm")}` : " (open)"}
+                </span>
+                .
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Would you like to combine them into one shift ending at{" "}
+                <span className="font-medium text-foreground">
+                  {format(new Date(mergeDialog.mergedClockOutTs), "HH:mm")}
+                </span>
+                ?
+              </p>
+              <div className="flex flex-col gap-2 pt-2">
+                <Button onClick={handleConfirmMerge}>Combine Shifts</Button>
+                <Button variant="outline" onClick={() => setMergeDialog(null)}>Cancel</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Direct Clock Picker — only for single-action adds (Add Clock Out, Add End Break, Add Break) */}
       <ClockPickerDialog
         open={clockPicker.open}
         onOpenChange={(open) => setClockPicker(p => ({ ...p, open }))}
         value={clockPicker.value}
-        onChange={(v) => { clockPicker.onConfirm(v); setClockPicker(p => ({ ...p, open: false })); }}
+        onChange={(v) => { setClockPicker(p => ({ ...p, open: false })); clockPicker.onConfirm(v); }}
       />
 
       {/* Add Timesheet */}
