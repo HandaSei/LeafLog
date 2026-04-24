@@ -1,0 +1,66 @@
+• Here's the exact diff between your local folder and the GitHub remote before the force-push:
+  Summary
+                                      Count
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Files on old GitHub                424
+   Files in your local                400
+   Modified                           14
+   Deleted (local was missing them)   24
+   Newly added                        0
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  24 Files Deleted from GitHub (missing in your local)
+  Your local copy was missing these files, so they were removed from the remote:
+  Public assets:
+  • client/public/employee-card-bg.png
+  • client/public/full-logo.png
+  • client/public/leaf-logo.png
+  • client/public/logo.png
+  • client/public/steepin-bg.jpg
+  • client/public/steepin-bg-dark.webp
+  • client/public/steepin-bg-new.jpg
+  UI components:
+  • client/src/components/ui/accordion.tsx
+  • client/src/components/ui/aspect-ratio.tsx
+  • client/src/components/ui/breadcrumb.tsx
+  • client/src/components/ui/calendar.tsx
+  • client/src/components/ui/carousel.tsx
+  • client/src/components/ui/chart.tsx
+  • client/src/components/ui/collapsible.tsx
+  • client/src/components/ui/command.tsx
+  • client/src/components/ui/context-menu.tsx
+  • client/src/components/ui/drawer.tsx
+  • client/src/components/ui/hover-card.tsx
+  • client/src/components/ui/input-otp.tsx
+  • client/src/components/ui/menubar.tsx
+  • client/src/components/ui/navigation-menu.tsx
+  • client/src/components/ui/pagination.tsx
+  • client/src/components/ui/resizable.tsx
+  • client/src/components/ui/slider.tsx
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  14 Modified Files (code changes in your local)
+   File                                              What changed
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   client/src/pages/dashboard.tsx                    refetchInterval now pauses when the tab is hidden (document.hidden
+                                                     )
+   client/src/components/notification-bell.tsx       Only fetches/polls when the popover is open; stops when closed
+   vite.config.ts                                    Build target set to es2022, disabled sourcemaps, added manualChunk
+                                                     s splitting for vendor bundles (react, query, router, dates, UI)
+   client/src/App.tsx                                LoginPage is now lazy() loaded instead of static import; wrapped i
+                                                     n <Suspense>
+   client/src/components/app-sidebar.tsx             Dialogs are now lazy() loaded with <Suspense>; preloaded after 2.5
+                                                     s via useEffect
+   client/src/components/mobile-nav.tsx              Same lazy-loading + preloading for dialogs; notification polling o
+                                                     nly when menu is open
+   client/index.html                                 Removed <link rel="modulepreload"> for main.tsx/App.tsx; replaced
+                                                     skeleton backdrop-filter blur with a CSS gradient shimmer animatio
+                                                     n
+   client/src/lib/auth.tsx                           Removed preloadSteepinAssets() function; steepin assets are now pr
+                                                     eloaded by the inline script in index.html
+   client/src/pages/steepin.tsx                      Removed CSS filter from background image; added fetchpriority="hig
+                                                     h" + loading="eager"
+   capacitor.config.ts                               webContentsDebuggingEnabled is now false in production (process.en
+                                                     v.NODE_ENV !== "production")
+   android/app/src/main/AndroidManifest.xml          Added android:hardwareAccelerated="true"
+   client/src/components/feedback-dialog.tsx         Added export default FeedbackDialog;
+   client/src/components/feedback-panel-dialog.tsx   Added export default FeedbackPanelDialog;
+   client/src/components/access-code-dialog.tsx      Added export default AccessCodeDialog;
