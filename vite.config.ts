@@ -30,19 +30,6 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    target: "es2022",
-    sourcemap: false,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          "vendor-react": ["react", "react-dom"],
-          "vendor-query": ["@tanstack/react-query"],
-          "vendor-router": ["wouter"],
-          "vendor-dates": ["date-fns"],
-          "vendor-ui": ["lucide-react"],
-        },
-      },
-    },
   },
   server: {
     fs: {

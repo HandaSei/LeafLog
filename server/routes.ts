@@ -8,17 +8,7 @@ import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./au
 import { format, subDays, addDays, parseISO, differenceInMinutes } from "date-fns";
 import { addSSEClient, removeSSEClient, broadcastEntryUpdate } from "./sse";
 
-const autoCloseCache = new Map<number, number>();
-const AUTO_CLOSE_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
-
 async function autoCloseStaleSession(employeeId: number): Promise<void> {
-  const cacheNow = Date.now();
-  const lastCheck = autoCloseCache.get(employeeId);
-  if (lastCheck && cacheNow - lastCheck < AUTO_CLOSE_CACHE_TTL_MS) {
-    return;
-  }
-  autoCloseCache.set(employeeId, cacheNow);
-
   const openDate = await storage.getOpenSessionDate(employeeId);
   if (!openDate) return;
 
@@ -366,7 +356,7 @@ export async function registerRoutes(
   });
 
   router.post("/api/steepin/action", async (req, res) => {
-    const { employeeId, type, passcode, notes, offlineTimestamp } = req.body;
+    const { employeeId, type, passcode, notes, reClockAction, skipReClockCheck, offlineTimestamp } = req.body;
     if (!employeeId || !type || !passcode) {
       return res.status(400).json({ message: "Employee ID, action type, and passcode are required" });
     }

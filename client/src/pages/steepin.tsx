@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useEffect, useRef, useCallback, useDeferredValue } from "react";
+import { memo, useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -206,22 +206,6 @@ try {
 } catch {}
 
 
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window !== "undefined") {
-      return window.matchMedia(query).matches;
-    }
-    return false;
-  });
-  useEffect(() => {
-    const mql = window.matchMedia(query);
-    const onChange = () => setMatches(mql.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, [query]);
-  return matches;
-}
-
 // Performance Optimization: Memoized Background
 const BackgroundVector = memo(({ isDark }: { isDark: boolean }) => {
   const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
@@ -231,11 +215,8 @@ const BackgroundVector = memo(({ isDark }: { isDark: boolean }) => {
         src={t.bgImage}
         alt=""
         className="absolute inset-0 w-full h-full object-cover object-center transform-gpu"
-        style={{ minWidth: "100%", minHeight: "100%" }}
+        style={{ minWidth: "100%", minHeight: "100%", filter: isDark ? "saturate(1.4) contrast(1.08)" : "saturate(1.25) contrast(1.05)" }}
         draggable={false}
-        decoding="async"
-        fetchpriority="high"
-        loading="eager"
       />
       {isDark && (
         <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.15)" }} />
@@ -262,7 +243,7 @@ const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Em
       <button
         onClick={() => onClick(emp)}
         className="group w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors duration-150 active:scale-[0.98]"
-        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, contain: "layout paint" }}
+        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}` }}
         data-testid={`card-employee-${emp.id}`}
       >
         <div
@@ -283,7 +264,7 @@ const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Em
     <button
       onClick={() => onClick(emp)}
       className="group relative w-full rounded-xl transition-[transform,background-color] duration-150 active:scale-[0.97] hover:scale-[1.02] transform-gpu"
-      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', contain: "layout" }}
+      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)' }}
       data-testid={`card-employee-${emp.id}`}
     >
       <div className="h-full w-full flex flex-col items-center justify-center"
@@ -336,7 +317,7 @@ const GhostCard = memo(({ isDark, isMobile = false }: { isDark: boolean; isMobil
   return (
     <div
       className="w-full rounded-xl flex flex-col items-center justify-center"
-      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', gap: 'clamp(0.2rem, 1.5vh, 1rem)', padding: 'clamp(0.5rem, 2vh, 1.25rem)', contain: "layout paint" }}
+      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', gap: 'clamp(0.2rem, 1.5vh, 1rem)', padding: 'clamp(0.5rem, 2vh, 1.25rem)' }}
     >
       <div
         className="rounded-full shrink-0"
@@ -429,7 +410,6 @@ export default function SteepInPage() {
   const [, setLocation] = useLocation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [passcode, setPasscode] = useState("");
   const [passcodeDialogOpen, setPasscodeDialogOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<ActionType | null>(null);
@@ -437,12 +417,12 @@ export default function SteepInPage() {
   const [exitUsername, setExitUsername] = useState("");
   const [exitPassword, setExitPassword] = useState("");
   const [noteText, setNoteText] = useState("");
+  const [reClockData, setReClockData] = useState<{ lastClockOutTime: string; lastClockOutId: number; lastClockOutDate: string; minutesSince: number } | null>(null);
+  const [reClockDialogOpen, setReClockDialogOpen] = useState(false);
+  const [reClockPasscode, setReClockPasscode] = useState("");
   const [deviceLocked, setDeviceLocked] = useState(true);
   const [introDialogOpen, setIntroDialogOpen] = useState(false);
   const lockPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isSmallScreen = useMediaQuery("(min-width: 640px)");
-  const cacheTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingCacheRef = useRef<{ employeeId: number; entries: TimeEntry[] } | null>(null);
   const { toast } = useToast();
   const lastMutationTsRef = useRef<number>(0);
 
@@ -542,46 +522,10 @@ export default function SteepInPage() {
   }, [authState]);
 
   useEffect(() => {
-    if (cacheTimeoutRef.current) {
-      clearTimeout(cacheTimeoutRef.current);
-      cacheTimeoutRef.current = null;
+    if (selectedEmployee) {
+      cacheEntries(selectedEmployee.id, entries);
     }
-
-    if (!selectedEmployee) return;
-
-    if (
-      pendingCacheRef.current &&
-      pendingCacheRef.current.employeeId !== selectedEmployee.id
-    ) {
-      cacheEntries(pendingCacheRef.current.employeeId, pendingCacheRef.current.entries);
-      pendingCacheRef.current = null;
-    }
-
-    pendingCacheRef.current = { employeeId: selectedEmployee.id, entries };
-    cacheTimeoutRef.current = setTimeout(() => {
-      if (pendingCacheRef.current) {
-        cacheEntries(pendingCacheRef.current.employeeId, pendingCacheRef.current.entries);
-        pendingCacheRef.current = null;
-      }
-      cacheTimeoutRef.current = null;
-    }, 150);
-
-    return () => {
-      if (cacheTimeoutRef.current) {
-        clearTimeout(cacheTimeoutRef.current);
-        cacheTimeoutRef.current = null;
-      }
-    };
   }, [selectedEmployee, entries]);
-
-  useEffect(() => {
-    return () => {
-      if (pendingCacheRef.current) {
-        cacheEntries(pendingCacheRef.current.employeeId, pendingCacheRef.current.entries);
-        pendingCacheRef.current = null;
-      }
-    };
-  }, []);
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState(() => getQueue().length);
@@ -766,9 +710,9 @@ export default function SteepInPage() {
   }, [isActive]);
 
   const actionMutation = useMutation({
-    mutationFn: async ({ employeeId, type, passcode, notes }: { employeeId: number; type: ActionType; passcode: string; notes?: string }) => {
+    mutationFn: async ({ employeeId, type, passcode, notes, reClockAction, skipReClockCheck }: { employeeId: number; type: ActionType; passcode: string; notes?: string; reClockAction?: string; skipReClockCheck?: boolean }) => {
       try {
-        const res = await apiRequest("POST", "/api/steepin/action", { employeeId, type, passcode, notes: notes || undefined });
+        const res = await apiRequest("POST", "/api/steepin/action", { employeeId, type, passcode, notes: notes || undefined, reClockAction, skipReClockCheck });
         lastMutationTsRef.current = Date.now();
         return res.json();
       } catch (error) {
@@ -826,6 +770,14 @@ export default function SteepInPage() {
         setNoteText("");
         return;
       }
+      if (data.reClockDetected) {
+        setReClockData(data);
+        setReClockPasscode(variables.passcode);
+        setPasscodeDialogOpen(false);
+        setPasscode("");
+        setReClockDialogOpen(true);
+        return;
+      }
       if (data.reClockHandled) {
         queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
         const labels: Record<string, string> = {
@@ -868,6 +820,9 @@ export default function SteepInPage() {
       setPasscodeDialogOpen(false);
       setPendingAction(null);
       setNoteText("");
+      setReClockDialogOpen(false);
+      setReClockData(null);
+      setReClockPasscode("");
     },
     onError: (err: any) => {
       // Check if it's a conflict (409) - stale state
@@ -955,23 +910,14 @@ export default function SteepInPage() {
     return last.type;
   }, [isShiftActive, currentShiftEntries]);
 
-  const searchIndex = useMemo(() => {
-    if (!employees || !Array.isArray(employees)) return [];
-    return employees.map((e) => ({
-      employee: e,
-      nameLower: e.name.toLowerCase(),
-      roleLower: (e.role || "").toLowerCase(),
-    }));
-  }, [employees]);
-
   const filteredEmployees = useMemo(() => {
-    if (!searchIndex.length) return [];
-    const query = deferredSearchQuery.toLowerCase();
-    if (!query) return searchIndex.map((item) => item.employee);
-    return searchIndex
-      .filter((item) => item.nameLower.includes(query) || item.roleLower.includes(query))
-      .map((item) => item.employee);
-  }, [searchIndex, deferredSearchQuery]);
+    if (!employees || !Array.isArray(employees)) return [];
+    return employees.filter(
+      (e) =>
+        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+  }, [employees, searchQuery]);
 
   const handleSelectEmployee = useCallback((emp: Employee) => {
     setSelectedEmployee(emp);
@@ -1025,6 +971,15 @@ export default function SteepInPage() {
     e.preventDefault();
     if (!selectedEmployee || !pendingAction || passcode.length < 4 || passcode.length > 6) return;
     actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode, notes: noteText.trim() || undefined });
+  };
+
+  const handleReClockChoice = (action: "new-shift" | "break" | "working") => {
+    if (!selectedEmployee || !reClockData) return;
+    if (action === "new-shift") {
+      actionMutation.mutate({ employeeId: selectedEmployee.id, type: "clock-in", passcode: reClockPasscode, skipReClockCheck: true, notes: noteText.trim() || undefined });
+    } else {
+      actionMutation.mutate({ employeeId: selectedEmployee.id, type: "clock-in", passcode: reClockPasscode, reClockAction: action });
+    }
   };
 
   const handleExitSteepIn = async (e: React.FormEvent) => {
@@ -1489,31 +1444,31 @@ export default function SteepInPage() {
           />
         </div>
         {empsLoading ? (
-          isSmallScreen ? (
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+          <>
+            <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
               {Array.from({ length: 6 }).map((_, i) => (
                 <GhostCard key={i} isDark={isDark} />
               ))}
             </div>
-          ) : (
-            <div className="space-y-3 max-w-lg mx-auto">
+            <div className="sm:hidden space-y-3 max-w-lg mx-auto">
               {Array.from({ length: 4 }).map((_, i) => (
                 <GhostCard key={i} isDark={isDark} isMobile />
               ))}
             </div>
-          )
-        ) : isSmallScreen ? (
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {filteredEmployees.map((emp) => (
-              <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} />
-            ))}
-          </div>
+          </>
         ) : (
-          <div className="space-y-3 max-w-lg mx-auto">
-            {filteredEmployees.map((emp) => (
-              <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} isMobile />
-            ))}
-          </div>
+          <>
+            <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+              {filteredEmployees.map((emp) => (
+                <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} />
+              ))}
+            </div>
+            <div className="sm:hidden space-y-3 max-w-lg mx-auto">
+              {filteredEmployees.map((emp) => (
+                <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} isMobile />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
