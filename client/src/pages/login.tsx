@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LogIn, KeyRound, Monitor, UserPlus, ArrowLeft } from "lucide-react";
 import { useLocation, Redirect } from "wouter";
-import logoImage from "@assets/m3MJU_1771476103365.png";
+import logoImage from "@assets/m3MJU_1771476103365.webp";
 
 const LEAF_YELLOW = "#D4C5A0";
 const LEAF_YELLOW_BG = "#E8DCC4";

@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { memo, useState, useMemo, useEffect, useRef, useCallback, useDeferredValue } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -214,7 +214,7 @@ const BackgroundVector = memo(({ isDark }: { isDark: boolean }) => {
       <img
         src={t.bgImage}
         alt=""
-        className="absolute inset-0 w-full h-full object-cover object-center transform-gpu"
+        className="absolute inset-0 w-full h-full object-cover object-center"
         style={{ minWidth: "100%", minHeight: "100%" }}
         draggable={false}
         fetchPriority="high"
@@ -500,12 +500,13 @@ export default function SteepInPage() {
       return undefined;
     },
     staleTime: 60000,
-    // Retry failed fetches when coming back online
+    // Kiosk retry policy: a single retry covers transient flakes; SSE
+    // (useEntriesSync) and the visibility/online handlers reconcile
+    // anything else. Three retries × 1s backoff used to chew CPU + battery
+    // on slow tenant Wi-Fi for no real benefit.
     retry: (failureCount, error: any) => {
-      // Don't retry if offline - will be handled by visibility/online handlers
       if (!navigator.onLine) return false;
-      // Retry up to 3 times when online
-      return failureCount < 3;
+      return failureCount < 1;
     },
     retryDelay: 1000,
   });
@@ -1029,14 +1030,20 @@ export default function SteepInPage() {
     return last.type;
   }, [isShiftActive, currentShiftEntries]);
 
+  // useDeferredValue lets React drop intermediate filter renders while the
+  // user is still typing on a slow CPU. Modern devices feel identical;
+  // low-end devices skip wasted re-renders of the full employee grid.
+  const deferredSearch = useDeferredValue(searchQuery);
   const filteredEmployees = useMemo(() => {
     if (!employees || !Array.isArray(employees)) return [];
+    const q = deferredSearch.toLowerCase();
+    if (!q.trim()) return employees;
     return employees.filter(
       (e) =>
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
+        e.name.toLowerCase().includes(q) ||
+        (e.role && e.role.toLowerCase().includes(q))
     );
-  }, [employees, searchQuery]);
+  }, [employees, deferredSearch]);
 
   const handleSelectEmployee = useCallback((emp: Employee) => {
     setSelectedEmployee(emp);
@@ -1153,7 +1160,7 @@ export default function SteepInPage() {
                 size="icon"
                 onClick={() => refetchEntries()}
                 disabled={entriesFetching}
-                className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-all duration-200`}
+                className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-[background-color,color] duration-200`}
                 title={entriesUpdatedAt ? `Last updated: ${format(entriesUpdatedAt, "HH:mm:ss")}` : "Refresh"}
               >
                 <RefreshCw className={`w-4 h-4 ${entriesFetching ? "animate-spin" : ""}`} />
