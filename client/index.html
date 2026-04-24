@@ -15,6 +15,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     
+    <!-- Preload critical JS chunks to prevent waterfall loading -->
+    <link rel="modulepreload" href="/src/main.tsx">
+    <link rel="modulepreload" href="/src/App.tsx">
     
     <!-- Preload critical font weights to prevent layout shift -->
     <link rel="preload" href="https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYAZ9hjp-Ek-_EeA.woff2" as="font" type="font/woff2" crossorigin>
@@ -72,7 +75,7 @@
         50% { opacity: 0.65; }
       }
       ._ll_skel {
-        background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.04) 75%); background-size: 200% 100%;
+        background: rgba(0, 0, 0, 0.06);
         border-radius: 12px;
         animation: _ll_pulse 1.6s ease-in-out infinite;
       }
@@ -103,6 +106,7 @@
       ._ll_search {
         height: 56px; width: 100%; max-width: 672px; margin: 0 auto; display: block; border-radius: 9999px;
         background: rgba(245,248,242,0.4); border: 1.5px solid rgba(90,120,85,0.25);
+        backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
         animation: none;
       }
       ._ll_dark ._ll_search { background: rgba(35,25,20,0.3); border-color: rgba(140,80,45,0.35); }
@@ -114,6 +118,7 @@
       ._ll_card {
         aspect-ratio: 1; border-radius: 12px;
         background: rgba(245,248,242,0.45); border: 1.5px solid rgba(90,120,85,0.35);
+        backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
         display: flex; align-items: center; justify-content: center;
         animation: none;
       }
@@ -128,6 +133,7 @@
         display: flex; align-items: center; gap: 16px;
         padding: 16px 20px; border-radius: 12px;
         background: rgba(245,248,242,0.45); border: 1.5px solid rgba(90,120,85,0.35);
+        backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
         margin-bottom: 12px;
       }
       ._ll_dark ._ll_mobile_row { background: rgba(35,25,20,0.3); border-color: rgba(160,95,55,0.45); }

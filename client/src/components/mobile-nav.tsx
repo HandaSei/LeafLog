@@ -1,13 +1,13 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import { LayoutDashboard, Calendar, FileText, Users, MoreHorizontal, Settings2, KeyRound, LogOut, Inbox, MessageSquare, X, ShieldCheck, Bell, CheckCheck, Clock, AlertTriangle, UserCheck } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-const AccessCodeDialog = lazy(() => import("./access-code-dialog"));
-const FeedbackDialog = lazy(() => import("./feedback-dialog"));
-const FeedbackPanelDialog = lazy(() => import("./feedback-panel-dialog"));
+import { AccessCodeDialog } from "./access-code-dialog";
+import { FeedbackDialog } from "./feedback-dialog";
+import { FeedbackPanelDialog } from "./feedback-panel-dialog";
 import {
   Sheet,
   SheetContent,
@@ -48,16 +48,6 @@ export function MobileBottomNav() {
   const [accessCodeOpen, setAccessCodeOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackPanelOpen, setFeedbackPanelOpen] = useState(false);
-
-  // Preload dialog chunks after initial render
-  useEffect(() => {
-    const t = setTimeout(() => {
-      import("./access-code-dialog");
-      import("./feedback-dialog");
-      import("./feedback-panel-dialog");
-    }, 2500);
-    return () => clearTimeout(t);
-  }, []);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const handleLogout = async () => {
@@ -73,8 +63,7 @@ export function MobileBottomNav() {
 
   const { data: countData } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
-    enabled: moreOpen || notificationsOpen,
-    refetchInterval: moreOpen || notificationsOpen ? 30000 : false,
+    refetchInterval: 30000,
   });
   const unreadCount = countData?.count || 0;
 
@@ -323,15 +312,9 @@ export function MobileBottomNav() {
         </SheetContent>
       </Sheet>
 
-      <Suspense fallback={null}>
-        <AccessCodeDialog open={accessCodeOpen} onOpenChange={setAccessCodeOpen} />
-      </Suspense>
-      <Suspense fallback={null}>
-        <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-      </Suspense>
-      <Suspense fallback={null}>
-        <FeedbackPanelDialog open={feedbackPanelOpen} onOpenChange={setFeedbackPanelOpen} />
-      </Suspense>
+      <AccessCodeDialog open={accessCodeOpen} onOpenChange={setAccessCodeOpen} />
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      <FeedbackPanelDialog open={feedbackPanelOpen} onOpenChange={setFeedbackPanelOpen} />
     </>
   );
 }
