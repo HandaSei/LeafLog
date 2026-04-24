@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Calendar, Users, LayoutDashboard, KeyRound, LogOut, FileText, Settings2, MessageSquare, Inbox, ShieldCheck } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
@@ -16,9 +16,9 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { AccessCodeDialog } from "./access-code-dialog";
-import { FeedbackDialog } from "./feedback-dialog";
-import { FeedbackPanelDialog } from "./feedback-panel-dialog";
+const AccessCodeDialog = lazy(() => import("./access-code-dialog"));
+const FeedbackDialog = lazy(() => import("./feedback-dialog"));
+const FeedbackPanelDialog = lazy(() => import("./feedback-panel-dialog"));
 import { NotificationBell } from "./notification-bell";
 import logoImage from "@assets/m3MJU_1771476103365.png";
 
@@ -29,6 +29,16 @@ export function AppSidebar() {
   const [accessCodeOpen, setAccessCodeOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackPanelOpen, setFeedbackPanelOpen] = useState(false);
+
+  // Preload dialog chunks after initial render
+  useEffect(() => {
+    const t = setTimeout(() => {
+      import("./access-code-dialog");
+      import("./feedback-dialog");
+      import("./feedback-panel-dialog");
+    }, 2500);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -169,9 +179,15 @@ export function AppSidebar() {
           </div>
         </SidebarFooter>
       </Sidebar>
-      <AccessCodeDialog open={accessCodeOpen} onOpenChange={setAccessCodeOpen} />
-      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-      <FeedbackPanelDialog open={feedbackPanelOpen} onOpenChange={setFeedbackPanelOpen} />
+      <Suspense fallback={null}>
+        <AccessCodeDialog open={accessCodeOpen} onOpenChange={setAccessCodeOpen} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <FeedbackPanelDialog open={feedbackPanelOpen} onOpenChange={setFeedbackPanelOpen} />
+      </Suspense>
     </>
   );
 }

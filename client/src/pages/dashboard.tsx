@@ -435,12 +435,12 @@ export default function Dashboard() {
 
   const { data: todayEntries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
     queryKey: [`/api/steepin/entries?date=${todayStr}`],
-    refetchInterval: 30000,
+    refetchInterval: () => document.hidden ? false : 30000,
   });
 
   const { data: openSessionEntries = [] } = useQuery<TimeEntry[]>({
     queryKey: ["/api/steepin/open-sessions"],
-    refetchInterval: 30000,
+    refetchInterval: () => document.hidden ? false : 30000,
   });
 
   const isLoading = shiftsLoading || employeesLoading || entriesLoading;

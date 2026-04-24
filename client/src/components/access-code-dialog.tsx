@@ -175,3 +175,5 @@ export function AccessCodeDialog({ open, onOpenChange }: AccessCodeDialogProps) 
     </Dialog>
   );
 }
+
+export default AccessCodeDialog;

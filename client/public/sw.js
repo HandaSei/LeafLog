@@ -1,4 +1,6 @@
-const CACHE_NAME = 'leaflog-cache-v20';
+const CACHE_NAME = 'leaflog-cache-v21';
+const STEEPIN_API_CACHE = 'leaflog-steepin-api-v1';
+const STEEPIN_API_PATHS = ['/api/steepin/employees', '/api/settings/break-policy'];
 
 const PRECACHE_ASSETS = [
   '/',
@@ -21,7 +23,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((names) =>
       Promise.all(
-        names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))
+        names.filter((name) => name !== CACHE_NAME && name !== STEEPIN_API_CACHE).map((name) => caches.delete(name))
       )
     ).then(() => self.clients.claim())
   );
@@ -31,6 +33,24 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   if (url.pathname.includes('_capacitor_') || url.pathname.includes('_cap_')) {
+    return;
+  }
+
+  // SteepIn API endpoints - Stale-While-Revalidate
+  if (event.request.method === 'GET' && STEEPIN_API_PATHS.includes(url.pathname)) {
+    event.respondWith(
+      caches.open(STEEPIN_API_CACHE).then((cache) =>
+        cache.match(event.request).then((cached) => {
+          const networkFetch = fetch(event.request).then((response) => {
+            if (response.ok) {
+              try { cache.put(event.request, response.clone()); } catch (e) {}
+            }
+            return response;
+          }).catch(() => cached);
+          return cached || networkFetch;
+        })
+      )
+    );
     return;
   }
 

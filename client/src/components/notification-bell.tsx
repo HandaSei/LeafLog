@@ -118,7 +118,8 @@ export function NotificationBell() {
 
   const { data: countData } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
-    refetchInterval: 30000,
+    enabled: open,
+    refetchInterval: open ? 30000 : false,
   });
 
   const { data: popoverNotifications = [], isLoading: popoverLoading } = useQuery<Notification[]>({
