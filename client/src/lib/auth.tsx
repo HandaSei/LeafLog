@@ -449,8 +449,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await logoutMutation.mutateAsync();
   }, [logoutMutation]);
 
-  const exitSteepIn = useCallback(async () => {
-    await exitSteepInMutation.mutateAsync();
+  const exitSteepIn = useCallback(async (username: string, password: string) => {
+    await exitSteepInMutation.mutateAsync({ username, password });
   }, [exitSteepInMutation]);
 
   const user = authState?.authenticated ? authState.user : null;
