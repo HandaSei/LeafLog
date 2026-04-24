@@ -8,7 +8,17 @@ import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./au
 import { format, subDays, addDays, parseISO, differenceInMinutes } from "date-fns";
 import { addSSEClient, removeSSEClient, broadcastEntryUpdate } from "./sse";
 
+const autoCloseCache = new Map<number, number>();
+const AUTO_CLOSE_CACHE_TTL_MS = 2 * 60 * 1000;
+
 async function autoCloseStaleSession(employeeId: number): Promise<void> {
+  const cacheNow = Date.now();
+  const lastCheck = autoCloseCache.get(employeeId);
+  if (lastCheck && cacheNow - lastCheck < AUTO_CLOSE_CACHE_TTL_MS) {
+    return;
+  }
+  autoCloseCache.set(employeeId, cacheNow);
+
   const openDate = await storage.getOpenSessionDate(employeeId);
   if (!openDate) return;
 
