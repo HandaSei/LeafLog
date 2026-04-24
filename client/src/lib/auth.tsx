@@ -27,7 +27,35 @@ function saveCachedAuth(auth: AuthState | null) {
   } catch {}
 }
 
+// Window during which we treat an explicit SteepIn-exit as fresh enough
+// that we MUST NOT try to silently restore the kiosk session.
+const RECENT_EXIT_KEY = "leaflog_steepin_just_exited";
+const RECENT_EXIT_WINDOW_MS = 60_000;
+
+export function markSteepInJustExited() {
+  try { localStorage.setItem(RECENT_EXIT_KEY, String(Date.now())); } catch {}
+}
+
+function wasSteepInJustExited(): boolean {
+  try {
+    const raw = localStorage.getItem(RECENT_EXIT_KEY);
+    if (!raw) return false;
+    const ts = Number(raw);
+    if (!Number.isFinite(ts)) return false;
+    if (Date.now() - ts > RECENT_EXIT_WINDOW_MS) {
+      try { localStorage.removeItem(RECENT_EXIT_KEY); } catch {}
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function attemptSteepinRestore(): Promise<boolean> {
+  // The user just deliberately exited — don't fight them by re-establishing
+  // the kiosk session via the device id.
+  if (wasSteepInJustExited()) return false;
   try {
     const deviceId = localStorage.getItem("leaflog_device_id");
     if (!deviceId) return false;
@@ -321,6 +349,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     onSuccess: async () => {
       saveCachedAuth(null);
+      // User just intentionally entered kiosk — clear any stale "just exited"
+      // flag so the bootstrap doesn't refuse to populate the new kiosk session.
+      try { localStorage.removeItem(RECENT_EXIT_KEY); } catch {}
       const freshAuth = await fetchBootstrapWithTimeout();
       setAuthState(freshAuth);
     },
@@ -402,6 +433,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const exitSteepInMutation = useMutation({
     mutationFn: async () => {
+      // Mark BEFORE the network call so any racing bootstrap/restore call
+      // sees the flag immediately and skips kiosk-restoration.
+      markSteepInJustExited();
+      saveCachedAuth(null);
+      try { localStorage.removeItem("leaflog_steepin_auth"); } catch {}
       await apiRequest("POST", "/api/auth/steepin-exit");
     },
     onSuccess: () => {
