@@ -260,24 +260,11 @@
       </script>
     </div>
     <script>
-      // Skip service worker registration when running inside an iframe
-      // (e.g. the Replit dev preview is a sandboxed cross-origin iframe where
-      // SW registration throws "The operation is insecure", and the resulting
-      // unhandledrejection floods the dev error overlay every HMR reconnect).
-      // The SW is only needed in the standalone production app anyway.
-      (function() {
-        try {
-          if (!('serviceWorker' in navigator)) return;
-          var inIframe = false;
-          try { inIframe = window.self !== window.top; } catch (_) { inIframe = true; }
-          if (inIframe) return;
-          window.addEventListener('load', function() {
-            navigator.serviceWorker
-              .register('/sw.js?v=20', { updateViaCache: 'none' })
-              .catch(function() { /* swallow — never crash the app for SW */ });
-          });
-        } catch (_) {}
-      })();
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js?v=20', { updateViaCache: 'none' });
+        });
+      }
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

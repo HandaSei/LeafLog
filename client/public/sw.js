@@ -1,4 +1,4 @@
-const CACHE_NAME = 'leaflog-cache-v202604242036';
+const CACHE_NAME = 'leaflog-cache-v21';
 const STEEPIN_API_CACHE = 'leaflog-steepin-api-v1';
 const STEEPIN_API_PATHS = ['/api/steepin/employees', '/api/settings/break-policy'];
 

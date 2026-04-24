@@ -7,7 +7,7 @@ import { useEntriesSync } from "@/hooks/use-entries-sync";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
 import type { Employee, TimeEntry } from "@shared/schema";
-import { useAuth, markSteepInJustExited } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import {
   addToQueue,
   shouldQueueAction,
@@ -440,9 +440,6 @@ export default function SteepInPage() {
   const [deviceLocked, setDeviceLocked] = useState(true);
   const [introDialogOpen, setIntroDialogOpen] = useState(false);
   const lockPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isExitingRef = useRef(false);
-  // Bumped by exitMutation.onError to re-arm the heartbeat after a failed exit.
-  const [heartbeatNonce, setHeartbeatNonce] = useState(0);
   const isSmallScreen = useMediaQuery("(min-width: 640px)");
   const cacheTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCacheRef = useRef<{ employeeId: number; entries: TimeEntry[] } | null>(null);
@@ -740,11 +737,8 @@ export default function SteepInPage() {
     const deviceId = getOrCreateDeviceId();
     const deviceName = getDeviceName();
 
-    if (isExitingRef.current) return;
-
     apiRequest("POST", "/api/devices/register", { deviceId, deviceName })
       .then(() => {
-        if (isExitingRef.current) return;
         const introKey = "leaflog_steepin_intro_shown";
         if (!localStorage.getItem(introKey)) {
           localStorage.setItem(introKey, "1");
@@ -754,14 +748,11 @@ export default function SteepInPage() {
       .catch(() => {});
 
     async function checkLock() {
-      // Bail BEFORE making the request when exit is in progress, so we don't
-      // race a 401 against a session the user just intentionally tore down.
-      if (isExitingRef.current) return;
       try {
         const res = await apiRequest("GET", `/api/devices/check?deviceId=${encodeURIComponent(deviceId)}`);
         if (res.ok) {
           const data = await res.json();
-          if (!isExitingRef.current) setDeviceLocked(!!data.isLocked);
+          setDeviceLocked(!!data.isLocked);
         }
       } catch (_) {}
     }
@@ -770,12 +761,9 @@ export default function SteepInPage() {
     lockPollRef.current = setInterval(checkLock, 30000);
 
     return () => {
-      if (lockPollRef.current) {
-        clearInterval(lockPollRef.current);
-        lockPollRef.current = null;
-      }
+      if (lockPollRef.current) clearInterval(lockPollRef.current);
     };
-  }, [isActive, heartbeatNonce]);
+  }, [isActive]);
 
   const actionMutation = useMutation({
     mutationFn: async ({ employeeId, type, passcode, notes }: { employeeId: number; type: ActionType; passcode: string; notes?: string }) => {
@@ -913,15 +901,6 @@ export default function SteepInPage() {
 
   const exitMutation = useMutation({
     mutationFn: async () => {
-      // Mark exiting BEFORE the network call so any in-flight or about-to-fire
-      // device-heartbeat aborts itself, and any racing bootstrap call skips
-      // attemptSteepinRestore.
-      isExitingRef.current = true;
-      markSteepInJustExited();
-      if (lockPollRef.current) {
-        clearInterval(lockPollRef.current);
-        lockPollRef.current = null;
-      }
       await apiRequest("POST", "/api/auth/steepin-exit", { 
         username: exitUsername, 
         password: exitPassword 
@@ -936,10 +915,6 @@ export default function SteepInPage() {
       setLocation("/login");
     },
     onError: (err: Error) => {
-      // Exit failed — re-arm the heartbeat (its useEffect was torn down when
-      // we cleared the interval in mutationFn) so the kiosk stays usable.
-      isExitingRef.current = false;
-      setHeartbeatNonce((n) => n + 1);
       toast({ title: "Exit Failed", description: err.message, variant: "destructive" });
     }
   });
