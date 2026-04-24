@@ -15,6 +15,7 @@ import {
   getQueue,
   cacheEntries,
   getCachedEntries,
+  idleWrite,
 } from "@/lib/offline-queue";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -265,7 +266,10 @@ const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Em
   return (
     <button
       onClick={() => onClick(emp)}
-      className="group relative w-full rounded-xl transition-[transform,background-color] duration-150 active:scale-[0.97] hover:scale-[1.02] transform-gpu"
+      // `steepin-employee-card` carries content-visibility:auto with the
+      // dual contain-intrinsic-size declaration (see index.css) so off-
+      // screen cards skip style/layout/paint without causing layout pop.
+      className="group relative w-full rounded-xl transition-[transform,background-color] duration-150 active:scale-[0.97] hover:scale-[1.02] transform-gpu steepin-employee-card"
       style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)' }}
       data-testid={`card-employee-${emp.id}`}
     >
@@ -517,21 +521,32 @@ export default function SteepInPage() {
     enabled: isActive,
   });
 
-  // Persist fresh employees to localStorage so next visit is instant
+  // Persist fresh employees to localStorage so next visit is instant.
+  // Deferred to idle time — JSON.stringify of the employees array can
+  // block the main thread for tens of ms on cheap Android tablets.
+  // The `pagehide`/`visibilitychange:hidden` listener in offline-queue
+  // flushes the latest pending write before the page is unloaded.
   useEffect(() => {
     if (employees && Array.isArray(employees) && employees.length > 0) {
-      try {
-        localStorage.setItem(STEEPIN_CACHE_KEY, JSON.stringify(employees));
-      } catch {}
+      idleWrite(STEEPIN_CACHE_KEY, () => {
+        try {
+          localStorage.setItem(STEEPIN_CACHE_KEY, JSON.stringify(employees));
+        } catch {}
+      });
     }
   }, [employees]);
 
-  // Persist auth state so offline reloads keep SteepIn mode active
+  // Persist auth state so offline reloads keep SteepIn mode active.
+  // Same idle-deferred pattern — authState changes on every entry update
+  // (steepinEntries lives in authState) so naive synchronous writes were
+  // the most frequent main-thread blocker on the kiosk.
   useEffect(() => {
     if (authState?.authenticated && authState?.steepinMode) {
-      try {
-        localStorage.setItem(STEEPIN_AUTH_CACHE_KEY, JSON.stringify(authState));
-      } catch {}
+      idleWrite(STEEPIN_AUTH_CACHE_KEY, () => {
+        try {
+          localStorage.setItem(STEEPIN_AUTH_CACHE_KEY, JSON.stringify(authState));
+        } catch {}
+      });
     }
   }, [authState]);
 
