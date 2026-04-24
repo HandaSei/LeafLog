@@ -668,6 +668,36 @@ export default function SteepInPage() {
     }
   }, [authLoading, isActive, isOnline, hasEmployees, setLocation]);
 
+  // Background prefetch of entries for every employee on the kiosk roster so
+  // when an employee taps their card the action screen opens with buttons
+  // already enabled — no isVerifyingStatus wait. Runs at idle time, respects
+  // staleTime (no-op if cache is already fresh), and is gated to small rosters
+  // to avoid request storms on large tenants.
+  const prefetchedFor = useRef<string>("");
+  useEffect(() => {
+    if (!isActive || !isOnline || !employees || employees.length === 0) return;
+    if (employees.length > 30) return;
+    const sig = employees.map((e) => e.id).sort().join(",");
+    if (sig === prefetchedFor.current) return;
+    prefetchedFor.current = sig;
+
+    const run = () => {
+      employees.forEach((emp) => {
+        queryClient.prefetchQuery({
+          queryKey: ["/api/steepin/entries", emp.id.toString()],
+          queryFn: getQueryFn({ on401: "returnNull" }),
+          staleTime: 60000,
+        });
+      });
+    };
+    if (typeof (window as any).requestIdleCallback === "function") {
+      const id = (window as any).requestIdleCallback(run, { timeout: 2000 });
+      return () => (window as any).cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(run, 0);
+    return () => window.clearTimeout(id);
+  }, [employees, isActive, isOnline]);
+
   useEffect(() => {
     if (!isActive) return;
 
@@ -771,27 +801,47 @@ export default function SteepInPage() {
           timestamp: now.toISOString(),
           date: now.toISOString().split("T")[0],
         });
-
-        const optimisticEntry: TimeEntry = {
-          id: -Date.now(),
-          employeeId,
-          type,
-          timestamp: now.toISOString(),
-          date: now.toISOString().split("T")[0],
-          notes: notes || null,
-          source: "employee",
-          isUnpaid: false,
-        };
-        queryClient.setQueryData(
-          ["/api/steepin/entries", employeeId.toString()],
-          (old: TimeEntry[] | undefined) => [...(old || []), optimisticEntry],
-        );
+        // Note: optimistic entry already appended in onMutate — do NOT add it again here.
 
         setPendingCount((c) => c + 1);
         return { _queued: true, type };
       }
     },
-    onSuccess: (data, variables) => {
+    // Instant optimistic UI: append the entry to the cache BEFORE the network
+    // round-trip so the kiosk feels immediate. We snapshot the previous list so
+    // onError can roll back, and we skip optimistic for ONLINE clock-ins
+    // because the server may transform them into reClockDetected/reClockHandled
+    // (delete + recreate) which our naive append would model incorrectly.
+    onMutate: async (variables) => {
+      const key = ["/api/steepin/entries", variables.employeeId.toString()];
+      await queryClient.cancelQueries({ queryKey: key });
+      const prevEntries = queryClient.getQueryData<TimeEntry[]>(key);
+
+      const skipOptimistic = navigator.onLine && variables.type === "clock-in";
+      let optimisticId: number | null = null;
+      if (!skipOptimistic) {
+        const now = new Date();
+        optimisticId = -now.getTime();
+        const optimisticEntry: TimeEntry = {
+          id: optimisticId,
+          employeeId: variables.employeeId,
+          type: variables.type,
+          timestamp: now.toISOString(),
+          date: now.toISOString().split("T")[0],
+          notes: variables.notes ?? null,
+          source: "employee",
+          isUnpaid: false,
+        };
+        queryClient.setQueryData<TimeEntry[]>(
+          key,
+          (old) => [...(old || []), optimisticEntry],
+        );
+      }
+      return { prevEntries, optimisticId, queryKey: key };
+    },
+    onSuccess: (data, variables, context) => {
+      const key = context?.queryKey ?? ["/api/steepin/entries", variables.employeeId.toString()];
+
       if (data._queued) {
         const labels: Record<ActionType, string> = {
           "clock-in": "Clocked In",
@@ -810,6 +860,16 @@ export default function SteepInPage() {
         return;
       }
       if (data.reClockDetected) {
+        // Server didn't actually create an entry — roll back any optimistic
+        // entry we might have added. (Currently we skip optimistic for online
+        // clock-in so optimisticId is null here, but defensive cleanup keeps
+        // the cache honest if that policy ever changes.)
+        if (context?.optimisticId != null) {
+          queryClient.setQueryData<TimeEntry[]>(
+            key,
+            (old) => (old || []).filter((e) => e.id !== context.optimisticId),
+          );
+        }
         setReClockData(data);
         setReClockPasscode(variables.passcode);
         setPasscodeDialogOpen(false);
@@ -818,7 +878,8 @@ export default function SteepInPage() {
         return;
       }
       if (data.reClockHandled) {
-        queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
+        // reClock paths don't (yet) include `entries`; fall back to invalidate.
+        queryClient.invalidateQueries({ queryKey: key });
         const labels: Record<string, string> = {
           reopen: "Shift Reopened",
           "unpaid-break": "Break Recorded",
@@ -833,21 +894,36 @@ export default function SteepInPage() {
         setNoteText("");
         return;
       }
-      const optimistic: TimeEntry = {
-        id: data.id ?? -Date.now(),
-        employeeId: data.employeeId ?? variables.employeeId,
-        type: data.type ?? variables.type,
-        timestamp: data.timestamp ?? new Date().toISOString(),
-        date: data.date ?? new Date().toISOString().split("T")[0],
-        notes: data.notes ?? variables.notes ?? null,
-        source: data.source ?? "employee",
-        isUnpaid: data.isUnpaid ?? false,
-      };
-      queryClient.setQueryData(
-        ["/api/steepin/entries", variables.employeeId.toString()],
-        (old: TimeEntry[] | undefined) => [...(old || []), optimistic],
-      );
-      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
+
+      // Normal success path. Prefer the authoritative `entries` list returned
+      // by the server (avoids the follow-up GET round-trip). If the server is
+      // older and didn't include it, fall back to: replace any optimistic with
+      // the real entry, then invalidate to refetch.
+      if (Array.isArray(data.entries)) {
+        queryClient.setQueryData<TimeEntry[]>(key, data.entries);
+      } else {
+        const real: TimeEntry = {
+          id: data.id ?? -Date.now(),
+          employeeId: data.employeeId ?? variables.employeeId,
+          type: data.type ?? variables.type,
+          timestamp: data.timestamp ?? new Date().toISOString(),
+          date: data.date ?? new Date().toISOString().split("T")[0],
+          notes: data.notes ?? variables.notes ?? null,
+          source: data.source ?? "employee",
+          isUnpaid: data.isUnpaid ?? false,
+        };
+        queryClient.setQueryData<TimeEntry[]>(
+          key,
+          (old) => {
+            const withoutOptimistic = (old || []).filter(
+              (e) => context?.optimisticId == null || e.id !== context.optimisticId,
+            );
+            return [...withoutOptimistic, real];
+          },
+        );
+        queryClient.invalidateQueries({ queryKey: key });
+      }
+
       const labels: Record<ActionType, string> = {
         "clock-in": "Clocked In",
         "clock-out": "Clocked Out",
@@ -863,7 +939,12 @@ export default function SteepInPage() {
       setReClockData(null);
       setReClockPasscode("");
     },
-    onError: (err: any) => {
+    onError: (err: any, variables, context) => {
+      // Roll back the optimistic entry first so the UI never lies on failure.
+      if (context?.prevEntries !== undefined && context?.queryKey) {
+        queryClient.setQueryData(context.queryKey, context.prevEntries);
+      }
+
       // Check if it's a conflict (409) - stale state
       const isConflict = err.message?.includes("409");
       if (isConflict) {

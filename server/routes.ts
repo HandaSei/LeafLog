@@ -690,7 +690,21 @@ export async function registerRoutes(
       source: "employee",
     });
 
-    res.status(201).json(entry);
+    // Return the fresh entries list alongside the new entry so the kiosk can
+    // update its cache atomically without a follow-up GET. Mirrors the logic
+    // of GET /api/steepin/entries/:employeeId. Older clients ignore `entries`
+    // and continue to invalidate / refetch as before — fully backward compatible.
+    let updatedEntries = await storage.getTimeEntriesByEmployeeAndDate(Number(employeeId), date);
+    const lastTypeAfter = updatedEntries.length > 0 ? updatedEntries[updatedEntries.length - 1].type : null;
+    const hasOpenSessionAfter = lastTypeAfter === "clock-in" || lastTypeAfter === "break-start" || lastTypeAfter === "break-end";
+    if (!hasOpenSessionAfter) {
+      const openDateAfter = await storage.getOpenSessionDate(Number(employeeId));
+      if (openDateAfter && openDateAfter !== date) {
+        updatedEntries = await storage.getTimeEntriesByEmployeeAndDate(Number(employeeId), openDateAfter);
+      }
+    }
+
+    res.status(201).json({ ...entry, entries: updatedEntries });
   });
 
   router.patch("/api/steepin/entries/:id", requireRole("admin", "manager"), async (req, res) => {
