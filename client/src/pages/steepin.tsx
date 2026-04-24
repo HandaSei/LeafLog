@@ -895,13 +895,12 @@ export default function SteepInPage() {
 
   const exitMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/auth/steepin-exit", { 
-        username: exitUsername, 
-        password: exitPassword 
-      });
+      // Route through useAuth so the AuthProvider's authState is cleared atomically
+      // with the server-side session. Otherwise App.tsx's `isSteepIn` stays true,
+      // re-redirects /login back to /SteepIn, and we get a render loop.
+      await exitSteepIn(exitUsername, exitPassword);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       setExitDialogOpen(false);
       setExitUsername("");
       setExitPassword("");
