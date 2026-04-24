@@ -430,9 +430,20 @@ export default function SteepInPage() {
 
   const [liveTime, setLiveTime] = useState(() => format(new Date(), "HH:mm"));
   useEffect(() => {
-    const tick = () => setLiveTime(format(new Date(), "HH:mm"));
-    const id = setInterval(tick, 15000);
-    return () => clearInterval(id);
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const scheduleNext = () => {
+      const now = new Date();
+      const msUntilNextMinute =
+        60000 - (now.getSeconds() * 1000 + now.getMilliseconds());
+      timeoutId = setTimeout(() => {
+        setLiveTime(format(new Date(), "HH:mm"));
+        scheduleNext();
+      }, msUntilNextMinute);
+    };
+    scheduleNext();
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
 
   const [themeSettings] = useState<SteepinTheme>(getCachedTheme);
@@ -704,10 +715,36 @@ export default function SteepInPage() {
     }
 
     checkLock();
-    lockPollRef.current = setInterval(checkLock, 30000);
+
+    const startPolling = () => {
+      if (lockPollRef.current) return;
+      lockPollRef.current = setInterval(checkLock, 30000);
+    };
+    const stopPolling = () => {
+      if (lockPollRef.current) {
+        clearInterval(lockPollRef.current);
+        lockPollRef.current = null;
+      }
+    };
+
+    if (typeof document === "undefined" || document.visibilityState === "visible") {
+      startPolling();
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        // Catch up immediately on wake, then resume polling.
+        checkLock();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
-      if (lockPollRef.current) clearInterval(lockPollRef.current);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stopPolling();
     };
   }, [isActive]);
 

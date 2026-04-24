@@ -1,0 +1,22 @@
+
+
+Server: enable HTTP compression on /api/* JSON.
+/api/bootstrap is a large payload (employees + entries + settings). One line: app.use(compression()). Cuts ~70% off bytes-on-wire on first paint and is invisible to clients. Safest perf win in the codebase.
+
+Server: serve Cache-Control: public, max-age=31536000, immutable for hashed Vite assets.
+On Replit's CDN this turns repeat visits into 304s/no-fetch. Zero risk because Vite filename-hashes them.
+
+Client: replace the device-heartbeat 30-second setInterval with a Page Visibility check.
+When the tablet screen goes to sleep, it currently still pings every 30s. Wrapping the interval so it only fires while document.visibilityState === 'visible' cuts wasted requests on sleeping kiosks by ~95%, and avoids the kind of stale-401 race we just diagnosed.
+
+Client: hint the SteepIn lazy chunk + background image with <link rel="prefetch"> on the login page once the user starts typing the SteepIn passcode.
+You already preload the bg in index.html. Adding a prefetch hint for the JS chunk specifically when focus enters the SteepIn tab gets you ~200–400ms faster open on tap. Pure additive, browsers ignore it on slow networks.
+
+Client: virtualize the employee grid only when there are more than ~30 cards.
+For your current 13 employees this is a no-op, but if any of your tenants grow past ~30 it prevents render slowdown. Add @tanstack/react-virtual only inside the if (employees.length > 30) branch — small cards stay non-virtualized so layout/animations are unchanged for everyone you have today.
+
+Client: switch the liveTime clock from updating every 15s to using requestAnimationFrame aligned to the next minute boundary.
+Currently the whole header re-renders every 15s. Aligning to the actual minute change (setTimeout until next :00, then per-minute) drops re-render frequency by 4× and the clock visually updates exactly when it should.
+
+Service worker: pre-cache /SteepIn's background image alongside the route.
+Right now SW caches API responses. Adding the bg image to the SW pre-cache makes second-launch render the kiosk fully offline-ready in < 200ms.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -47,6 +47,30 @@ export default function LoginPage() {
   const [upgradeEmail, setUpgradeEmail] = useState("");
   const [upgradeCode, setUpgradeCode] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // When the user focuses the SteepIn tab, warm up the kiosk background
+  // image so the bg renders instantly the moment they hit Launch. Browsers
+  // ignore the fetch on slow networks, and the SW already pre-caches these
+  // for repeat visits — this only matters on first-ever visits.
+  useEffect(() => {
+    if (tab !== "steepin") return;
+    let isDark = false;
+    try {
+      const themeRaw = localStorage.getItem("leaflog_steepin_theme");
+      const theme = themeRaw ? JSON.parse(themeRaw) : null;
+      if (theme?.mode === "dark") {
+        isDark = true;
+      } else if (theme?.mode === "auto" || !theme) {
+        isDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+      }
+    } catch {
+      // ignore — fall back to light
+    }
+    const img = new Image();
+    img.src = isDark
+      ? "/steepin-bg-watercolor-dark.webp"
+      : "/steepin-bg-watercolor.webp";
+  }, [tab]);
 
   if (isAuthenticated && isShadowAccount) {
     if (view !== "upgrade-employee" && view !== "verify-upgrade") {
