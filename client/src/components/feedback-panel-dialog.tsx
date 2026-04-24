@@ -85,3 +85,5 @@ export function FeedbackPanelDialog({ open, onOpenChange }: FeedbackPanelDialogP
     </Dialog>
   );
 }
+
+export default FeedbackPanelDialog;

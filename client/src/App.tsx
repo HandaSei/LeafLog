@@ -11,8 +11,9 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileHeader, MobileBottomNav } from "@/components/mobile-nav";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
-import LoginPage from "@/pages/login";
 import SteepInPage from "@/pages/steepin";
+
+const LoginPage = lazy(() => import("@/pages/login"));
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Schedule = lazy(() => import("@/pages/schedule"));
@@ -107,7 +108,9 @@ function AppContent() {
     <Switch>
       <Route path="/SteepIn" component={SteepInPage} />
       <Route path="/login">
-        {isAuthenticated ? <Redirect to="/" /> : <LoginPage />}
+        <Suspense fallback={<PageFallback />}>
+          {isAuthenticated ? <Redirect to="/" /> : <LoginPage />}
+        </Suspense>
       </Route>
       <Route>
         {isAuthenticated ? <AuthenticatedLayout /> : <Redirect to="/login" />}

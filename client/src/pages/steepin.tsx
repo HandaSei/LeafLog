@@ -215,8 +215,10 @@ const BackgroundVector = memo(({ isDark }: { isDark: boolean }) => {
         src={t.bgImage}
         alt=""
         className="absolute inset-0 w-full h-full object-cover object-center transform-gpu"
-        style={{ minWidth: "100%", minHeight: "100%", filter: isDark ? "saturate(1.4) contrast(1.08)" : "saturate(1.25) contrast(1.05)" }}
+        style={{ minWidth: "100%", minHeight: "100%" }}
         draggable={false}
+        fetchPriority="high"
+        loading="eager"
       />
       {isDark && (
         <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.15)" }} />
