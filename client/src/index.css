@@ -327,35 +327,6 @@
   }
 }
 
-/* ----------------------------------------------------------------
-   Low-end device overrides (set by client/src/main.tsx)
-   -----------------------------------------------------------------
-   When the user has reduced-motion preference, or the device reports
-   <=2 GB RAM or <=4 CPU cores, we collapse all transitions/animations
-   to near-zero and disable scale-on-hover/active so the kiosk feels
-   instant on cheap Android tablets. Modern devices keep the polish. */
-[data-low-end="true"] *,
-[data-low-end="true"] *::before,
-[data-low-end="true"] *::after {
-  transition-duration: 0.01ms !important;
-  animation-duration: 0.01ms !important;
-  animation-iteration-count: 1 !important;
-  scroll-behavior: auto !important;
-}
-/* Preserve loading-feedback spinners (RefreshCw, Loader2, etc.). Without
-   this, animate-spin would freeze on the first frame on low-end devices,
-   making the kiosk look hung during a refresh or pending action. */
-[data-low-end="true"] .animate-spin {
-  animation-duration: 1s !important;
-  animation-iteration-count: infinite !important;
-}
-/* Substring match catches hover:scale-[1.02], hover:scale-105, etc. without
-   needing to enumerate every Tailwind variant. Same for active:scale-*. */
-[data-low-end="true"] [class*="hover:scale"]:hover,
-[data-low-end="true"] [class*="active:scale"]:active {
-  transform: none !important;
-}
-
 /* SteepIn employee cards: skip render work for cards scrolled off-screen.
    Two declarations on contain-intrinsic-size: the first is the fallback
    placeholder height for browsers on Chrome 85–97; the second uses the
