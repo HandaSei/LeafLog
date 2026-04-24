@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#8B9E8B" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="LeafLog" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet">
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background-color: #F5F5F0; }
+      #root { min-height: 100vh; }
+      @keyframes _ll_pulse {
+        0%, 100% { opacity: 0.35; }
+        50% { opacity: 0.65; }
+      }
+      ._ll_skel {
+        background: rgba(0, 0, 0, 0.06);
+        border-radius: 12px;
+        animation: _ll_pulse 1.6s ease-in-out infinite;
+      }
+
+      ._ll_steepin_shell {
+        min-height: 100vh;
+        background-color: #F0EDE6;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        overflow: hidden;
+      }
+      ._ll_steepin_shell._ll_dark { background-color: #1F1A17; }
+      ._ll_bg {
+        position: absolute; inset: 0;
+        background-image: url('/steepin-bg-watercolor.webp');
+        background-size: cover; background-position: center; background-repeat: no-repeat;
+        pointer-events: none;
+      }
+      ._ll_dark ._ll_bg { background-image: url('/steepin-bg-watercolor-dark.webp'); }
+      ._ll_dark_overlay {
+        display: none; position: absolute; inset: 0;
+        background-color: rgba(0,0,0,0.15); pointer-events: none;
+      }
+      ._ll_dark ._ll_dark_overlay { display: block; }
+      ._ll_header { position: relative; z-index: 1; padding: 16px 32px 32px; }
+      ._ll_search_wrap { position: relative; z-index: 1; padding: 0 32px; margin-bottom: 48px; }
+      ._ll_search {
+        height: 56px; width: 100%; max-width: 672px; margin: 0 auto; display: block; border-radius: 9999px;
+        background: rgba(245,248,242,0.4); border: 1.5px solid rgba(90,120,85,0.25);
+        backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+        animation: none;
+      }
+      ._ll_dark ._ll_search { background: rgba(35,25,20,0.3); border-color: rgba(140,80,45,0.35); }
+      ._ll_grid {
+        position: relative; z-index: 1; padding: 0 48px;
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+        max-width: 896px; margin: 0 auto; width: 100%;
+      }
+      ._ll_card {
+        aspect-ratio: 1; border-radius: 12px;
+        background: rgba(245,248,242,0.45); border: 1.5px solid rgba(90,120,85,0.35);
+        backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+        display: flex; align-items: center; justify-content: center;
+        animation: none;
+      }
+      ._ll_dark ._ll_card { background: rgba(35,25,20,0.3); border-color: rgba(160,95,55,0.45); }
+      ._ll_circle {
+        width: 45%; aspect-ratio: 1; border-radius: 50%;
+        border: 1.5px solid rgba(90,120,85,0.4);
+      }
+      ._ll_dark ._ll_circle { border-color: rgba(170,105,60,0.5); }
+      ._ll_mobile_grid { display: none; }
+      ._ll_mobile_row {
+        display: flex; align-items: center; gap: 16px;
+        padding: 16px 20px; border-radius: 12px;
+        background: rgba(245,248,242,0.45); border: 1.5px solid rgba(90,120,85,0.35);
+        backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+        margin-bottom: 12px;
+      }
+      ._ll_dark ._ll_mobile_row { background: rgba(35,25,20,0.3); border-color: rgba(160,95,55,0.45); }
+      ._ll_mobile_circle { width: 56px; height: 56px; border-radius: 50%; border: 1.5px solid rgba(90,120,85,0.4); flex-shrink: 0; }
+      ._ll_dark ._ll_mobile_circle { border-color: rgba(170,105,60,0.5); }
+      ._ll_mobile_lines { display: flex; flex-direction: column; gap: 8px; }
+      ._ll_mobile_line1 { width: 96px; height: 16px; border-radius: 9999px; background: rgba(90,120,85,0.1); }
+      ._ll_mobile_line2 { width: 64px; height: 12px; border-radius: 9999px; background: rgba(90,120,85,0.07); }
+      ._ll_dark ._ll_mobile_line1 { background: rgba(140,80,45,0.15); }
+      ._ll_dark ._ll_mobile_line2 { background: rgba(140,80,45,0.1); }
+      @media (max-width: 1024px) { ._ll_grid { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 640px) {
+        ._ll_grid { display: none; }
+        ._ll_mobile_grid { display: block; position: relative; z-index: 1; padding: 0 24px; max-width: 512px; margin: 0 auto; width: 100%; }
+        ._ll_search_wrap { padding: 0 24px; }
+      }
+
+      ._ll_generic_shell {
+        min-height: 100vh;
+        background-color: #F5F5F0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      ._ll_generic_shell ._ll_loader {
+        width: 40px; height: 40px;
+        border: 3px solid rgba(139, 158, 139, 0.2);
+        border-top-color: #8B9E8B;
+        border-radius: 50%;
+        animation: _ll_spin 0.8s linear infinite;
+      }
+      @keyframes _ll_spin { to { transform: rotate(360deg); } }
+    </style>
+    <script type="module" crossorigin src="/assets/index-DaeFW0xO.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CzmP5LI1.css">
+  </head>
+  <body>
+    <div id="root">
+      <div id="_ll_steepin" class="_ll_steepin_shell" style="display:none">
+        <div class="_ll_bg"></div>
+        <div class="_ll_dark_overlay"></div>
+        <div class="_ll_header"></div>
+        <div class="_ll_search_wrap">
+          <div class="_ll_search"></div>
+        </div>
+        <div class="_ll_grid">
+          <div class="_ll_card"><div class="_ll_circle"></div></div>
+          <div class="_ll_card"><div class="_ll_circle"></div></div>
+          <div class="_ll_card"><div class="_ll_circle"></div></div>
+          <div class="_ll_card"><div class="_ll_circle"></div></div>
+          <div class="_ll_card"><div class="_ll_circle"></div></div>
+          <div class="_ll_card"><div class="_ll_circle"></div></div>
+        </div>
+        <div class="_ll_mobile_grid">
+          <div class="_ll_mobile_row"><div class="_ll_mobile_circle"></div><div class="_ll_mobile_lines"><div class="_ll_mobile_line1"></div><div class="_ll_mobile_line2"></div></div></div>
+          <div class="_ll_mobile_row"><div class="_ll_mobile_circle"></div><div class="_ll_mobile_lines"><div class="_ll_mobile_line1"></div><div class="_ll_mobile_line2"></div></div></div>
+          <div class="_ll_mobile_row"><div class="_ll_mobile_circle"></div><div class="_ll_mobile_lines"><div class="_ll_mobile_line1"></div><div class="_ll_mobile_line2"></div></div></div>
+          <div class="_ll_mobile_row"><div class="_ll_mobile_circle"></div><div class="_ll_mobile_lines"><div class="_ll_mobile_line1"></div><div class="_ll_mobile_line2"></div></div></div>
+        </div>
+      </div>
+      <div id="_ll_generic" class="_ll_generic_shell" style="display:none">
+        <div class="_ll_loader"></div>
+      </div>
+      <script>
+        (function() {
+          try {
+            var raw = localStorage.getItem('leaflog_auth_state');
+            var auth = raw ? JSON.parse(raw) : null;
+            if (auth && auth.steepinMode) {
+              var isDark = false;
+              try {
+                var themeRaw = localStorage.getItem('leaflog_steepin_theme');
+                if (themeRaw) {
+                  var theme = JSON.parse(themeRaw);
+                  if (theme.mode === 'dark') isDark = true;
+                  else if (theme.mode === 'auto') {
+                    var hour = new Date().getHours();
+                    var day = theme.dayStartHour || 7;
+                    var night = theme.nightStartHour || 19;
+                    if (day < night) isDark = !(hour >= day && hour < night);
+                    else isDark = !(hour >= day || hour < night);
+                  }
+                }
+              } catch(e2) {}
+              var el = document.getElementById('_ll_steepin');
+              document.body.style.backgroundColor = isDark ? '#1A1F1A' : '#F0EDE6';
+              if (isDark) el.classList.add('_ll_dark');
+              el.style.display = '';
+              var preloads = ['/full-logo.webp', '/leaf-logo.webp'];
+              if (isDark) {
+                preloads.push('/steepin-bg-watercolor-dark.webp');
+              } else {
+                preloads.push('/steepin-bg-watercolor.webp');
+              }
+              preloads.forEach(function(href) {
+                var link = document.createElement('link');
+                link.rel = 'preload'; link.as = 'image'; link.type = 'image/webp'; link.href = href;
+                document.head.appendChild(link);
+              });
+            } else {
+              document.getElementById('_ll_generic').style.display = '';
+            }
+          } catch(e) {
+            document.getElementById('_ll_generic').style.display = '';
+          }
+        })();
+      </script>
+    </div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js?v=18', { updateViaCache: 'none' });
+        });
+      }
+    </script>
+  </body>
+</html>

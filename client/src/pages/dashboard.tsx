@@ -1,0 +1,773 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
+import { format, differenceInMinutes, parseISO } from "date-fns";
+import type { Shift, Employee } from "@shared/schema";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Calendar, ArrowRight, CalendarDays, CheckCircle2, Clock, AlertTriangle, XCircle, Coffee, AlertCircle, Plus } from "lucide-react";
+import { EmployeeAvatar } from "@/components/employee-avatar";
+import { formatTime } from "@/lib/constants";
+
+interface TimeEntry {
+  id: number;
+  employeeId: number;
+  type: string;
+  timestamp: string;
+  date: string;
+}
+
+interface BreakInfo {
+  onBreak: boolean;
+  currentBreakMinutes: number;
+  totalBreakMinutes: number;
+  breakCount: number;
+  hasUnfinishedBreak: boolean;
+  unpaidBreakMinutes: number;
+}
+
+interface NoBreakWarning {
+  workedMinutes: number;
+}
+
+type ClockStatus =
+  | { kind: "on-time"; clockInTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
+  | { kind: "clocked-late"; clockInTime: string; minutesLate: number; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
+  | { kind: "not-yet"; minutesUntil: number }
+  | { kind: "late"; minutesLate: number }
+  | { kind: "very-late"; minutesLate: number }
+  | { kind: "clocked-out"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
+  | { kind: "waiting" }
+  | { kind: "working-no-schedule"; clockInTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
+  | { kind: "done-no-schedule"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null };
+
+function getBreakInfo(entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): BreakInfo {
+  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const clockOuts = entries.filter(e => e.type === 'clock-out').map(e => new Date(e.timestamp));
+  const lastClockOut = clockOuts.length > 0 ? new Date(Math.max(...clockOuts.map(d => d.getTime()))) : null;
+
+  let activeBreakStart: Date | null = null;
+  let totalBreakMinutes = 0;
+  let breakCount = 0;
+  let hasUnfinishedBreak = false;
+
+  for (const entry of sorted) {
+    const ts = new Date(entry.timestamp);
+    if (entry.type === 'break-start') {
+      activeBreakStart = ts;
+    } else if (entry.type === 'break-end') {
+      if (activeBreakStart) {
+        totalBreakMinutes += differenceInMinutes(ts, activeBreakStart);
+        breakCount++;
+        activeBreakStart = null;
+      }
+    } else if (entry.type === 'clock-out') {
+      if (activeBreakStart !== null) {
+        hasUnfinishedBreak = true;
+        activeBreakStart = null;
+      }
+    }
+  }
+
+  const onBreak = activeBreakStart !== null && (!lastClockOut || activeBreakStart > lastClockOut);
+
+  let currentBreakMinutes = 0;
+  if (onBreak && activeBreakStart) {
+    currentBreakMinutes = differenceInMinutes(now, activeBreakStart);
+  }
+
+  const finalTotalBreak = totalBreakMinutes + currentBreakMinutes;
+  const unpaidBreakMinutes = (paidBreakMinutes != null && paidBreakMinutes >= 0)
+    ? Math.max(0, finalTotalBreak - paidBreakMinutes)
+    : 0;
+
+  return {
+    onBreak,
+    currentBreakMinutes,
+    totalBreakMinutes: finalTotalBreak,
+    breakCount: breakCount + (onBreak ? 1 : 0),
+    hasUnfinishedBreak,
+    unpaidBreakMinutes,
+  };
+}
+
+function getNoBreakWarning(entries: TimeEntry[], endTime: Date, breakInfo: BreakInfo): NoBreakWarning | null {
+  if (breakInfo.breakCount > 0 || breakInfo.hasUnfinishedBreak) return null;
+
+  const clockIns = entries.filter((e) => e.type === "clock-in");
+  if (clockIns.length === 0) return null;
+
+  const lastClockIn = clockIns[clockIns.length - 1];
+  const workedMinutes = differenceInMinutes(endTime, new Date(lastClockIn.timestamp));
+  if (workedMinutes >= 375) {
+    return { workedMinutes };
+  }
+  return null;
+}
+
+function getSessionEntries(allEntries: TimeEntry[], clockInTs: string, clockOutTs: string | null): TimeEntry[] {
+  const sorted = [...allEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const result: TimeEntry[] = [];
+  let collecting = false;
+  for (const e of sorted) {
+    if (e.type === "clock-in" && e.timestamp === clockInTs) {
+      collecting = true;
+      result.push(e);
+    } else if (collecting) {
+      result.push(e);
+      if (e.type === "clock-out") break;
+      if (e.type === "clock-in") break;
+    }
+  }
+  return result;
+}
+
+function getClockStatusForScheduled(shift: Shift, entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): ClockStatus[] {
+  const shiftStartParts = shift.startTime.split(":");
+  const shiftStart = new Date(now);
+  shiftStart.setHours(parseInt(shiftStartParts[0]), parseInt(shiftStartParts[1]), 0, 0);
+
+  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  const sessions: ClockStatus[] = [];
+
+  let currentClockIn: TimeEntry | null = null;
+  for (const entry of sorted) {
+    if (entry.type === "clock-in") {
+      currentClockIn = entry;
+    } else if (entry.type === "clock-out" && currentClockIn) {
+      const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, entry.timestamp);
+      const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
+      const doneWarning = getNoBreakWarning(sessionEntries, new Date(entry.timestamp), sessionBreakInfo);
+      sessions.push({ 
+        kind: "clocked-out", 
+        clockInTime: currentClockIn.timestamp, 
+        clockOutTime: entry.timestamp, 
+        breakInfo: sessionBreakInfo, 
+        noBreakWarning: doneWarning 
+      });
+      currentClockIn = null;
+    }
+  }
+
+  const isActive = currentClockIn !== null;
+
+  if (isActive && currentClockIn) {
+    const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, null);
+    const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
+    const noBreakWarning = getNoBreakWarning(sessionEntries, now, sessionBreakInfo);
+    const minsLate = differenceInMinutes(new Date(currentClockIn.timestamp), shiftStart);
+    if (minsLate <= 5) {
+      sessions.push({ kind: "on-time", clockInTime: currentClockIn.timestamp, breakInfo: sessionBreakInfo, noBreakWarning });
+    } else {
+      sessions.push({ kind: "clocked-late", clockInTime: currentClockIn.timestamp, minutesLate: minsLate, breakInfo: sessionBreakInfo, noBreakWarning });
+    }
+  } else if (sessions.length === 0) {
+    if (now < shiftStart) {
+      const minsUntil = differenceInMinutes(shiftStart, now);
+      if (minsUntil <= 60) {
+        sessions.push({ kind: "not-yet", minutesUntil: minsUntil });
+      } else {
+        sessions.push({ kind: "waiting" });
+      }
+    } else {
+      const minsLate = differenceInMinutes(now, shiftStart);
+      if (minsLate >= 60) {
+        sessions.push({ kind: "very-late", minutesLate: minsLate });
+      } else {
+        sessions.push({ kind: "late", minutesLate: minsLate });
+      }
+    }
+  }
+
+  return sessions;
+}
+
+function getClockStatusForUnscheduled(entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): ClockStatus[] {
+  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const sessions: ClockStatus[] = [];
+
+  let currentClockIn: TimeEntry | null = null;
+  for (const entry of sorted) {
+    if (entry.type === "clock-in") {
+      currentClockIn = entry;
+    } else if (entry.type === "clock-out" && currentClockIn) {
+      const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, entry.timestamp);
+      const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
+      const doneWarning = getNoBreakWarning(sessionEntries, new Date(entry.timestamp), sessionBreakInfo);
+      sessions.push({ 
+        kind: "done-no-schedule", 
+        clockInTime: currentClockIn.timestamp, 
+        clockOutTime: entry.timestamp, 
+        breakInfo: sessionBreakInfo, 
+        noBreakWarning: doneWarning 
+      });
+      currentClockIn = null;
+    }
+  }
+
+  const isActive = currentClockIn !== null;
+
+  if (isActive && currentClockIn) {
+    const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, null);
+    const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
+    const noBreakWarning = getNoBreakWarning(sessionEntries, now, sessionBreakInfo);
+    sessions.push({ kind: "working-no-schedule", clockInTime: currentClockIn.timestamp, breakInfo: sessionBreakInfo, noBreakWarning });
+  }
+
+  return sessions;
+}
+
+function BreakBadge({ breakInfo, hasWarning, isDone }: { breakInfo: BreakInfo; hasWarning?: boolean; isDone?: boolean }) {
+  if (breakInfo.onBreak) {
+    return (
+      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30" data-testid="badge-on-break">
+        <Coffee className="w-3 h-3 text-blue-600" />
+        <span className="text-[10px] font-medium text-blue-700 dark:text-blue-400">On break · {breakInfo.currentBreakMinutes}min</span>
+      </div>
+    );
+  }
+
+  if (breakInfo.hasUnfinishedBreak) {
+    return (
+      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30" data-testid="badge-unfinished-break">
+        <Coffee className="w-3 h-3 text-amber-600" />
+        <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400">Unfinished break</span>
+      </div>
+    );
+  }
+
+  if (breakInfo.totalBreakMinutes > 0) {
+    return (
+      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/70" data-testid="badge-break-taken">
+        <Coffee className="w-3 h-3 text-muted-foreground" />
+        <span className="text-[10px] text-muted-foreground">{breakInfo.totalBreakMinutes}min break</span>
+        {breakInfo.unpaidBreakMinutes > 0 && (
+          <span className="text-[10px] text-red-500 font-medium">-{breakInfo.unpaidBreakMinutes}min</span>
+        )}
+      </div>
+    );
+  }
+
+  if (hasWarning) return null;
+
+  if (isDone) {
+    return (
+      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/30" data-testid="badge-no-break-done">
+        <Coffee className="w-3 h-3 text-muted-foreground/50" />
+        <span className="text-[10px] text-muted-foreground/60">Didn't take any break</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/30" data-testid="badge-no-break-yet">
+      <Coffee className="w-3 h-3 text-muted-foreground/50" />
+      <span className="text-[10px] text-muted-foreground/60">No break yet</span>
+    </div>
+  );
+}
+
+function NoBreakWarningBadge({ warning, isDone }: { warning: NoBreakWarning; isDone?: boolean }) {
+  const hours = Math.floor(warning.workedMinutes / 60);
+  const mins = warning.workedMinutes % 60;
+  const label = isDone
+    ? `Worked ${hours}h${mins > 0 ? `${mins}m` : ""} without any break`
+    : `Over ${hours}h${mins > 0 ? `${mins}m` : ""} without a break`;
+  return (
+    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30" data-testid="badge-no-break-warning">
+      <AlertTriangle className="w-3 h-3 text-amber-600" />
+      <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400">{label}</span>
+    </div>
+  );
+}
+
+function StatusIndicator({ status }: { status: ClockStatus }) {
+  const now = new Date();
+  
+  switch (status.kind) {
+    case "on-time": {
+      const rawMins = differenceInMinutes(now, parseISO(status.clockInTime));
+      const workedMins = Math.max(0, rawMins - status.breakInfo.totalBreakMinutes);
+      const h = Math.floor(workedMins / 60);
+      const m = workedMins % 60;
+      const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
+      return (
+        <div className="flex flex-col gap-0.5" data-testid="status-on-time">
+          <div className="flex flex-col">
+            <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Working ({format(parseISO(status.clockInTime), "HH:mm")})</span>
+            <span className="text-[10px] text-muted-foreground">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
+          </div>
+          <div className="flex items-center gap-1 mt-1">
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
+          </div>
+        </div>
+      );
+    }
+    case "clocked-late": {
+      const rawMins = differenceInMinutes(now, parseISO(status.clockInTime));
+      const workedMins = Math.max(0, rawMins - status.breakInfo.totalBreakMinutes);
+      const h = Math.floor(workedMins / 60);
+      const m = workedMins % 60;
+      const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
+      return (
+        <div className="flex flex-col gap-0.5" data-testid="status-clocked-late">
+          <div className="flex flex-col">
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Late ({format(parseISO(status.clockInTime), "HH:mm")})</span>
+            <span className="text-[10px] text-muted-foreground">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
+          </div>
+          <div className="flex items-center gap-1 mt-1">
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
+          </div>
+        </div>
+      );
+    }
+    case "not-yet":
+      return (
+        <div className="flex items-center gap-1.5" data-testid="status-not-yet">
+          <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-[11px] text-muted-foreground">Starts in {status.minutesUntil}min</span>
+        </div>
+      );
+    case "late":
+      return (
+        <div className="flex items-center gap-1.5" data-testid="status-late">
+          <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
+          <span className="text-[11px] font-medium text-orange-600 dark:text-orange-400">Not yet clocked in · {status.minutesLate}min late</span>
+        </div>
+      );
+    case "very-late":
+      return (
+        <div className="flex items-center gap-1.5" data-testid="status-very-late">
+          <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+          <span className="text-[11px] font-semibold text-red-600 dark:text-red-400">Not yet at work · {status.minutesLate}min late</span>
+        </div>
+      );
+    case "clocked-out": {
+      const totalMins = differenceInMinutes(parseISO(status.clockOutTime), parseISO(status.clockInTime));
+      const h = Math.floor(totalMins / 60);
+      const m = totalMins % 60;
+      const hasWarning = !!status.noBreakWarning;
+      return (
+        <div className="flex flex-col gap-0.5" data-testid="status-clocked-out">
+          <div className="flex flex-col">
+            <span className="text-[11px] text-foreground font-medium">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
+            <span className="text-[10px] text-muted-foreground">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
+          </div>
+          <div className="flex items-center gap-1 mt-1">
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} isDone />}
+          </div>
+        </div>
+      );
+    }
+    case "waiting":
+      return (
+        <div className="flex items-center gap-1.5" data-testid="status-waiting">
+          <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-[11px] text-muted-foreground">Waiting for shift</span>
+        </div>
+      );
+    case "working-no-schedule": {
+      const rawMins = differenceInMinutes(now, parseISO(status.clockInTime));
+      const workedMins = Math.max(0, rawMins - status.breakInfo.totalBreakMinutes);
+      const h = Math.floor(workedMins / 60);
+      const m = workedMins % 60;
+      const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
+      return (
+        <div className="flex flex-col gap-0.5" data-testid="status-working-no-schedule">
+          <div className="flex flex-col">
+            <span className="text-[11px] font-medium text-green-700 dark:text-green-400">Working ({format(parseISO(status.clockInTime), "HH:mm")})</span>
+            <span className="text-[10px] text-muted-foreground">Working {h > 0 ? `${h}h ` : ""}{m}m</span>
+          </div>
+          <div className="flex items-center gap-1 mt-1">
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} />}
+          </div>
+        </div>
+      );
+    }
+    case "done-no-schedule": {
+      const totalMins = differenceInMinutes(parseISO(status.clockOutTime), parseISO(status.clockInTime));
+      const h = Math.floor(totalMins / 60);
+      const m = totalMins % 60;
+      const hasWarning = !!status.noBreakWarning;
+      return (
+        <div className="flex flex-col gap-0.5" data-testid="status-done-no-schedule">
+          <div className="flex flex-col">
+            <span className="text-[11px] text-foreground font-medium">{format(parseISO(status.clockInTime), "HH:mm")} - {format(parseISO(status.clockOutTime), "HH:mm")}</span>
+            <span className="text-[10px] text-muted-foreground">Total: {h > 0 ? `${h}h ` : ""}{m}m</span>
+          </div>
+          <div className="flex items-center gap-1 mt-1">
+            <BreakBadge breakInfo={status.breakInfo} hasWarning={hasWarning} isDone />
+            {hasWarning && <NoBreakWarningBadge warning={status.noBreakWarning!} isDone />}
+          </div>
+        </div>
+      );
+    }
+  }
+}
+
+interface FlowRow {
+  employee: Employee;
+  shift: Shift | null;
+  statuses: ClockStatus[];
+}
+
+export default function Dashboard() {
+  const [, setLocation] = useLocation();
+
+  const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
+    queryKey: ["/api/shifts"],
+  });
+
+  const { data: employees = [], isLoading: employeesLoading } = useQuery<Employee[]>({
+    queryKey: ["/api/employees"],
+  });
+
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+
+  const { data: breakPolicy } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({ queryKey: ["/api/settings/break-policy"] });
+  const accountPaidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
+
+  const { data: todayEntries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
+    queryKey: [`/api/steepin/entries?date=${todayStr}`],
+    refetchInterval: () => document.hidden ? false : 30000,
+  });
+
+  const { data: openSessionEntries = [] } = useQuery<TimeEntry[]>({
+    queryKey: ["/api/steepin/open-sessions"],
+    refetchInterval: () => document.hidden ? false : 30000,
+  });
+
+  const isLoading = shiftsLoading || employeesLoading || entriesLoading;
+
+  const employeeMap = useMemo(() => {
+    const map = new Map<number, Employee>();
+    employees.forEach((e) => map.set(e.id, e));
+    return map;
+  }, [employees]);
+
+  const entriesByEmployee = useMemo(() => {
+    const map = new Map<number, TimeEntry[]>();
+    todayEntries.forEach((e) => {
+      const list = map.get(e.employeeId) || [];
+      list.push(e);
+      map.set(e.employeeId, list);
+    });
+    // Merge open sessions from previous days for employees with no active today session
+    const openByEmp = new Map<number, TimeEntry[]>();
+    openSessionEntries.forEach((e) => {
+      const list = openByEmp.get(e.employeeId) || [];
+      list.push(e);
+      openByEmp.set(e.employeeId, list);
+    });
+    openByEmp.forEach((entries, empId) => {
+      const todayEmpEntries = map.get(empId) || [];
+      const lastType = todayEmpEntries.length > 0 ? todayEmpEntries[todayEmpEntries.length - 1].type : null;
+      const hasActiveToday = lastType === "clock-in" || lastType === "break-start" || lastType === "break-end";
+      if (!hasActiveToday) {
+        map.set(empId, entries);
+      }
+    });
+    return map;
+  }, [todayEntries, openSessionEntries]);
+
+  const todayShifts = useMemo(() =>
+    shifts.filter((s) => s.date === todayStr),
+    [shifts, todayStr]
+  );
+
+  const now = new Date();
+
+  const flowRows: FlowRow[] = useMemo(() => {
+    const rows: FlowRow[] = [];
+    const processedEmployeeIds = new Set<number>();
+
+    // Group today's shifts by employee
+    const shiftsByEmployee = new Map<number, Shift[]>();
+    todayShifts.forEach((shift) => {
+      const list = shiftsByEmployee.get(shift.employeeId) || [];
+      list.push(shift);
+      shiftsByEmployee.set(shift.employeeId, list);
+    });
+
+    const toMinutes = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+    // For each employee with shifts today, emit ONE row with the best matching shift
+    shiftsByEmployee.forEach((empShifts, employeeId) => {
+      const emp = employeeMap.get(employeeId);
+      if (!emp) return;
+      processedEmployeeIds.add(employeeId);
+
+      const entries = entriesByEmployee.get(employeeId) || [];
+
+      // Pick the most relevant shift:
+      // 1. If employee is currently clocked in, pick the shift closest to their clock-in time
+      // 2. Otherwise, pick the shift that is current or soonest upcoming
+      const lastClockIn = [...entries].reverse().find(e => e.type === "clock-in");
+      const lastClockOut = [...entries].reverse().find(e => e.type === "clock-out");
+      const isActive = lastClockIn && (!lastClockOut || new Date(lastClockIn.timestamp) > new Date(lastClockOut.timestamp));
+
+      let bestShift: Shift;
+      if (empShifts.length === 1) {
+        bestShift = empShifts[0];
+      } else if (isActive && lastClockIn) {
+        // Pick the shift whose startTime is closest to (but not after) the clock-in time
+        const clockInMinutes = new Date(lastClockIn.timestamp).getHours() * 60 + new Date(lastClockIn.timestamp).getMinutes();
+        bestShift = empShifts.reduce((best, s) => {
+          const sStart = toMinutes(s.startTime);
+          const bestStart = toMinutes(best.startTime);
+          // Prefer shift that started closest before or at the clock-in time
+          const sDiff = Math.abs(sStart - clockInMinutes);
+          const bestDiff = Math.abs(bestStart - clockInMinutes);
+          return sDiff < bestDiff ? s : best;
+        });
+      } else {
+        // Pick the shift that is current or next upcoming; if all past, pick the last one
+        const current = empShifts.find(s => toMinutes(s.startTime) <= nowMinutes && nowMinutes < toMinutes(s.endTime));
+        if (current) {
+          bestShift = current;
+        } else {
+          const upcoming = empShifts
+            .filter(s => toMinutes(s.startTime) > nowMinutes)
+            .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime))[0];
+          bestShift = upcoming || empShifts[empShifts.length - 1];
+        }
+      }
+
+      const empPaidBreak = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : accountPaidBreakMinutes;
+      const statuses = getClockStatusForScheduled(bestShift, entries, now, empPaidBreak);
+      rows.push({ employee: emp, shift: bestShift, statuses });
+    });
+
+    // Process employees with time entries but no shifts today
+    entriesByEmployee.forEach((entries, employeeId) => {
+      if (processedEmployeeIds.has(employeeId)) return;
+      const emp = employeeMap.get(employeeId);
+      if (!emp || emp.status !== "active") return;
+      const empPaidBreak = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : accountPaidBreakMinutes;
+      const statuses = getClockStatusForUnscheduled(entries, now, empPaidBreak);
+      if (statuses.length > 0) {
+        rows.push({ employee: emp, shift: null, statuses });
+      }
+    });
+
+    return rows;
+  }, [todayShifts, employeeMap, entriesByEmployee, now, accountPaidBreakMinutes]);
+
+  const sortedRows = useMemo(() => {
+    const priority: Record<string, number> = {
+      "very-late": 0,
+      "late": 1,
+      "on-time": 2,
+      "clocked-late": 3,
+      "working-no-schedule": 4,
+      "not-yet": 5,
+      "clocked-out": 6,
+      "done-no-schedule": 7,
+      "waiting": 8,
+    };
+    return [...flowRows].sort((a, b) => {
+      const statusA = a.statuses[a.statuses.length - 1];
+      const statusB = b.statuses[b.statuses.length - 1];
+      const pa = statusA ? priority[statusA.kind] ?? 99 : 99;
+      const pb = statusB ? priority[statusB.kind] ?? 99 : 99;
+      if (pa !== pb) return pa - pb;
+      if (statusA?.kind === "waiting" && statusB?.kind === "waiting" && a.shift && b.shift) {
+        return a.shift.startTime.localeCompare(b.shift.startTime);
+      }
+      return a.employee.name.localeCompare(b.employee.name);
+    });
+  }, [flowRows]);
+
+  const flowRowsToDisplay = useMemo(() => 
+    sortedRows.filter(r => r.statuses.some(s => s.kind !== "waiting")),
+    [sortedRows]
+  );
+
+  const waitingRows = useMemo(() => 
+    sortedRows.filter(r => r.statuses.every(s => s.kind === "waiting")),
+    [sortedRows]
+  );
+
+  const inFlowIds = useMemo(() => {
+    const ids = new Set<number>();
+    todayShifts.forEach((s) => ids.add(s.employeeId));
+    todayEntries.filter((e) => e.type === "clock-in").forEach((e) => ids.add(e.employeeId));
+    return ids;
+  }, [todayShifts, todayEntries]);
+
+  const unscheduledEmployees = employees.filter(
+    (e) => e.status === "active" && !inFlowIds.has(e.id)
+  );
+
+  return (
+    <div className="flex flex-col h-full overflow-auto">
+      <div className="flex items-center gap-3 p-4 border-b">
+        <Calendar className="w-5 h-5 text-primary" />
+        <div>
+          <h2 className="text-lg font-semibold" data-testid="text-dashboard-title">Dashboard</h2>
+          <p className="text-xs text-muted-foreground">{format(new Date(), "EEEE, MMMM d, yyyy")}</p>
+        </div>
+      </div>
+
+      <div className="p-4 space-y-4">
+        <Card className="p-4">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h3 className="text-sm font-semibold" data-testid="text-flow">Flow</h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLocation("/schedule")}
+              data-testid="button-view-schedule"
+            >
+              View Schedule <ArrowRight className="w-3 h-3 ml-1" />
+            </Button>
+          </div>
+          {isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 rounded-md" />
+              ))}
+            </div>
+          ) : employees.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg bg-primary/5 border-primary/20">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                <Plus className="w-6 h-6 text-primary" />
+              </div>
+              <h3 className="text-base font-semibold mb-1">Add your first employee</h3>
+              <p className="text-sm text-muted-foreground max-w-[240px] mb-6">
+                Start by adding employees to manage their shifts and track their time.
+              </p>
+              <Button onClick={() => setLocation("/employees")} data-testid="button-add-first-employee">
+                Add Employee
+              </Button>
+            </div>
+          ) : flowRowsToDisplay.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <CalendarDays className="w-8 h-8 text-muted-foreground/30 mb-2" />
+              <p className="text-sm text-muted-foreground">No one working or scheduled soon</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {flowRowsToDisplay.map((row) => {
+                const sortedStatuses = [...row.statuses].reverse();
+                return (
+                  <div
+                    key={row.employee.id}
+                    className="flex flex-col gap-2 p-2.5 rounded-md bg-card border border-border/60"
+                    data-testid={`flow-row-${row.employee.id}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-1 h-10 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: row.shift?.color || row.employee.color || "#8B9E8B" }}
+                      />
+                      <EmployeeAvatar name={row.employee.name} color={row.employee.color} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-4 overflow-x-auto pb-1 no-scrollbar">
+                          <div className="flex-shrink-0 border-r pr-4">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold truncate">{row.employee.name}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {row.employee.role || "No Role"}
+                              </span>
+                            </div>
+                            {row.shift && (
+                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                                {formatTime(row.shift.startTime)} - {formatTime(row.shift.endTime)}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 flex-nowrap">
+                            {sortedStatuses.map((status, sIdx) => {
+                              const isActive = sIdx === 0 && (status.kind === "on-time" || status.kind === "clocked-late" || status.kind === "working-no-schedule");
+                              return (
+                                <div key={sIdx} className="flex items-center gap-3 flex-shrink-0 border-l first:border-l-0 pl-4 first:pl-0">
+                                  <div className="relative flex-shrink-0">
+                                    <div 
+                                      className={`w-2 h-2 rounded-full ${isActive ? "bg-green-500 animate-pulse" : "bg-blue-400"}`}
+                                      title={isActive ? "Active session" : "Finished session"}
+                                    />
+                                    {isActive && (
+                                      <div className="absolute -inset-1 bg-green-500/20 rounded-full animate-ping" />
+                                    )}
+                                  </div>
+                                  <StatusIndicator status={status} />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        {!isLoading && waitingRows.length > 0 && (
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold" data-testid="text-upcoming">Upcoming Shifts</h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {waitingRows.map(({ employee: emp, shift }) => (
+                <div
+                  key={emp.id}
+                  className="flex items-center gap-3 p-2.5 rounded-md bg-muted/30 border border-border/50"
+                  data-testid={`waiting-row-${emp.id}`}
+                >
+                  <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
+                  <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-medium truncate">{emp.name}</div>
+                        <div className="text-[10px] text-muted-foreground">{emp.role || "No Role"}</div>
+                      </div>
+                    {shift && (
+                      <div className="text-[10px] text-muted-foreground">
+                        {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {!isLoading && unscheduledEmployees.length > 0 && (
+          <Card className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              <h3 className="text-sm font-semibold" data-testid="text-unscheduled">Unscheduled Employees Today</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {unscheduledEmployees.map((emp) => (
+                <div
+                  key={emp.id}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/50"
+                  data-testid={`unscheduled-${emp.id}`}
+                >
+                  <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
+                  <span className="text-xs">{emp.name}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
