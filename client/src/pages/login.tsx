@@ -415,10 +415,12 @@ export default function LoginPage() {
   const labelStyle = { color: LEAF_YELLOW };
 
   if (setupLoading) {
+    // Instant loading: render only the cream background. The login form
+    // paints on top of the same background once the setup-required check
+    // resolves (~200ms), so the transition reads as "form arriving" rather
+    // than "loading state".
     return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
-        <Skeleton className="w-[420px] h-[500px] rounded-md" />
-      </div>
+      <div className="min-h-screen" style={{ backgroundColor: LEAF_YELLOW_BG }} />
     );
   }
 
