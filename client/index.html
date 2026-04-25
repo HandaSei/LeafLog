@@ -259,11 +259,38 @@
       </script>
     </div>
     <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function() {
+      // Service worker is for PRODUCTION offline support only. In dev (Vite
+      // dev server, Replit workspace preview), the SW intercepts every
+      // request and caches Vite's dev modules under its Cache First strategy
+      // — which means stale steepin.tsx, App.tsx, etc. get served forever
+      // even after code changes. That makes the dev preview look broken
+      // ("old gray boxes still showing", "app feels slower with each
+      // update"). So in dev, we skip registration entirely AND actively
+      // unregister any leftover SW + nuke its caches so nothing stale
+      // survives across sessions.
+      (function () {
+        if (!('serviceWorker' in navigator)) return;
+        var host = location.hostname;
+        var isDev =
+          host === 'localhost' ||
+          host === '127.0.0.1' ||
+          host.endsWith('.replit.dev') ||
+          host.endsWith('.picard.replit.dev');
+        if (isDev) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (reg) { reg.unregister(); });
+          }).catch(function () {});
+          if ('caches' in window) {
+            caches.keys().then(function (keys) {
+              keys.forEach(function (k) { caches.delete(k); });
+            }).catch(function () {});
+          }
+          return;
+        }
+        window.addEventListener('load', function () {
           navigator.serviceWorker.register('/sw.js?v=21', { updateViaCache: 'none' });
         });
-      }
+      })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
