@@ -214,7 +214,7 @@ const BackgroundVector = memo(({ isDark }: { isDark: boolean }) => {
       <img
         src={t.bgImage}
         alt=""
-        className="absolute inset-0 w-full h-full object-cover object-center transform-gpu"
+        className="absolute inset-0 w-full h-full object-cover object-center"
         style={{ minWidth: "100%", minHeight: "100%" }}
         draggable={false}
         fetchPriority="high"
@@ -1153,7 +1153,7 @@ export default function SteepInPage() {
                 size="icon"
                 onClick={() => refetchEntries()}
                 disabled={entriesFetching}
-                className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-all duration-200`}
+                className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-[background-color,color] duration-200`}
                 title={entriesUpdatedAt ? `Last updated: ${format(entriesUpdatedAt, "HH:mm:ss")}` : "Refresh"}
               >
                 <RefreshCw className={`w-4 h-4 ${entriesFetching ? "animate-spin" : ""}`} />

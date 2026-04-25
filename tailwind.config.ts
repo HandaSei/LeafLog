@@ -3,6 +3,12 @@ import type { Config } from "tailwindcss";
 export default {
   darkMode: ["class"],
   content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
+  future: {
+    // Hover utilities only emit under @media (hover: hover) — touch tablets
+    // (the SteepIn kiosk) stop compositing hover paint layers they can never
+    // trigger. No effect on mouse-capable devices.
+    hoverOnlyWhenSupported: true,
+  },
   theme: {
     extend: {
       screens: {
