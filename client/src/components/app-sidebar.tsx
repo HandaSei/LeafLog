@@ -20,7 +20,7 @@ const AccessCodeDialog = lazy(() => import("./access-code-dialog"));
 const FeedbackDialog = lazy(() => import("./feedback-dialog"));
 const FeedbackPanelDialog = lazy(() => import("./feedback-panel-dialog"));
 import { NotificationBell } from "./notification-bell";
-import logoImage from "@assets/m3MJU_1771476103365.webp";
+import logoImage from "@assets/m3MJU_1771476103365.png";
 
 export function AppSidebar() {
   const [location, setLocation] = useLocation();

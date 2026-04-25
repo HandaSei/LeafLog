@@ -107,10 +107,4 @@ export default {
     },
   },
   plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
-  future: {
-    // hover: utilities only apply on devices that actually support hover.
-    // Stops touch tablets/phones from compositing hover paint layers they
-    // can never trigger — measurable VRAM/CPU savings on low-end Adreno/Mali.
-    hoverOnlyWhenSupported: true,
-  },
 } satisfies Config;

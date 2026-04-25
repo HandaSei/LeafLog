@@ -51,109 +51,29 @@ export function getQueueCountForEmployee(employeeId: number): number {
   return getQueue().filter((a) => a.employeeId === employeeId).length;
 }
 
-// In-memory mirror of the entries map so reads are always fresh and
-// writes can be safely deferred to idle time. Without the mirror, two
-// rapid cacheEntries() calls would race: each would read the *stale*
-// localStorage map, mutate its own copy, and the second deferred write
-// would clobber the first employee's entries.
-let entriesMapMirror: Record<string, unknown[]> | null = null;
-
-function loadEntriesMap(): Record<string, unknown[]> {
-  if (entriesMapMirror !== null) return entriesMapMirror;
-  try {
-    const raw = localStorage.getItem(ENTRIES_CACHE_KEY);
-    entriesMapMirror = raw ? JSON.parse(raw) : {};
-  } catch {
-    entriesMapMirror = {};
-  }
-  return entriesMapMirror!;
-}
-
 export function cacheEntries(employeeId: number, entries: unknown[]) {
-  const map = loadEntriesMap();
-  map[employeeId.toString()] = entries;
-  // Defer the JSON.stringify + setItem (~10-25ms on cheap Android) to
-  // browser idle time. The map closure captures by reference, so when
-  // idle fires it serializes the latest state of all mutations.
-  idleWrite(ENTRIES_CACHE_KEY, () => {
-    try {
-      localStorage.setItem(ENTRIES_CACHE_KEY, JSON.stringify(map));
-    } catch {}
-  });
+  try {
+    const map = getEntriesMap();
+    map[employeeId.toString()] = entries;
+    localStorage.setItem(ENTRIES_CACHE_KEY, JSON.stringify(map));
+  } catch {}
 }
 
 export function getCachedEntries(employeeId: number): unknown[] | undefined {
-  const map = loadEntriesMap();
-  return map[employeeId.toString()];
-}
-
-// ----------------------------------------------------------------
-// Idle-deferred write helpers
-// ----------------------------------------------------------------
-// Wraps localStorage writes (or any cheap-but-blocking work) so they
-// happen during browser idle time instead of stealing tap-response
-// budget. Writes are deduped by key — only the LATEST scheduled write
-// per key actually runs when idle fires. A pagehide/visibilitychange
-// listener flushes everything so we never lose state on tab close.
-
-type IdleHandle = number;
-let idleHandle: IdleHandle | null = null;
-const pendingWrites = new Map<string, () => void>();
-
-function scheduleFlush() {
-  if (idleHandle != null) return;
-  const flush = () => {
-    idleHandle = null;
-    const tasks = Array.from(pendingWrites.values());
-    pendingWrites.clear();
-    for (const task of tasks) {
-      try { task(); } catch {}
-    }
-  };
-  const w = window as Window & {
-    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-  };
-  if (typeof w.requestIdleCallback === "function") {
-    idleHandle = w.requestIdleCallback(flush, { timeout: 2000 });
-  } else {
-    // Safari/older Android WebView fallback.
-    idleHandle = setTimeout(flush, 0) as unknown as number;
+  try {
+    const map = getEntriesMap();
+    return map[employeeId.toString()];
+  } catch {
+    return undefined;
   }
 }
 
-export function idleWrite(key: string, write: () => void) {
-  pendingWrites.set(key, write);
-  scheduleFlush();
-}
-
-export function flushIdleWrites() {
-  if (idleHandle != null) {
-    const w = window as Window & { cancelIdleCallback?: (h: number) => void };
-    if (typeof w.cancelIdleCallback === "function") {
-      try { w.cancelIdleCallback(idleHandle); } catch {}
-    } else {
-      clearTimeout(idleHandle);
-    }
-    idleHandle = null;
-  }
-  const tasks = Array.from(pendingWrites.values());
-  pendingWrites.clear();
-  for (const task of tasks) {
-    try { task(); } catch {}
-  }
-}
-
-// One-time install: flush pending idle writes when the page is being
-// hidden (tab switch, navigation, app backgrounded on Capacitor) so
-// the latest cache state is durable even if the kiosk is closed mid-tap.
-if (typeof window !== "undefined") {
-  let installed = (window as Window & { __leaflogIdleFlushInstalled?: boolean }).__leaflogIdleFlushInstalled;
-  if (!installed) {
-    (window as Window & { __leaflogIdleFlushInstalled?: boolean }).__leaflogIdleFlushInstalled = true;
-    window.addEventListener("pagehide", flushIdleWrites);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") flushIdleWrites();
-    });
+function getEntriesMap(): Record<string, unknown[]> {
+  try {
+    const raw = localStorage.getItem(ENTRIES_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
   }
 }
 

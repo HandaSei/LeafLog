@@ -326,15 +326,3 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
-
-/* SteepIn employee cards: skip render work for cards scrolled off-screen.
-   Two declarations on contain-intrinsic-size: the first is the fallback
-   placeholder height for browsers on Chrome 85–97; the second uses the
-   `auto` keyword (Chrome 98+) so the browser remembers the *actual*
-   rendered size after first measurement, eliminating layout pop when
-   the card scrolls back into view on small viewports. */
-.steepin-employee-card {
-  content-visibility: auto;
-  contain-intrinsic-size: 17rem;
-  contain-intrinsic-size: auto 17rem;
-}

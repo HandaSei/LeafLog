@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useEffect, useRef, useCallback, useDeferredValue } from "react";
+import { memo, useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -15,7 +15,6 @@ import {
   getQueue,
   cacheEntries,
   getCachedEntries,
-  idleWrite,
 } from "@/lib/offline-queue";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -215,7 +214,7 @@ const BackgroundVector = memo(({ isDark }: { isDark: boolean }) => {
       <img
         src={t.bgImage}
         alt=""
-        className="absolute inset-0 w-full h-full object-cover object-center"
+        className="absolute inset-0 w-full h-full object-cover object-center transform-gpu"
         style={{ minWidth: "100%", minHeight: "100%" }}
         draggable={false}
         fetchPriority="high"
@@ -266,10 +265,7 @@ const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Em
   return (
     <button
       onClick={() => onClick(emp)}
-      // `steepin-employee-card` carries content-visibility:auto with the
-      // dual contain-intrinsic-size declaration (see index.css) so off-
-      // screen cards skip style/layout/paint without causing layout pop.
-      className="group relative w-full rounded-xl transition-[transform,background-color] duration-150 active:scale-[0.97] hover:scale-[1.02] transform-gpu steepin-employee-card"
+      className="group relative w-full rounded-xl transition-[transform,background-color] duration-150 active:scale-[0.97] hover:scale-[1.02] transform-gpu"
       style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)' }}
       data-testid={`card-employee-${emp.id}`}
     >
@@ -299,6 +295,40 @@ const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Em
   );
 });
 EmployeeCard.displayName = "EmployeeCard";
+
+const GhostCard = memo(({ isDark, isMobile = false }: { isDark: boolean; isMobile?: boolean }) => {
+  const borderColor = isDark ? "rgba(170,100,55,0.6)" : "rgba(70,110,65,0.5)";
+  const circleBorder = isDark ? "rgba(180,110,60,0.65)" : "rgba(70,110,65,0.55)";
+  const glassBg = isDark ? "rgba(40,28,20,0.55)" : "rgba(242,247,238,0.68)";
+
+  if (isMobile) {
+    return (
+      <div
+        className="w-full flex items-center gap-4 px-5 py-4 rounded-xl"
+        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}` }}
+      >
+        <div className="w-14 h-14 rounded-full shrink-0" style={{ border: `1.5px solid ${circleBorder}` }} />
+        <div className="space-y-2 flex-1">
+          <div className="h-4 w-24 rounded-full" style={{ backgroundColor: isDark ? "rgba(160,100,55,0.25)" : "rgba(70,110,65,0.18)" }} />
+          <div className="h-3 w-16 rounded-full" style={{ backgroundColor: isDark ? "rgba(160,100,55,0.18)" : "rgba(70,110,65,0.13)" }} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="w-full rounded-xl flex flex-col items-center justify-center"
+      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', gap: 'clamp(0.2rem, 1.5vh, 1rem)', padding: 'clamp(0.5rem, 2vh, 1.25rem)' }}
+    >
+      <div
+        className="rounded-full shrink-0"
+        style={{ width: 'clamp(3rem, 17vh, 6rem)', height: 'clamp(3rem, 17vh, 6rem)', border: `1.5px solid ${circleBorder}` }}
+      />
+    </div>
+  );
+});
+GhostCard.displayName = "GhostCard";
 
 const PinPad = memo(({ value, onChange, maxLength = 6, isDark = false }: { value: string; onChange: (v: string) => void; maxLength?: number; isDark?: boolean }) => {
   const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
@@ -470,13 +500,12 @@ export default function SteepInPage() {
       return undefined;
     },
     staleTime: 60000,
-    // Kiosk retry policy: a single retry covers transient flakes; SSE
-    // (useEntriesSync) and the visibility/online handlers reconcile
-    // anything else. Three retries × 1s backoff used to chew CPU + battery
-    // on slow tenant Wi-Fi for no real benefit.
+    // Retry failed fetches when coming back online
     retry: (failureCount, error: any) => {
+      // Don't retry if offline - will be handled by visibility/online handlers
       if (!navigator.onLine) return false;
-      return failureCount < 1;
+      // Retry up to 3 times when online
+      return failureCount < 3;
     },
     retryDelay: 1000,
   });
@@ -487,32 +516,21 @@ export default function SteepInPage() {
     enabled: isActive,
   });
 
-  // Persist fresh employees to localStorage so next visit is instant.
-  // Deferred to idle time — JSON.stringify of the employees array can
-  // block the main thread for tens of ms on cheap Android tablets.
-  // The `pagehide`/`visibilitychange:hidden` listener in offline-queue
-  // flushes the latest pending write before the page is unloaded.
+  // Persist fresh employees to localStorage so next visit is instant
   useEffect(() => {
     if (employees && Array.isArray(employees) && employees.length > 0) {
-      idleWrite(STEEPIN_CACHE_KEY, () => {
-        try {
-          localStorage.setItem(STEEPIN_CACHE_KEY, JSON.stringify(employees));
-        } catch {}
-      });
+      try {
+        localStorage.setItem(STEEPIN_CACHE_KEY, JSON.stringify(employees));
+      } catch {}
     }
   }, [employees]);
 
-  // Persist auth state so offline reloads keep SteepIn mode active.
-  // Same idle-deferred pattern — authState changes on every entry update
-  // (steepinEntries lives in authState) so naive synchronous writes were
-  // the most frequent main-thread blocker on the kiosk.
+  // Persist auth state so offline reloads keep SteepIn mode active
   useEffect(() => {
     if (authState?.authenticated && authState?.steepinMode) {
-      idleWrite(STEEPIN_AUTH_CACHE_KEY, () => {
-        try {
-          localStorage.setItem(STEEPIN_AUTH_CACHE_KEY, JSON.stringify(authState));
-        } catch {}
-      });
+      try {
+        localStorage.setItem(STEEPIN_AUTH_CACHE_KEY, JSON.stringify(authState));
+      } catch {}
     }
   }, [authState]);
 
@@ -1011,32 +1029,42 @@ export default function SteepInPage() {
     return last.type;
   }, [isShiftActive, currentShiftEntries]);
 
-  // useDeferredValue lets React drop intermediate filter renders while the
-  // user is still typing on a slow CPU. Modern devices feel identical;
-  // low-end devices skip wasted re-renders of the full employee grid.
-  const deferredSearch = useDeferredValue(searchQuery);
   const filteredEmployees = useMemo(() => {
     if (!employees || !Array.isArray(employees)) return [];
-    const q = deferredSearch.toLowerCase();
-    if (!q.trim()) return employees;
     return employees.filter(
       (e) =>
-        e.name.toLowerCase().includes(q) ||
-        (e.role && e.role.toLowerCase().includes(q))
+        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
     );
-  }, [employees, deferredSearch]);
+  }, [employees, searchQuery]);
 
   const handleSelectEmployee = useCallback((emp: Employee) => {
     setSelectedEmployee(emp);
   }, []);
 
-  // Instant loading: render only the watercolor background while waiting
-  // for auth/employees. No skeleton search bar, no gray placeholder cards
-  // — the loaded page paints on top of the same background, so the
-  // transition reads as "content arriving" rather than "loading state".
+  const ghostBorderColor = isDark ? "rgba(170,100,55,0.5)" : "rgba(70,110,65,0.45)";
+  const ghostSearchBg = isDark ? "rgba(40,28,20,0.55)" : "rgba(242,247,238,0.68)";
+
   const PageSkeleton = (
     <div className="h-screen flex flex-col font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
       <BackgroundVector isDark={isDark} />
+      <div className="px-8 mb-12 pt-8 relative z-10">
+        <div className="max-w-2xl mx-auto">
+          <div className="h-14 w-full rounded-full" style={{ backgroundColor: ghostSearchBg, border: `1.5px solid ${ghostBorderColor}` }} />
+        </div>
+      </div>
+      <div className="flex-1 px-6 sm:px-12 pb-12 relative z-10">
+        <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <GhostCard key={i} isDark={isDark} />
+          ))}
+        </div>
+        <div className="sm:hidden space-y-3 max-w-lg mx-auto">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <GhostCard key={i} isDark={isDark} isMobile />
+          ))}
+        </div>
+      </div>
     </div>
   );
 
@@ -1125,7 +1153,7 @@ export default function SteepInPage() {
                 size="icon"
                 onClick={() => refetchEntries()}
                 disabled={entriesFetching}
-                className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-[background-color,color] duration-200`}
+                className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-all duration-200`}
                 title={entriesUpdatedAt ? `Last updated: ${format(entriesUpdatedAt, "HH:mm:ss")}` : "Refresh"}
               >
                 <RefreshCw className={`w-4 h-4 ${entriesFetching ? "animate-spin" : ""}`} />
@@ -1534,18 +1562,33 @@ export default function SteepInPage() {
             data-testid="input-steepin-search"
           />
         </div>
-        {/* Always render the real grid — empty list initially, employees pop
-            in when fetched. No skeleton flash, no fake loading state. */}
-        <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
-          {filteredEmployees.map((emp) => (
-            <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} />
-          ))}
-        </div>
-        <div className="sm:hidden space-y-3 max-w-lg mx-auto">
-          {filteredEmployees.map((emp) => (
-            <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} isMobile />
-          ))}
-        </div>
+        {empsLoading ? (
+          <>
+            <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <GhostCard key={i} isDark={isDark} />
+              ))}
+            </div>
+            <div className="sm:hidden space-y-3 max-w-lg mx-auto">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <GhostCard key={i} isDark={isDark} isMobile />
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+              {filteredEmployees.map((emp) => (
+                <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} />
+              ))}
+            </div>
+            <div className="sm:hidden space-y-3 max-w-lg mx-auto">
+              {filteredEmployees.map((emp) => (
+                <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} isMobile />
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

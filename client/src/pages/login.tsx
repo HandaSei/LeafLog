@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LogIn, KeyRound, Monitor, UserPlus, ArrowLeft } from "lucide-react";
 import { useLocation, Redirect } from "wouter";
-import logoImage from "@assets/m3MJU_1771476103365.webp";
+import logoImage from "@assets/m3MJU_1771476103365.png";
 
 const LEAF_YELLOW = "#D4C5A0";
 const LEAF_YELLOW_BG = "#E8DCC4";
@@ -415,12 +415,10 @@ export default function LoginPage() {
   const labelStyle = { color: LEAF_YELLOW };
 
   if (setupLoading) {
-    // Instant loading: render only the cream background. The login form
-    // paints on top of the same background once the setup-required check
-    // resolves (~200ms), so the transition reads as "form arriving" rather
-    // than "loading state".
     return (
-      <div className="min-h-screen" style={{ backgroundColor: LEAF_YELLOW_BG }} />
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: LEAF_YELLOW_BG }}>
+        <Skeleton className="w-[420px] h-[500px] rounded-md" />
+      </div>
     );
   }
 
