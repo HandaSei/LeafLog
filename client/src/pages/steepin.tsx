@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info, StickyNote, WifiOff, CloudUpload, RefreshCw,
+  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info, StickyNote, WifiOff, CloudUpload, RefreshCw, Delete,
 } from "lucide-react";
 
 const STEEPIN_CACHE_KEY = "leaflog_steepin_employees";
@@ -388,7 +388,7 @@ const PinPad = memo(({ value, onChange, maxLength = 6, isDark = false }: { value
           className={`w-20 h-16 rounded-2xl border ${t.pinBtnBorder} ${t.pinBtnBg} ${t.pinBtnHover} active:scale-90 transition-[transform,background-color] duration-75 shadow-sm flex items-center justify-center`}
           style={{ color: t.pinBackText }}
         >
-          <ArrowLeft className="w-6 h-6" />
+          <Delete className="w-8 h-8" />
         </button>
       </div>
     </div>
@@ -1334,6 +1334,7 @@ export default function SteepInPage() {
                     onChange={(e) => setNoteText(e.target.value)}
                     placeholder="e.g. covering for Alex..."
                     className={`h-24 text-sm resize-none ${t.noteInputBg} ${t.noteInputBorder} focus:border-[#4A5D45]/50 focus:ring-1 focus:ring-[#4A5D45]/20 rounded-xl placeholder:text-[#8C8C8C]/50 italic`}
+                    style={{ color: t.dialogTitle }}
                     maxLength={200}
                     data-testid="input-steepin-note"
                   />

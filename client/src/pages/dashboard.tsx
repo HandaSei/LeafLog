@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format, differenceInMinutes, parseISO } from "date-fns";
@@ -284,7 +284,21 @@ function NoBreakWarningBadge({ warning, isDone }: { warning: NoBreakWarning; isD
 }
 
 function StatusIndicator({ status }: { status: ClockStatus }) {
-  const now = new Date();
+  const [now, setNow] = useState(() => {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    return d;
+  });
+
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      d.setSeconds(0, 0);
+      setNow(d);
+    };
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, []);
   
   switch (status.kind) {
     case "on-time": {
@@ -428,7 +442,14 @@ export default function Dashboard() {
     queryKey: ["/api/employees"],
   });
 
-  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const [todayStr, setTodayStr] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  useEffect(() => {
+    const id = setInterval(() => {
+      const next = format(new Date(), "yyyy-MM-dd");
+      setTodayStr((prev) => (prev === next ? prev : next));
+    }, 60000);
+    return () => clearInterval(id);
+  }, []);
 
   const { data: breakPolicy } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({ queryKey: ["/api/settings/break-policy"] });
   const accountPaidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
@@ -481,7 +502,21 @@ export default function Dashboard() {
     [shifts, todayStr]
   );
 
-  const now = new Date();
+  const [now, setNow] = useState(() => {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    return d;
+  });
+
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      d.setSeconds(0, 0);
+      setNow(d);
+    };
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const flowRows: FlowRow[] = useMemo(() => {
     const rows: FlowRow[] = [];

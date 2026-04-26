@@ -11,8 +11,6 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileHeader, MobileBottomNav } from "@/components/mobile-nav";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
-import SteepInPage from "@/pages/steepin";
-
 const LoginPage = lazy(() => import("@/pages/login"));
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -22,11 +20,23 @@ const Timesheets = lazy(() => import("@/pages/timesheets"));
 const Settings = lazy(() => import("@/pages/settings"));
 const AdminPage = lazy(() => import("@/pages/admin"));
 const NotFound = lazy(() => import("@/pages/not-found"));
+const SteepInPage = lazy(() => import("@/pages/steepin"));
 
 function PageFallback() {
   return (
     <div className="flex items-center justify-center h-full p-8">
       <Skeleton className="w-full max-w-2xl h-[400px] rounded-md" />
+    </div>
+  );
+}
+
+function SteepInFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#F5F5F0" }}>
+      <div
+        className="w-10 h-10 border-[3px] rounded-full animate-spin"
+        style={{ borderColor: "rgba(139, 158, 139, 0.2)", borderTopColor: "#8B9E8B" }}
+      />
     </div>
   );
 }
@@ -55,7 +65,7 @@ function AuthenticatedLayout() {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full overflow-hidden">
+      <div className="flex h-screen w-full overflow-hidden" style={{ height: "100dvh" }}>
         <div className="hidden md:block">
           <AppSidebar />
         </div>
@@ -68,7 +78,7 @@ function AuthenticatedLayout() {
             <ThemeToggle />
           </header>
 
-          <main className="flex-1 overflow-hidden pb-16 md:pb-0">
+          <main className="flex-1 overflow-hidden pb-mobile-nav md:pb-0">
             <AuthenticatedRouter />
           </main>
         </div>
@@ -97,16 +107,22 @@ function AppContent() {
 
   if (isSteepIn) {
     return (
-      <Switch>
-        <Route path="/SteepIn" component={SteepInPage} />
-        <Route><Redirect to="/SteepIn" /></Route>
-      </Switch>
+      <Suspense fallback={<SteepInFallback />}>
+        <Switch>
+          <Route path="/SteepIn" component={SteepInPage} />
+          <Route><Redirect to="/SteepIn" /></Route>
+        </Switch>
+      </Suspense>
     );
   }
 
   return (
     <Switch>
-      <Route path="/SteepIn" component={SteepInPage} />
+      <Route path="/SteepIn">
+        <Suspense fallback={<SteepInFallback />}>
+          <SteepInPage />
+        </Suspense>
+      </Route>
       <Route path="/login">
         <Suspense fallback={<PageFallback />}>
           {isAuthenticated ? <Redirect to="/" /> : <LoginPage />}

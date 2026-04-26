@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -30,7 +30,13 @@ import { PayConfigDialog } from "@/components/pay-config-dialog";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 
 export default function Employees() {
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchInput), 200);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
   const [formOpen, setFormOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -77,14 +83,17 @@ export default function Employees() {
     },
   });
 
-  const filtered = employees
-    .filter(
-      (e) =>
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (e.email && e.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
-    )
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const filtered = useMemo(() => {
+    const q = debouncedSearch.toLowerCase();
+    return employees
+      .filter(
+        (e) =>
+          e.name.toLowerCase().includes(q) ||
+          (e.email && e.email.toLowerCase().includes(q)) ||
+          (e.role && e.role.toLowerCase().includes(q))
+      )
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [employees, debouncedSearch]);
 
   const handleEdit = (emp: Employee) => {
     setEditingEmployee(emp);
@@ -116,8 +125,8 @@ export default function Employees() {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search employees..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-8 w-[240px]"
               data-testid="input-search-employees"
             />
@@ -140,14 +149,14 @@ export default function Employees() {
           <div className="flex flex-col items-center justify-center h-full text-center py-16">
             <Users className="w-12 h-12 text-muted-foreground/30 mb-3" />
             <h3 className="text-base font-medium text-muted-foreground">
-              {searchQuery ? "No employees found" : "No employees yet"}
+              {debouncedSearch ? "No employees found" : "No employees yet"}
             </h3>
             <p className="text-sm text-muted-foreground/70 mt-1 mb-4">
-              {searchQuery
+              {debouncedSearch
                 ? "Try adjusting your search"
                 : "Add your first employee to get started"}
             </p>
-            {!searchQuery && (
+            {!debouncedSearch && (
               <Button onClick={handleAdd} data-testid="button-add-first-employee">
                 <Plus className="w-4 h-4 mr-1" />
                 Add Employee

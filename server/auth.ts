@@ -41,7 +41,15 @@ export function setupSession(app: any) {
         createTableIfMissing: true,
         ssl: { rejectUnauthorized: false },
       }),
-      secret: process.env.SESSION_SECRET || "leaflog-secret-key",
+      secret: (() => {
+        const secret = process.env.SESSION_SECRET;
+        if (secret) return secret;
+        if (process.env.NODE_ENV === "production") {
+          throw new Error("SESSION_SECRET environment variable is required in production");
+        }
+        console.warn("[Auth] SESSION_SECRET not set. Using a random dev secret (sessions will reset on restart).");
+        return crypto.randomBytes(32).toString("hex");
+      })(),
       resave: false,
       saveUninitialized: false,
       rolling: true,
@@ -74,6 +82,86 @@ export function requireRole(...roles: string[]) {
   };
 }
 
+const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+interface RateLimitRecord {
+  count: number;
+  windowStart: number;
+  blockedUntil?: number;
+}
+
+interface LimiterConfig {
+  max: number;
+  blockMs: number;
+  prefix: string;
+  blockMessage: string;
+}
+
+const rateLimitStore = new Map<string, RateLimitRecord>();
+const MAX_STORE_ENTRIES = 10000; // memory-bound cap to mitigate DoS by unique-IP flooding
+
+setInterval(() => {
+  const now = Date.now();
+  rateLimitStore.forEach((record, key) => {
+    const windowExpired = now - record.windowStart > WINDOW_MS;
+    const blockExpired = !record.blockedUntil || now > record.blockedUntil;
+    if (windowExpired && blockExpired) rateLimitStore.delete(key);
+  });
+}, 60 * 60 * 1000);
+
+function checkRateLimit(key: string, cfg: LimiterConfig): { allowed: boolean; message?: string } {
+  const now = Date.now();
+  const record = rateLimitStore.get(key);
+  if (record) {
+    if (record.blockedUntil && now < record.blockedUntil) {
+      const minutesLeft = Math.ceil((record.blockedUntil - now) / 60000);
+      return { allowed: false, message: `Too many attempts. Try again in ${minutesLeft} minutes.` };
+    }
+    if (now - record.windowStart > WINDOW_MS) {
+      rateLimitStore.set(key, { count: 1, windowStart: now });
+      return { allowed: true };
+    }
+    record.count++;
+    if (record.count > cfg.max) {
+      record.blockedUntil = now + cfg.blockMs;
+      return { allowed: false, message: cfg.blockMessage };
+    }
+    return { allowed: true };
+  }
+  // Soft cap to prevent unbounded growth under attack; cleanup interval reclaims.
+  if (rateLimitStore.size >= MAX_STORE_ENTRIES) return { allowed: true };
+  rateLimitStore.set(key, { count: 1, windowStart: now });
+  return { allowed: true };
+}
+
+function makeLimiter(cfg: LimiterConfig) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const ip = req.ip || (req.connection?.remoteAddress as string) || "unknown";
+    const key = `${cfg.prefix}:${ip}`;
+    const result = checkRateLimit(key, cfg);
+    if (!result.allowed) return res.status(429).json({ message: result.message });
+    next();
+  };
+}
+
+// Aggressive limiter for credential / sensitive endpoints (low legitimate frequency).
+export const authRateLimiter = makeLimiter({
+  prefix: "cred",
+  max: 20,
+  blockMs: 60 * 60 * 1000,
+  blockMessage: "Too many attempts. You are blocked for 1 hour.",
+});
+
+// Relaxed limiter for kiosk operational endpoints; busy shops with many employees
+// share one public IP, so the credential-tier limit would lock out the whole site.
+// Still bounds brute-force at ~13/min per IP, after which the device cools down.
+export const kioskRateLimiter = makeLimiter({
+  prefix: "kiosk",
+  max: 200,
+  blockMs: 30 * 60 * 1000,
+  blockMessage: "Too many attempts from this device. Try again in 30 minutes.",
+});
+
 function generateAccessCode(agencyName: string, employeeName: string): string {
   const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12);
   const randomPart = crypto.randomBytes(8).toString("hex");
@@ -103,7 +191,7 @@ export function registerAuthRoutes(router: Router) {
     res.json({ setupRequired: !hasManagers });
   });
 
-  router.post("/api/auth/register-manager", async (req, res) => {
+  router.post("/api/auth/register-manager", authRateLimiter, async (req, res) => {
     const parsed = registerManagerSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -139,7 +227,7 @@ export function registerAuthRoutes(router: Router) {
     res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent, fallbackCode: sent ? undefined : code });
   });
 
-  router.post("/api/auth/verify-email", async (req, res) => {
+  router.post("/api/auth/verify-email", authRateLimiter, async (req, res) => {
     const parsed = verifyEmailSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -187,7 +275,7 @@ export function registerAuthRoutes(router: Router) {
     res.status(201).json({ user: safe });
   });
 
-  router.post("/api/auth/forgot-password", async (req, res) => {
+  router.post("/api/auth/forgot-password", authRateLimiter, async (req, res) => {
     const parsed = forgotPasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -209,7 +297,7 @@ export function registerAuthRoutes(router: Router) {
     res.status(200).json({ success: true, emailSent: sent, fallbackCode: sent ? undefined : code });
   });
 
-  router.post("/api/auth/reset-password", async (req, res) => {
+  router.post("/api/auth/reset-password", authRateLimiter, async (req, res) => {
     const parsed = resetPasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -232,7 +320,7 @@ export function registerAuthRoutes(router: Router) {
     res.status(200).json({ success: true });
   });
 
-  router.post("/api/auth/upgrade-employee", requireAuth, async (req, res) => {
+  router.post("/api/auth/upgrade-employee", requireAuth, authRateLimiter, async (req, res) => {
     const parsed = upgradeEmployeeSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -270,7 +358,7 @@ export function registerAuthRoutes(router: Router) {
     res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent, fallbackCode: sent ? undefined : code });
   });
 
-  router.post("/api/auth/verify-employee-upgrade", requireAuth, async (req, res) => {
+  router.post("/api/auth/verify-employee-upgrade", requireAuth, authRateLimiter, async (req, res) => {
     const parsed = verifyEmailSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -305,7 +393,7 @@ export function registerAuthRoutes(router: Router) {
     }
   });
 
-  router.post("/api/auth/login", async (req, res) => {
+  router.post("/api/auth/login", authRateLimiter, async (req, res) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -333,7 +421,7 @@ export function registerAuthRoutes(router: Router) {
     res.json({ user: safe, employee });
   });
 
-  router.post("/api/auth/access-code", async (req, res) => {
+  router.post("/api/auth/access-code", authRateLimiter, async (req, res) => {
     const parsed = accessCodeLoginSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -382,7 +470,7 @@ export function registerAuthRoutes(router: Router) {
     res.json({ user: safe, employee });
   });
 
-  router.post("/api/auth/steepin-login", async (req, res) => {
+  router.post("/api/auth/steepin-login", kioskRateLimiter, async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ message: "Username and password are required" });
@@ -401,7 +489,7 @@ export function registerAuthRoutes(router: Router) {
     res.json({ user: safe });
   });
 
-  router.post("/api/auth/steepin-restore", async (req, res) => {
+  router.post("/api/auth/steepin-restore", kioskRateLimiter, async (req, res) => {
     const { deviceId } = req.body;
     if (!deviceId || typeof deviceId !== "string") {
       return res.status(400).json({ message: "deviceId is required" });
@@ -420,7 +508,7 @@ export function registerAuthRoutes(router: Router) {
     res.json({ success: true });
   });
 
-  router.post("/api/auth/steepin-exit", async (req, res) => {
+  router.post("/api/auth/steepin-exit", kioskRateLimiter, async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ message: "Manager credentials required to exit SteepIn" });
