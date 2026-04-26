@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { format, differenceInMinutes, parseISO } from "date-fns";
+import { format, differenceInMinutes, parseISO, addDays } from "date-fns";
 import type { Shift, Employee } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
@@ -125,9 +125,11 @@ function getSessionEntries(allEntries: TimeEntry[], clockInTs: string, clockOutT
 }
 
 function getClockStatusForScheduled(shift: Shift, entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): ClockStatus[] {
-  const shiftStartParts = shift.startTime.split(":");
-  const shiftStart = new Date(now);
-  shiftStart.setHours(parseInt(shiftStartParts[0]), parseInt(shiftStartParts[1]), 0, 0);
+  const shiftStart = parseISO(`${shift.date}T${shift.startTime}`);
+  const shiftEnd = parseISO(`${shift.date}T${shift.endTime}`);
+  if (shiftEnd <= shiftStart) {
+    shiftEnd.setDate(shiftEnd.getDate() + 1);
+  }
 
   const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
@@ -447,11 +449,12 @@ export default function Dashboard() {
     }, 60000);
     return () => clearInterval(id);
   }, []);
+  const yesterdayStr = useMemo(() => format(addDays(parseISO(todayStr), -1), "yyyy-MM-dd"), [todayStr]);
 
   const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
-    queryKey: ["/api/shifts", todayStr],
+    queryKey: ["/api/shifts", yesterdayStr, todayStr],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/shifts?from=${todayStr}&to=${todayStr}`);
+      const res = await apiRequest("GET", `/api/shifts?from=${yesterdayStr}&to=${todayStr}`);
       return res.json();
     },
   });
@@ -502,11 +505,6 @@ export default function Dashboard() {
     return map;
   }, [todayEntries, openSessionEntries]);
 
-  const todayShifts = useMemo(() =>
-    shifts.filter((s) => s.date === todayStr),
-    [shifts, todayStr]
-  );
-
   const [now, setNow] = useState(() => {
     const d = new Date();
     d.setSeconds(0, 0);
@@ -522,6 +520,19 @@ export default function Dashboard() {
     const id = setInterval(tick, 30000);
     return () => clearInterval(id);
   }, []);
+
+  const todayShifts = useMemo(() => {
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    return shifts.filter((s) => {
+      if (s.date === todayStr) return true;
+      if (s.date !== yesterdayStr) return false;
+      // Include yesterday's overnight shifts only while they are still in their after-midnight window.
+      const startMinutes = Number(s.startTime.slice(0, 2)) * 60 + Number(s.startTime.slice(3, 5));
+      const endMinutes = Number(s.endTime.slice(0, 2)) * 60 + Number(s.endTime.slice(3, 5));
+      const isOvernight = endMinutes <= startMinutes;
+      return isOvernight && nowMinutes < endMinutes;
+    });
+  }, [shifts, todayStr, yesterdayStr, now]);
 
   const flowRows: FlowRow[] = useMemo(() => {
     const rows: FlowRow[] = [];
