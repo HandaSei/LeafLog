@@ -296,39 +296,18 @@ const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Em
 });
 EmployeeCard.displayName = "EmployeeCard";
 
-const GhostCard = memo(({ isDark, isMobile = false }: { isDark: boolean; isMobile?: boolean }) => {
-  const borderColor = isDark ? "rgba(170,100,55,0.6)" : "rgba(70,110,65,0.5)";
-  const circleBorder = isDark ? "rgba(180,110,60,0.65)" : "rgba(70,110,65,0.55)";
-  const glassBg = isDark ? "rgba(40,28,20,0.55)" : "rgba(242,247,238,0.68)";
-
-  if (isMobile) {
-    return (
-      <div
-        className="w-full flex items-center gap-4 px-5 py-4 rounded-xl"
-        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}` }}
-      >
-        <div className="w-14 h-14 rounded-full shrink-0" style={{ border: `1.5px solid ${circleBorder}` }} />
-        <div className="space-y-2 flex-1">
-          <div className="h-4 w-24 rounded-full" style={{ backgroundColor: isDark ? "rgba(160,100,55,0.25)" : "rgba(70,110,65,0.18)" }} />
-          <div className="h-3 w-16 rounded-full" style={{ backgroundColor: isDark ? "rgba(160,100,55,0.18)" : "rgba(70,110,65,0.13)" }} />
-        </div>
-      </div>
-    );
-  }
-
+const SteepInLoadingMark = memo(({ isDark }: { isDark: boolean }) => {
   return (
     <div
-      className="w-full rounded-xl flex flex-col items-center justify-center"
-      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', gap: 'clamp(0.2rem, 1.5vh, 1rem)', padding: 'clamp(0.5rem, 2vh, 1.25rem)' }}
-    >
-      <div
-        className="rounded-full shrink-0"
-        style={{ width: 'clamp(3rem, 17vh, 6rem)', height: 'clamp(3rem, 17vh, 6rem)', border: `1.5px solid ${circleBorder}` }}
-      />
-    </div>
+      className="w-10 h-10 rounded-full animate-spin"
+      style={{
+        border: `3px solid ${isDark ? "rgba(180,110,60,0.24)" : "rgba(90,120,85,0.22)"}`,
+        borderTopColor: isDark ? "#D4A574" : "#5A7855",
+      }}
+    />
   );
 });
-GhostCard.displayName = "GhostCard";
+SteepInLoadingMark.displayName = "SteepInLoadingMark";
 
 const PinPad = memo(({ value, onChange, maxLength = 6, isDark = false }: { value: string; onChange: (v: string) => void; maxLength?: number; isDark?: boolean }) => {
   const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
@@ -1042,28 +1021,11 @@ export default function SteepInPage() {
     setSelectedEmployee(emp);
   }, []);
 
-  const ghostBorderColor = isDark ? "rgba(170,100,55,0.5)" : "rgba(70,110,65,0.45)";
-  const ghostSearchBg = isDark ? "rgba(40,28,20,0.55)" : "rgba(242,247,238,0.68)";
-
   const PageSkeleton = (
-    <div className="h-screen flex flex-col font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
+    <div className="h-screen flex items-center justify-center font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
       <BackgroundVector isDark={isDark} />
-      <div className="px-8 mb-12 pt-8 relative z-10">
-        <div className="max-w-2xl mx-auto">
-          <div className="h-14 w-full rounded-full" style={{ backgroundColor: ghostSearchBg, border: `1.5px solid ${ghostBorderColor}` }} />
-        </div>
-      </div>
-      <div className="flex-1 px-6 sm:px-12 pb-12 relative z-10">
-        <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <GhostCard key={i} isDark={isDark} />
-          ))}
-        </div>
-        <div className="sm:hidden space-y-3 max-w-lg mx-auto">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <GhostCard key={i} isDark={isDark} isMobile />
-          ))}
-        </div>
+      <div className="relative z-10">
+        <SteepInLoadingMark isDark={isDark} />
       </div>
     </div>
   );
@@ -1564,18 +1526,9 @@ export default function SteepInPage() {
           />
         </div>
         {empsLoading ? (
-          <>
-            <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <GhostCard key={i} isDark={isDark} />
-              ))}
-            </div>
-            <div className="sm:hidden space-y-3 max-w-lg mx-auto">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <GhostCard key={i} isDark={isDark} isMobile />
-              ))}
-            </div>
-          </>
+          <div className="min-h-[35vh] flex items-center justify-center">
+            <SteepInLoadingMark isDark={isDark} />
+          </div>
         ) : (
           <>
             <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
