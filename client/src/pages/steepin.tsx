@@ -296,19 +296,6 @@ const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Em
 });
 EmployeeCard.displayName = "EmployeeCard";
 
-const SteepInLoadingMark = memo(({ isDark }: { isDark: boolean }) => {
-  return (
-    <div
-      className="w-10 h-10 rounded-full animate-spin"
-      style={{
-        border: `3px solid ${isDark ? "rgba(180,110,60,0.24)" : "rgba(90,120,85,0.22)"}`,
-        borderTopColor: isDark ? "#D4A574" : "#5A7855",
-      }}
-    />
-  );
-});
-SteepInLoadingMark.displayName = "SteepInLoadingMark";
-
 const PinPad = memo(({ value, onChange, maxLength = 6, isDark = false }: { value: string; onChange: (v: string) => void; maxLength?: number; isDark?: boolean }) => {
   const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
   const press = (d: string) => { 
@@ -387,7 +374,7 @@ export default function SteepInPage() {
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
   });
-  const { exitSteepIn } = useAuth();
+  const { exitSteepIn, isSteepIn } = useAuth();
   const [, setLocation] = useLocation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -440,16 +427,9 @@ export default function SteepInPage() {
   }, [themeSettings]);
 
   const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
-  const [softenInitialPaint, setSoftenInitialPaint] = useState(true);
-  const initialPaintClass = softenInitialPaint ? " steepin-initial-appear" : "";
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => setSoftenInitialPaint(false), 220);
-    return () => window.clearTimeout(timeoutId);
-  }, []);
 
   const user = authState?.user;
-  const isActive = !!authState?.authenticated && !!authState?.steepinMode;
+  const isActive = isSteepIn || (!!authState?.authenticated && !!authState?.steepinMode);
 
   const { data: employees, isLoading: empsLoading } = useQuery<Employee[]>({
     queryKey: ["/api/steepin/employees"],
@@ -1031,23 +1011,13 @@ export default function SteepInPage() {
   const PageSkeleton = (
     <div className="h-screen flex items-center justify-center font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
       <BackgroundVector isDark={isDark} />
-      <div className="relative z-10">
-        <SteepInLoadingMark isDark={isDark} />
-      </div>
     </div>
   );
 
-  // Offline-first: if we have cached employees, skip the skeleton entirely.
-  // The real page renders with cached data while auth validates in the background.
-  if (hasEmployees) {
-    // Auth confirmed not in SteepIn mode and no cached employees to fall back on
-    if (!authLoading && !isActive) return PageSkeleton;
-    // Fall through to render the real page with cached employees
-  } else {
-    // No cached employees — must wait for auth + employee fetch
-    if (authLoading) return PageSkeleton;
-    if (!isActive) return PageSkeleton;
-  }
+  // Keep a single startup path: one boot shell until auth + employee roster are ready.
+  // This avoids spinner chaining and page flash on initial mount.
+  const shouldShowBootShell = !isActive || authLoading || (!hasEmployees && empsLoading);
+  if (shouldShowBootShell) return PageSkeleton;
 
   const handleAction = (type: ActionType) => {
     if (!selectedEmployee) return;
@@ -1077,7 +1047,7 @@ export default function SteepInPage() {
 
   if (selectedEmployee) {
     return (
-      <div className={`h-screen flex flex-col font-serif relative overflow-hidden${initialPaintClass}`} style={{ backgroundColor: t.bg }}>
+      <div className="h-screen flex flex-col font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
         <BackgroundVector isDark={isDark} />
 
         <header className="flex items-center justify-between gap-3 pt-3 pb-2 px-6 relative z-10 shrink-0">
@@ -1336,7 +1306,7 @@ export default function SteepInPage() {
   }
 
   return (
-    <div className={`h-screen flex flex-col font-serif relative overflow-hidden${initialPaintClass}`} style={{ backgroundColor: t.bg }}>
+    <div className="h-screen flex flex-col font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
       <BackgroundVector isDark={isDark} />
       
       {((!isOnline || pendingCount > 0) || !deviceLocked) && (
@@ -1532,24 +1502,16 @@ export default function SteepInPage() {
             data-testid="input-steepin-search"
           />
         </div>
-        {empsLoading ? (
-          <div className="min-h-[35vh] flex items-center justify-center">
-            <SteepInLoadingMark isDark={isDark} />
-          </div>
-        ) : (
-          <>
-            <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              {filteredEmployees.map((emp) => (
-                <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} />
-              ))}
-            </div>
-            <div className="sm:hidden space-y-3 max-w-lg mx-auto">
-              {filteredEmployees.map((emp) => (
-                <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} isMobile />
-              ))}
-            </div>
-          </>
-        )}
+        <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+          {filteredEmployees.map((emp) => (
+            <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} />
+          ))}
+        </div>
+        <div className="sm:hidden space-y-3 max-w-lg mx-auto">
+          {filteredEmployees.map((emp) => (
+            <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} isMobile />
+          ))}
+        </div>
       </div>
     </div>
   );
