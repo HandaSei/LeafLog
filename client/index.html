@@ -259,9 +259,12 @@
       </script>
     </div>
     <script>
-      if ('serviceWorker' in navigator) {
+      // Skip SW registration in iframe/sandbox contexts (e.g. Replit dev preview)
+      // and swallow errors so dev consoles aren't spammed with unhandled rejections.
+      if ('serviceWorker' in navigator && window.self === window.top) {
         window.addEventListener('load', function() {
-          navigator.serviceWorker.register('/sw.js?v=20', { updateViaCache: 'none' });
+          navigator.serviceWorker.register('/sw.js?v=20', { updateViaCache: 'none' })
+            .catch(function (err) { console.warn('SW registration skipped:', err && err.message); });
         });
       }
     </script>
