@@ -1014,9 +1014,10 @@ export default function SteepInPage() {
     </div>
   );
 
-  // Keep a single startup path: one boot shell until auth + employee roster are ready.
-  // This avoids spinner chaining and page flash on initial mount.
-  const shouldShowBootShell = !isActive || authLoading || (!hasEmployees && empsLoading);
+  // Keep a single startup path: one boot shell until SteepIn is active and
+  // employee data is available. Do not gate on authLoading here because
+  // useAuth already provides cached SteepIn state for instant startup.
+  const shouldShowBootShell = !isActive || (!hasEmployees && empsLoading);
   if (shouldShowBootShell) return PageSkeleton;
 
   const handleAction = (type: ActionType) => {
