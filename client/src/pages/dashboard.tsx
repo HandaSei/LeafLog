@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format, differenceInMinutes, parseISO } from "date-fns";
@@ -24,6 +24,7 @@ interface BreakInfo {
   totalBreakMinutes: number;
   breakCount: number;
   hasUnfinishedBreak: boolean;
+  unpaidBreakMinutes: number;
 }
 
 interface NoBreakWarning {
@@ -41,7 +42,7 @@ type ClockStatus =
   | { kind: "working-no-schedule"; clockInTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
   | { kind: "done-no-schedule"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null };
 
-function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
+function getBreakInfo(entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): BreakInfo {
   const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const clockOuts = entries.filter(e => e.type === 'clock-out').map(e => new Date(e.timestamp));
   const lastClockOut = clockOuts.length > 0 ? new Date(Math.max(...clockOuts.map(d => d.getTime()))) : null;
@@ -63,7 +64,6 @@ function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
       }
     } else if (entry.type === 'clock-out') {
       if (activeBreakStart !== null) {
-        // Break was started but never closed before clock-out — unfinished, doesn't count
         hasUnfinishedBreak = true;
         activeBreakStart = null;
       }
@@ -77,12 +77,18 @@ function getBreakInfo(entries: TimeEntry[], now: Date): BreakInfo {
     currentBreakMinutes = differenceInMinutes(now, activeBreakStart);
   }
 
+  const finalTotalBreak = totalBreakMinutes + currentBreakMinutes;
+  const unpaidBreakMinutes = (paidBreakMinutes != null && paidBreakMinutes >= 0)
+    ? Math.max(0, finalTotalBreak - paidBreakMinutes)
+    : 0;
+
   return {
     onBreak,
     currentBreakMinutes,
-    totalBreakMinutes: totalBreakMinutes + currentBreakMinutes,
+    totalBreakMinutes: finalTotalBreak,
     breakCount: breakCount + (onBreak ? 1 : 0),
     hasUnfinishedBreak,
+    unpaidBreakMinutes,
   };
 }
 
@@ -100,45 +106,62 @@ function getNoBreakWarning(entries: TimeEntry[], endTime: Date, breakInfo: Break
   return null;
 }
 
-function getClockStatusForScheduled(shift: Shift, entries: TimeEntry[], now: Date): ClockStatus[] {
+function getSessionEntries(allEntries: TimeEntry[], clockInTs: string, clockOutTs: string | null): TimeEntry[] {
+  const sorted = [...allEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const result: TimeEntry[] = [];
+  let collecting = false;
+  for (const e of sorted) {
+    if (e.type === "clock-in" && e.timestamp === clockInTs) {
+      collecting = true;
+      result.push(e);
+    } else if (collecting) {
+      result.push(e);
+      if (e.type === "clock-out") break;
+      if (e.type === "clock-in") break;
+    }
+  }
+  return result;
+}
+
+function getClockStatusForScheduled(shift: Shift, entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): ClockStatus[] {
   const shiftStartParts = shift.startTime.split(":");
   const shiftStart = new Date(now);
   shiftStart.setHours(parseInt(shiftStartParts[0]), parseInt(shiftStartParts[1]), 0, 0);
 
-  const clockIns = entries.filter((e) => e.type === "clock-in");
-  const clockOuts = entries.filter((e) => e.type === "clock-out");
-  const breakInfo = getBreakInfo(entries, now);
+  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   const sessions: ClockStatus[] = [];
 
-  // Group into finished sessions
-  for (let i = 0; i < clockOuts.length; i++) {
-    const cin = clockIns[i];
-    const cout = clockOuts[i];
-    if (cin && cout && new Date(cout.timestamp) > new Date(cin.timestamp)) {
-      const doneWarning = getNoBreakWarning(entries, new Date(cout.timestamp), breakInfo);
+  let currentClockIn: TimeEntry | null = null;
+  for (const entry of sorted) {
+    if (entry.type === "clock-in") {
+      currentClockIn = entry;
+    } else if (entry.type === "clock-out" && currentClockIn) {
+      const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, entry.timestamp);
+      const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
+      const doneWarning = getNoBreakWarning(sessionEntries, new Date(entry.timestamp), sessionBreakInfo);
       sessions.push({ 
         kind: "clocked-out", 
-        clockInTime: cin.timestamp, 
-        clockOutTime: cout.timestamp, 
-        breakInfo, 
+        clockInTime: currentClockIn.timestamp, 
+        clockOutTime: entry.timestamp, 
+        breakInfo: sessionBreakInfo, 
         noBreakWarning: doneWarning 
       });
+      currentClockIn = null;
     }
   }
 
-  // Handle active session or scheduled status
-  const lastClockIn = clockIns.length > 0 ? clockIns[clockIns.length - 1] : null;
-  const lastClockOut = clockOuts.length > 0 ? clockOuts[clockOuts.length - 1] : null;
-  const isActive = lastClockIn && (!lastClockOut || new Date(lastClockIn.timestamp) > new Date(lastClockOut.timestamp));
+  const isActive = currentClockIn !== null;
 
-  if (isActive && lastClockIn) {
-    const noBreakWarning = getNoBreakWarning(entries, now, breakInfo);
-    const minsLate = differenceInMinutes(new Date(lastClockIn.timestamp), shiftStart);
+  if (isActive && currentClockIn) {
+    const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, null);
+    const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
+    const noBreakWarning = getNoBreakWarning(sessionEntries, now, sessionBreakInfo);
+    const minsLate = differenceInMinutes(new Date(currentClockIn.timestamp), shiftStart);
     if (minsLate <= 5) {
-      sessions.push({ kind: "on-time", clockInTime: lastClockIn.timestamp, breakInfo, noBreakWarning });
+      sessions.push({ kind: "on-time", clockInTime: currentClockIn.timestamp, breakInfo: sessionBreakInfo, noBreakWarning });
     } else {
-      sessions.push({ kind: "clocked-late", clockInTime: lastClockIn.timestamp, minutesLate: minsLate, breakInfo, noBreakWarning });
+      sessions.push({ kind: "clocked-late", clockInTime: currentClockIn.timestamp, minutesLate: minsLate, breakInfo: sessionBreakInfo, noBreakWarning });
     }
   } else if (sessions.length === 0) {
     if (now < shiftStart) {
@@ -161,34 +184,36 @@ function getClockStatusForScheduled(shift: Shift, entries: TimeEntry[], now: Dat
   return sessions;
 }
 
-function getClockStatusForUnscheduled(entries: TimeEntry[], now: Date): ClockStatus[] {
-  const clockIns = entries.filter((e) => e.type === "clock-in");
-  const clockOuts = entries.filter((e) => e.type === "clock-out");
-  const breakInfo = getBreakInfo(entries, now);
+function getClockStatusForUnscheduled(entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): ClockStatus[] {
+  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const sessions: ClockStatus[] = [];
 
-  for (let i = 0; i < clockOuts.length; i++) {
-    const cin = clockIns[i];
-    const cout = clockOuts[i];
-    if (cin && cout && new Date(cout.timestamp) > new Date(cin.timestamp)) {
-      const doneWarning = getNoBreakWarning(entries, new Date(cout.timestamp), breakInfo);
+  let currentClockIn: TimeEntry | null = null;
+  for (const entry of sorted) {
+    if (entry.type === "clock-in") {
+      currentClockIn = entry;
+    } else if (entry.type === "clock-out" && currentClockIn) {
+      const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, entry.timestamp);
+      const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
+      const doneWarning = getNoBreakWarning(sessionEntries, new Date(entry.timestamp), sessionBreakInfo);
       sessions.push({ 
         kind: "done-no-schedule", 
-        clockInTime: cin.timestamp, 
-        clockOutTime: cout.timestamp, 
-        breakInfo, 
+        clockInTime: currentClockIn.timestamp, 
+        clockOutTime: entry.timestamp, 
+        breakInfo: sessionBreakInfo, 
         noBreakWarning: doneWarning 
       });
+      currentClockIn = null;
     }
   }
 
-  const lastClockIn = clockIns.length > 0 ? clockIns[clockIns.length - 1] : null;
-  const lastClockOut = clockOuts.length > 0 ? clockOuts[clockOuts.length - 1] : null;
-  const isActive = lastClockIn && (!lastClockOut || new Date(lastClockIn.timestamp) > new Date(lastClockOut.timestamp));
+  const isActive = currentClockIn !== null;
 
-  if (isActive && lastClockIn) {
-    const noBreakWarning = getNoBreakWarning(entries, now, breakInfo);
-    sessions.push({ kind: "working-no-schedule", clockInTime: lastClockIn.timestamp, breakInfo, noBreakWarning });
+  if (isActive && currentClockIn) {
+    const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, null);
+    const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
+    const noBreakWarning = getNoBreakWarning(sessionEntries, now, sessionBreakInfo);
+    sessions.push({ kind: "working-no-schedule", clockInTime: currentClockIn.timestamp, breakInfo: sessionBreakInfo, noBreakWarning });
   }
 
   return sessions;
@@ -217,7 +242,10 @@ function BreakBadge({ breakInfo, hasWarning, isDone }: { breakInfo: BreakInfo; h
     return (
       <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/70" data-testid="badge-break-taken">
         <Coffee className="w-3 h-3 text-muted-foreground" />
-        <span className="text-[10px] text-muted-foreground">Today · {breakInfo.totalBreakMinutes}min break</span>
+        <span className="text-[10px] text-muted-foreground">{breakInfo.totalBreakMinutes}min break</span>
+        {breakInfo.unpaidBreakMinutes > 0 && (
+          <span className="text-[10px] text-red-500 font-medium">-{breakInfo.unpaidBreakMinutes}min</span>
+        )}
       </div>
     );
   }
@@ -256,11 +284,26 @@ function NoBreakWarningBadge({ warning, isDone }: { warning: NoBreakWarning; isD
 }
 
 function StatusIndicator({ status }: { status: ClockStatus }) {
-  const now = new Date();
+  const [now, setNow] = useState(() => {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    return d;
+  });
+
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      d.setSeconds(0, 0);
+      setNow(d);
+    };
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, []);
   
   switch (status.kind) {
     case "on-time": {
-      const workedMins = differenceInMinutes(now, parseISO(status.clockInTime));
+      const rawMins = differenceInMinutes(now, parseISO(status.clockInTime));
+      const workedMins = Math.max(0, rawMins - status.breakInfo.totalBreakMinutes);
       const h = Math.floor(workedMins / 60);
       const m = workedMins % 60;
       const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
@@ -278,7 +321,8 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
       );
     }
     case "clocked-late": {
-      const workedMins = differenceInMinutes(now, parseISO(status.clockInTime));
+      const rawMins = differenceInMinutes(now, parseISO(status.clockInTime));
+      const workedMins = Math.max(0, rawMins - status.breakInfo.totalBreakMinutes);
       const h = Math.floor(workedMins / 60);
       const m = workedMins % 60;
       const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
@@ -342,7 +386,8 @@ function StatusIndicator({ status }: { status: ClockStatus }) {
         </div>
       );
     case "working-no-schedule": {
-      const workedMins = differenceInMinutes(now, parseISO(status.clockInTime));
+      const rawMins = differenceInMinutes(now, parseISO(status.clockInTime));
+      const workedMins = Math.max(0, rawMins - status.breakInfo.totalBreakMinutes);
       const h = Math.floor(workedMins / 60);
       const m = workedMins % 60;
       const hasWarning = !!status.noBreakWarning && !status.breakInfo.onBreak;
@@ -397,16 +442,19 @@ export default function Dashboard() {
     queryKey: ["/api/employees"],
   });
 
-  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const todayStr = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+
+  const { data: breakPolicy } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({ queryKey: ["/api/settings/break-policy"] });
+  const accountPaidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
 
   const { data: todayEntries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
     queryKey: [`/api/steepin/entries?date=${todayStr}`],
-    refetchInterval: 30000,
+    refetchInterval: () => document.hidden ? false : 30000,
   });
 
   const { data: openSessionEntries = [] } = useQuery<TimeEntry[]>({
     queryKey: ["/api/steepin/open-sessions"],
-    refetchInterval: 30000,
+    refetchInterval: () => document.hidden ? false : 30000,
   });
 
   const isLoading = shiftsLoading || employeesLoading || entriesLoading;
@@ -447,7 +495,21 @@ export default function Dashboard() {
     [shifts, todayStr]
   );
 
-  const now = new Date();
+  const [now, setNow] = useState(() => {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    return d;
+  });
+
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      d.setSeconds(0, 0);
+      setNow(d);
+    };
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const flowRows: FlowRow[] = useMemo(() => {
     const rows: FlowRow[] = [];
@@ -509,7 +571,8 @@ export default function Dashboard() {
         }
       }
 
-      const statuses = getClockStatusForScheduled(bestShift, entries, now);
+      const empPaidBreak = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : accountPaidBreakMinutes;
+      const statuses = getClockStatusForScheduled(bestShift, entries, now, empPaidBreak);
       rows.push({ employee: emp, shift: bestShift, statuses });
     });
 
@@ -518,14 +581,15 @@ export default function Dashboard() {
       if (processedEmployeeIds.has(employeeId)) return;
       const emp = employeeMap.get(employeeId);
       if (!emp || emp.status !== "active") return;
-      const statuses = getClockStatusForUnscheduled(entries, now);
+      const empPaidBreak = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : accountPaidBreakMinutes;
+      const statuses = getClockStatusForUnscheduled(entries, now, empPaidBreak);
       if (statuses.length > 0) {
         rows.push({ employee: emp, shift: null, statuses });
       }
     });
 
     return rows;
-  }, [todayShifts, employeeMap, entriesByEmployee, now]);
+  }, [todayShifts, employeeMap, entriesByEmployee, now, accountPaidBreakMinutes]);
 
   const sortedRows = useMemo(() => {
     const priority: Record<string, number> = {

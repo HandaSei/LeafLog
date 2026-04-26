@@ -1,9 +1,30 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||
+  (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.() ? 'https://leaflog.org' : '');
+
+// Event emitter for auth errors (session expiry)
+type AuthErrorHandler = () => void;
+const authErrorHandlers: AuthErrorHandler[] = [];
+
+export function onAuthError(handler: AuthErrorHandler) {
+  authErrorHandlers.push(handler);
+  return () => {
+    const index = authErrorHandlers.indexOf(handler);
+    if (index > -1) authErrorHandlers.splice(index, 1);
+  };
+}
+
+function emitAuthError() {
+  authErrorHandlers.forEach(handler => handler());
+}
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
+    // Detect 401 Unauthorized - session expired
+    if (res.status === 401) {
+      emitAuthError();
+    }
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
@@ -36,6 +57,7 @@ export const getQueryFn: <T>(options: {
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+      emitAuthError();
       return null;
     }
 
@@ -49,7 +71,7 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: 2 * 60 * 1000,
+      staleTime: 5 * 60 * 1000, // 5 minutes - longer to use bootstrap data effectively
       retry: false,
     },
     mutations: {

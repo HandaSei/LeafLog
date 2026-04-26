@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useLocation, Link } from "wouter";
 import { LayoutDashboard, Calendar, FileText, Users, MoreHorizontal, Settings2, KeyRound, LogOut, Inbox, MessageSquare, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { AccessCodeDialog } from "./access-code-dialog";
-import { FeedbackDialog } from "./feedback-dialog";
-import { FeedbackPanelDialog } from "./feedback-panel-dialog";
+const AccessCodeDialog = lazy(() => import("./access-code-dialog"));
+const FeedbackDialog = lazy(() => import("./feedback-dialog"));
+const FeedbackPanelDialog = lazy(() => import("./feedback-panel-dialog"));
 import { ThemeToggle } from "./theme-toggle";
 import logoImage from "@assets/m3MJU_1771476103365.png";
 
@@ -31,6 +31,15 @@ export function MobileBottomNav() {
   const [accessCodeOpen, setAccessCodeOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackPanelOpen, setFeedbackPanelOpen] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      import("./access-code-dialog");
+      import("./feedback-dialog");
+      import("./feedback-panel-dialog");
+    }, 2500);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -180,9 +189,15 @@ export function MobileBottomNav() {
         </div>
       )}
 
-      <AccessCodeDialog open={accessCodeOpen} onOpenChange={setAccessCodeOpen} />
-      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-      <FeedbackPanelDialog open={feedbackPanelOpen} onOpenChange={setFeedbackPanelOpen} />
+      <Suspense fallback={null}>
+        <AccessCodeDialog open={accessCodeOpen} onOpenChange={setAccessCodeOpen} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <FeedbackPanelDialog open={feedbackPanelOpen} onOpenChange={setFeedbackPanelOpen} />
+      </Suspense>
     </>
   );
 }

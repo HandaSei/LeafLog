@@ -137,7 +137,7 @@ async function fetchBootstrapWithTimeout(retryCount = 0, timeoutMs = BOOTSTRAP_T
     }
     saveCachedAuth(auth);
     if (auth?.steepinMode) {
-      preloadSteepinAssets();
+      // SteepIn assets are preloaded earlier by the inline script in index.html
     }
     if (auth && !auth.steepinMode) {
       try { localStorage.removeItem("leaflog_steepin_auth"); } catch {}

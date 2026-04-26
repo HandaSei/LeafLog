@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -24,16 +24,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Users, Plus, Search, MoreHorizontal, Pencil, Trash2, Mail, Phone } from "lucide-react";
+import { Users, Plus, Search, MoreHorizontal, Pencil, Trash2, Mail, Phone, DollarSign, EyeOff, Eye } from "lucide-react";
 import { EmployeeFormDialog } from "@/components/employee-form-dialog";
+import { PayConfigDialog } from "@/components/pay-config-dialog";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 
 export default function Employees() {
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchInput), 200);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
   const [formOpen, setFormOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
+  const [payConfigOpen, setPayConfigOpen] = useState(false);
+  const [payConfigEmployee, setPayConfigEmployee] = useState<Employee | null>(null);
   const { toast } = useToast();
 
   const { data: employees = [], isLoading } = useQuery<Employee[]>({
@@ -55,14 +64,36 @@ export default function Employees() {
     },
   });
 
-  const filtered = employees
-    .filter(
-      (e) =>
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (e.email && e.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
-    )
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const toggleSteepinMutation = useMutation({
+    mutationFn: async ({ id, hidden }: { id: number; hidden: boolean }) => {
+      return apiRequest("PATCH", `/api/employees/${id}`, { hiddenFromSteepin: hidden });
+    },
+    onSuccess: (_data, { hidden }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steepin/employees"] });
+      toast({
+        title: hidden ? "Hidden from SteepIn" : "Visible in SteepIn",
+        description: hidden
+          ? "This employee won't appear on the kiosk."
+          : "This employee will appear on the kiosk again.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const filtered = useMemo(() => {
+    const q = debouncedSearch.toLowerCase();
+    return employees
+      .filter(
+        (e) =>
+          e.name.toLowerCase().includes(q) ||
+          (e.email && e.email.toLowerCase().includes(q)) ||
+          (e.role && e.role.toLowerCase().includes(q))
+      )
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [employees, debouncedSearch]);
 
   const handleEdit = (emp: Employee) => {
     setEditingEmployee(emp);
@@ -94,8 +125,8 @@ export default function Employees() {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search employees..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-8 w-[240px]"
               data-testid="input-search-employees"
             />
@@ -118,14 +149,14 @@ export default function Employees() {
           <div className="flex flex-col items-center justify-center h-full text-center py-16">
             <Users className="w-12 h-12 text-muted-foreground/30 mb-3" />
             <h3 className="text-base font-medium text-muted-foreground">
-              {searchQuery ? "No employees found" : "No employees yet"}
+              {debouncedSearch ? "No employees found" : "No employees yet"
             </h3>
             <p className="text-sm text-muted-foreground/70 mt-1 mb-4">
-              {searchQuery
+              {debouncedSearch
                 ? "Try adjusting your search"
                 : "Add your first employee to get started"}
             </p>
-            {!searchQuery && (
+            {!debouncedSearch && (
               <Button onClick={handleAdd} data-testid="button-add-first-employee">
                 <Plus className="w-4 h-4 mr-1" />
                 Add Employee
@@ -160,6 +191,18 @@ export default function Employees() {
                       <DropdownMenuItem onClick={() => handleEdit(emp)} data-testid={`button-edit-employee-${emp.id}`}>
                         <Pencil className="w-3.5 h-3.5 mr-2" /> Edit
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setPayConfigEmployee(emp); setPayConfigOpen(true); }} data-testid={`button-pay-config-${emp.id}`}>
+                        <DollarSign className="w-3.5 h-3.5 mr-2" /> Pay Settings
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => toggleSteepinMutation.mutate({ id: emp.id, hidden: !emp.hiddenFromSteepin })}
+                        data-testid={`button-toggle-steepin-${emp.id}`}
+                      >
+                        {emp.hiddenFromSteepin
+                          ? <><Eye className="w-3.5 h-3.5 mr-2" /> Show in SteepIn</>
+                          : <><EyeOff className="w-3.5 h-3.5 mr-2" /> Hide from SteepIn</>
+                        }
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => handleDelete(emp)}
                         className="text-destructive"
@@ -192,6 +235,22 @@ export default function Employees() {
                   >
                     {emp.status === "active" ? "Active" : "Inactive"}
                   </Badge>
+                  {emp.hourlyRate && (
+                    <Badge variant="outline" className="text-[10px] gap-0.5" data-testid={`badge-pay-rate-${emp.id}`}>
+                      <DollarSign className="w-2.5 h-2.5" />
+                      {emp.hourlyRate}/h
+                    </Badge>
+                  )}
+                  {emp.hiddenFromSteepin && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] gap-0.5 border-amber-400 text-amber-600 dark:text-amber-400"
+                      data-testid={`badge-steepin-off-${emp.id}`}
+                    >
+                      <EyeOff className="w-2.5 h-2.5" />
+                      SteepIn Off
+                    </Badge>
+                  )}
                 </div>
               </Card>
             ))}
@@ -206,6 +265,15 @@ export default function Employees() {
           if (!open) setEditingEmployee(null);
         }}
         employee={editingEmployee}
+      />
+
+      <PayConfigDialog
+        open={payConfigOpen}
+        onOpenChange={(open) => {
+          setPayConfigOpen(open);
+          if (!open) setPayConfigEmployee(null);
+        }}
+        employee={payConfigEmployee}
       />
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

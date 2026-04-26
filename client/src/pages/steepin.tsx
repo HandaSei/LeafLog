@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useEffect, useRef, useCallback, useDeferredValue } from "react";
+import { memo, useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info, StickyNote, WifiOff, CloudUpload, RefreshCw,
+  Clock, LogIn, LogOut, Coffee, ArrowLeft, Search, Timer, CheckCircle2, Info, StickyNote, WifiOff, CloudUpload, RefreshCw, Delete,
 } from "lucide-react";
 
 const STEEPIN_CACHE_KEY = "leaflog_steepin_employees";
@@ -206,22 +206,6 @@ try {
 } catch {}
 
 
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window !== "undefined") {
-      return window.matchMedia(query).matches;
-    }
-    return false;
-  });
-  useEffect(() => {
-    const mql = window.matchMedia(query);
-    const onChange = () => setMatches(mql.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, [query]);
-  return matches;
-}
-
 // Performance Optimization: Memoized Background
 const BackgroundVector = memo(({ isDark }: { isDark: boolean }) => {
   const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
@@ -230,10 +214,11 @@ const BackgroundVector = memo(({ isDark }: { isDark: boolean }) => {
       <img
         src={t.bgImage}
         alt=""
-        className="absolute inset-0 w-full h-full object-cover object-center transform-gpu"
-        style={{ minWidth: "100%", minHeight: "100%", filter: isDark ? "saturate(1.4) contrast(1.08)" : "saturate(1.25) contrast(1.05)" }}
+        className="absolute inset-0 w-full h-full object-cover object-center"
+        style={{ minWidth: "100%", minHeight: "100%" }}
         draggable={false}
-        decoding="async"
+        fetchPriority="high"
+        loading="eager"
       />
       {isDark && (
         <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.15)" }} />
@@ -260,7 +245,7 @@ const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Em
       <button
         onClick={() => onClick(emp)}
         className="group w-full flex items-center gap-4 px-5 py-4 rounded-xl transition-colors duration-150 active:scale-[0.98]"
-        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, contain: "layout paint" }}
+        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}` }}
         data-testid={`card-employee-${emp.id}`}
       >
         <div
@@ -281,7 +266,7 @@ const EmployeeCard = memo(({ emp, onClick, isDark, isMobile = false }: { emp: Em
     <button
       onClick={() => onClick(emp)}
       className="group relative w-full rounded-xl transition-[transform,background-color] duration-150 active:scale-[0.97] hover:scale-[1.02] transform-gpu"
-      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', contain: "layout" }}
+      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)' }}
       data-testid={`card-employee-${emp.id}`}
     >
       <div className="h-full w-full flex flex-col items-center justify-center"
@@ -320,7 +305,7 @@ const GhostCard = memo(({ isDark, isMobile = false }: { isDark: boolean; isMobil
     return (
       <div
         className="w-full flex items-center gap-4 px-5 py-4 rounded-xl"
-        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, contain: "layout paint" }}
+        style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}` }}
       >
         <div className="w-14 h-14 rounded-full shrink-0" style={{ border: `1.5px solid ${circleBorder}` }} />
         <div className="space-y-2 flex-1">
@@ -334,7 +319,7 @@ const GhostCard = memo(({ isDark, isMobile = false }: { isDark: boolean; isMobil
   return (
     <div
       className="w-full rounded-xl flex flex-col items-center justify-center"
-      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', gap: 'clamp(0.2rem, 1.5vh, 1rem)', padding: 'clamp(0.5rem, 2vh, 1.25rem)', contain: "layout paint" }}
+      style={{ backgroundColor: glassBg, border: `1.5px solid ${borderColor}`, height: 'clamp(9rem, 32vh, 17rem)', gap: 'clamp(0.2rem, 1.5vh, 1rem)', padding: 'clamp(0.5rem, 2vh, 1.25rem)' }}
     >
       <div
         className="rounded-full shrink-0"
@@ -403,7 +388,7 @@ const PinPad = memo(({ value, onChange, maxLength = 6, isDark = false }: { value
           className={`w-20 h-16 rounded-2xl border ${t.pinBtnBorder} ${t.pinBtnBg} ${t.pinBtnHover} active:scale-90 transition-[transform,background-color] duration-75 shadow-sm flex items-center justify-center`}
           style={{ color: t.pinBackText }}
         >
-          <ArrowLeft className="w-6 h-6" />
+          <Delete className="w-8 h-8" />
         </button>
       </div>
     </div>
@@ -427,7 +412,6 @@ export default function SteepInPage() {
   const [, setLocation] = useLocation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [passcode, setPasscode] = useState("");
   const [passcodeDialogOpen, setPasscodeDialogOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<ActionType | null>(null);
@@ -435,20 +419,31 @@ export default function SteepInPage() {
   const [exitUsername, setExitUsername] = useState("");
   const [exitPassword, setExitPassword] = useState("");
   const [noteText, setNoteText] = useState("");
+  const [reClockData, setReClockData] = useState<{ lastClockOutTime: string; lastClockOutId: number; lastClockOutDate: string; minutesSince: number } | null>(null);
+  const [reClockDialogOpen, setReClockDialogOpen] = useState(false);
+  const [reClockPasscode, setReClockPasscode] = useState("");
   const [deviceLocked, setDeviceLocked] = useState(true);
   const [introDialogOpen, setIntroDialogOpen] = useState(false);
   const lockPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
   const lastMutationTsRef = useRef<number>(0);
-  const isSmallScreen = useMediaQuery("(min-width: 640px)");
-  const cacheTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingCacheRef = useRef<{ employeeId: number; entries: TimeEntry[] } | null>(null);
 
   const [liveTime, setLiveTime] = useState(() => format(new Date(), "HH:mm"));
   useEffect(() => {
-    const tick = () => setLiveTime(format(new Date(), "HH:mm"));
-    const id = setInterval(tick, 15000);
-    return () => clearInterval(id);
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const scheduleNext = () => {
+      const now = new Date();
+      const msUntilNextMinute =
+        60000 - (now.getSeconds() * 1000 + now.getMilliseconds());
+      timeoutId = setTimeout(() => {
+        setLiveTime(format(new Date(), "HH:mm"));
+        scheduleNext();
+      }, msUntilNextMinute);
+    };
+    scheduleNext();
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
 
   const [themeSettings] = useState<SteepinTheme>(getCachedTheme);
@@ -540,46 +535,10 @@ export default function SteepInPage() {
   }, [authState]);
 
   useEffect(() => {
-    if (cacheTimeoutRef.current) {
-      clearTimeout(cacheTimeoutRef.current);
-      cacheTimeoutRef.current = null;
+    if (selectedEmployee) {
+      cacheEntries(selectedEmployee.id, entries);
     }
-
-    if (!selectedEmployee) return;
-
-    if (
-      pendingCacheRef.current &&
-      pendingCacheRef.current.employeeId !== selectedEmployee.id
-    ) {
-      cacheEntries(pendingCacheRef.current.employeeId, pendingCacheRef.current.entries);
-      pendingCacheRef.current = null;
-    }
-
-    pendingCacheRef.current = { employeeId: selectedEmployee.id, entries };
-    cacheTimeoutRef.current = setTimeout(() => {
-      if (pendingCacheRef.current) {
-        cacheEntries(pendingCacheRef.current.employeeId, pendingCacheRef.current.entries);
-        pendingCacheRef.current = null;
-      }
-      cacheTimeoutRef.current = null;
-    }, 150);
-
-    return () => {
-      if (cacheTimeoutRef.current) {
-        clearTimeout(cacheTimeoutRef.current);
-        cacheTimeoutRef.current = null;
-      }
-    };
   }, [selectedEmployee, entries]);
-
-  useEffect(() => {
-    return () => {
-      if (pendingCacheRef.current) {
-        cacheEntries(pendingCacheRef.current.employeeId, pendingCacheRef.current.entries);
-        pendingCacheRef.current = null;
-      }
-    };
-  }, []);
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState(() => getQueue().length);
@@ -709,6 +668,36 @@ export default function SteepInPage() {
     }
   }, [authLoading, isActive, isOnline, hasEmployees, setLocation]);
 
+  // Background prefetch of entries for every employee on the kiosk roster so
+  // when an employee taps their card the action screen opens with buttons
+  // already enabled — no isVerifyingStatus wait. Runs at idle time, respects
+  // staleTime (no-op if cache is already fresh), and is gated to small rosters
+  // to avoid request storms on large tenants.
+  const prefetchedFor = useRef<string>("");
+  useEffect(() => {
+    if (!isActive || !isOnline || !employees || employees.length === 0) return;
+    if (employees.length > 30) return;
+    const sig = employees.map((e) => e.id).sort().join(",");
+    if (sig === prefetchedFor.current) return;
+    prefetchedFor.current = sig;
+
+    const run = () => {
+      employees.forEach((emp) => {
+        queryClient.prefetchQuery({
+          queryKey: ["/api/steepin/entries", emp.id.toString()],
+          queryFn: getQueryFn({ on401: "returnNull" }),
+          staleTime: 60000,
+        });
+      });
+    };
+    if (typeof (window as any).requestIdleCallback === "function") {
+      const id = (window as any).requestIdleCallback(run, { timeout: 2000 });
+      return () => (window as any).cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(run, 0);
+    return () => window.clearTimeout(id);
+  }, [employees, isActive, isOnline]);
+
   useEffect(() => {
     if (!isActive) return;
 
@@ -756,17 +745,43 @@ export default function SteepInPage() {
     }
 
     checkLock();
-    lockPollRef.current = setInterval(checkLock, 30000);
+
+    const startPolling = () => {
+      if (lockPollRef.current) return;
+      lockPollRef.current = setInterval(checkLock, 30000);
+    };
+    const stopPolling = () => {
+      if (lockPollRef.current) {
+        clearInterval(lockPollRef.current);
+        lockPollRef.current = null;
+      }
+    };
+
+    if (typeof document === "undefined" || document.visibilityState === "visible") {
+      startPolling();
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        // Catch up immediately on wake, then resume polling.
+        checkLock();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
-      if (lockPollRef.current) clearInterval(lockPollRef.current);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stopPolling();
     };
   }, [isActive]);
 
   const actionMutation = useMutation({
-    mutationFn: async ({ employeeId, type, passcode, notes }: { employeeId: number; type: ActionType; passcode: string; notes?: string }) => {
+    mutationFn: async ({ employeeId, type, passcode, notes, reClockAction, skipReClockCheck }: { employeeId: number; type: ActionType; passcode: string; notes?: string; reClockAction?: string; skipReClockCheck?: boolean }) => {
       try {
-        const res = await apiRequest("POST", "/api/steepin/action", { employeeId, type, passcode, notes: notes || undefined });
+        const res = await apiRequest("POST", "/api/steepin/action", { employeeId, type, passcode, notes: notes || undefined, reClockAction, skipReClockCheck });
         lastMutationTsRef.current = Date.now();
         return res.json();
       } catch (error) {
@@ -786,27 +801,47 @@ export default function SteepInPage() {
           timestamp: now.toISOString(),
           date: now.toISOString().split("T")[0],
         });
-
-        const optimisticEntry: TimeEntry = {
-          id: -Date.now(),
-          employeeId,
-          type,
-          timestamp: now.toISOString(),
-          date: now.toISOString().split("T")[0],
-          notes: notes || null,
-          source: "employee",
-          isUnpaid: false,
-        };
-        queryClient.setQueryData(
-          ["/api/steepin/entries", employeeId.toString()],
-          (old: TimeEntry[] | undefined) => [...(old || []), optimisticEntry],
-        );
+        // Note: optimistic entry already appended in onMutate — do NOT add it again here.
 
         setPendingCount((c) => c + 1);
         return { _queued: true, type };
       }
     },
-    onSuccess: (data, variables) => {
+    // Instant optimistic UI: append the entry to the cache BEFORE the network
+    // round-trip so the kiosk feels immediate. We snapshot the previous list so
+    // onError can roll back, and we skip optimistic for ONLINE clock-ins
+    // because the server may transform them into reClockDetected/reClockHandled
+    // (delete + recreate) which our naive append would model incorrectly.
+    onMutate: async (variables) => {
+      const key = ["/api/steepin/entries", variables.employeeId.toString()];
+      await queryClient.cancelQueries({ queryKey: key });
+      const prevEntries = queryClient.getQueryData<TimeEntry[]>(key);
+
+      const skipOptimistic = navigator.onLine && variables.type === "clock-in";
+      let optimisticId: number | null = null;
+      if (!skipOptimistic) {
+        const now = new Date();
+        optimisticId = -now.getTime();
+        const optimisticEntry: TimeEntry = {
+          id: optimisticId,
+          employeeId: variables.employeeId,
+          type: variables.type,
+          timestamp: now.toISOString(),
+          date: now.toISOString().split("T")[0],
+          notes: variables.notes ?? null,
+          source: "employee",
+          isUnpaid: false,
+        };
+        queryClient.setQueryData<TimeEntry[]>(
+          key,
+          (old) => [...(old || []), optimisticEntry],
+        );
+      }
+      return { prevEntries, optimisticId, queryKey: key };
+    },
+    onSuccess: (data, variables, context) => {
+      const key = context?.queryKey ?? ["/api/steepin/entries", variables.employeeId.toString()];
+
       if (data._queued) {
         const labels: Record<ActionType, string> = {
           "clock-in": "Clocked In",
@@ -824,8 +859,27 @@ export default function SteepInPage() {
         setNoteText("");
         return;
       }
+      if (data.reClockDetected) {
+        // Server didn't actually create an entry — roll back any optimistic
+        // entry we might have added. (Currently we skip optimistic for online
+        // clock-in so optimisticId is null here, but defensive cleanup keeps
+        // the cache honest if that policy ever changes.)
+        if (context?.optimisticId != null) {
+          queryClient.setQueryData<TimeEntry[]>(
+            key,
+            (old) => (old || []).filter((e) => e.id !== context.optimisticId),
+          );
+        }
+        setReClockData(data);
+        setReClockPasscode(variables.passcode);
+        setPasscodeDialogOpen(false);
+        setPasscode("");
+        setReClockDialogOpen(true);
+        return;
+      }
       if (data.reClockHandled) {
-        queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
+        // reClock paths don't (yet) include `entries`; fall back to invalidate.
+        queryClient.invalidateQueries({ queryKey: key });
         const labels: Record<string, string> = {
           reopen: "Shift Reopened",
           "unpaid-break": "Break Recorded",
@@ -840,21 +894,36 @@ export default function SteepInPage() {
         setNoteText("");
         return;
       }
-      const optimistic: TimeEntry = {
-        id: data.id ?? -Date.now(),
-        employeeId: data.employeeId ?? variables.employeeId,
-        type: data.type ?? variables.type,
-        timestamp: data.timestamp ?? new Date().toISOString(),
-        date: data.date ?? new Date().toISOString().split("T")[0],
-        notes: data.notes ?? variables.notes ?? null,
-        source: data.source ?? "employee",
-        isUnpaid: data.isUnpaid ?? false,
-      };
-      queryClient.setQueryData(
-        ["/api/steepin/entries", variables.employeeId.toString()],
-        (old: TimeEntry[] | undefined) => [...(old || []), optimistic],
-      );
-      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries", variables.employeeId.toString()] });
+
+      // Normal success path. Prefer the authoritative `entries` list returned
+      // by the server (avoids the follow-up GET round-trip). If the server is
+      // older and didn't include it, fall back to: replace any optimistic with
+      // the real entry, then invalidate to refetch.
+      if (Array.isArray(data.entries)) {
+        queryClient.setQueryData<TimeEntry[]>(key, data.entries);
+      } else {
+        const real: TimeEntry = {
+          id: data.id ?? -Date.now(),
+          employeeId: data.employeeId ?? variables.employeeId,
+          type: data.type ?? variables.type,
+          timestamp: data.timestamp ?? new Date().toISOString(),
+          date: data.date ?? new Date().toISOString().split("T")[0],
+          notes: data.notes ?? variables.notes ?? null,
+          source: data.source ?? "employee",
+          isUnpaid: data.isUnpaid ?? false,
+        };
+        queryClient.setQueryData<TimeEntry[]>(
+          key,
+          (old) => {
+            const withoutOptimistic = (old || []).filter(
+              (e) => context?.optimisticId == null || e.id !== context.optimisticId,
+            );
+            return [...withoutOptimistic, real];
+          },
+        );
+        queryClient.invalidateQueries({ queryKey: key });
+      }
+
       const labels: Record<ActionType, string> = {
         "clock-in": "Clocked In",
         "clock-out": "Clocked Out",
@@ -866,8 +935,16 @@ export default function SteepInPage() {
       setPasscodeDialogOpen(false);
       setPendingAction(null);
       setNoteText("");
+      setReClockDialogOpen(false);
+      setReClockData(null);
+      setReClockPasscode("");
     },
-    onError: (err: any) => {
+    onError: (err: any, variables, context) => {
+      // Roll back the optimistic entry first so the UI never lies on failure.
+      if (context?.prevEntries !== undefined && context?.queryKey) {
+        queryClient.setQueryData(context.queryKey, context.prevEntries);
+      }
+
       // Check if it's a conflict (409) - stale state
       const isConflict = err.message?.includes("409");
       if (isConflict) {
@@ -899,13 +976,12 @@ export default function SteepInPage() {
 
   const exitMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/auth/steepin-exit", { 
-        username: exitUsername, 
-        password: exitPassword 
-      });
+      // Route through useAuth so the AuthProvider's authState is cleared atomically
+      // with the server-side session. Otherwise App.tsx's `isSteepIn` stays true,
+      // re-redirects /login back to /SteepIn, and we get a render loop.
+      await exitSteepIn(exitUsername, exitPassword);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       setExitDialogOpen(false);
       setExitUsername("");
       setExitPassword("");
@@ -953,23 +1029,14 @@ export default function SteepInPage() {
     return last.type;
   }, [isShiftActive, currentShiftEntries]);
 
-  const searchIndex = useMemo(() => {
-    if (!employees || !Array.isArray(employees)) return [];
-    return employees.map((e) => ({
-      employee: e,
-      nameLower: e.name.toLowerCase(),
-      roleLower: (e.role || "").toLowerCase(),
-    }));
-  }, [employees]);
-
   const filteredEmployees = useMemo(() => {
-    if (!searchIndex.length) return [];
-    const query = deferredSearchQuery.toLowerCase();
-    if (!query) return searchIndex.map((item) => item.employee);
-    return searchIndex
-      .filter((item) => item.nameLower.includes(query) || item.roleLower.includes(query))
-      .map((item) => item.employee);
-  }, [searchIndex, deferredSearchQuery]);
+    if (!employees || !Array.isArray(employees)) return [];
+    return employees.filter(
+      (e) =>
+        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+  }, [employees, searchQuery]);
 
   const handleSelectEmployee = useCallback((emp: Employee) => {
     setSelectedEmployee(emp);
@@ -987,19 +1054,16 @@ export default function SteepInPage() {
         </div>
       </div>
       <div className="flex-1 px-6 sm:px-12 pb-12 relative z-10">
-        {isSmallScreen ? (
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <GhostCard key={i} isDark={isDark} />
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-3 max-w-lg mx-auto">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <GhostCard key={i} isDark={isDark} isMobile />
-            ))}
-          </div>
-        )}
+        <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <GhostCard key={i} isDark={isDark} />
+          ))}
+        </div>
+        <div className="sm:hidden space-y-3 max-w-lg mx-auto">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <GhostCard key={i} isDark={isDark} isMobile />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -1026,6 +1090,15 @@ export default function SteepInPage() {
     e.preventDefault();
     if (!selectedEmployee || !pendingAction || passcode.length < 4 || passcode.length > 6) return;
     actionMutation.mutate({ employeeId: selectedEmployee.id, type: pendingAction, passcode, notes: noteText.trim() || undefined });
+  };
+
+  const handleReClockChoice = (action: "new-shift" | "break" | "working") => {
+    if (!selectedEmployee || !reClockData) return;
+    if (action === "new-shift") {
+      actionMutation.mutate({ employeeId: selectedEmployee.id, type: "clock-in", passcode: reClockPasscode, skipReClockCheck: true, notes: noteText.trim() || undefined });
+    } else {
+      actionMutation.mutate({ employeeId: selectedEmployee.id, type: "clock-in", passcode: reClockPasscode, reClockAction: action });
+    }
   };
 
   const handleExitSteepIn = async (e: React.FormEvent) => {
@@ -1080,7 +1153,7 @@ export default function SteepInPage() {
                 size="icon"
                 onClick={() => refetchEntries()}
                 disabled={entriesFetching}
-                className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-all duration-200`}
+                className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-[background-color,color] duration-200`}
                 title={entriesUpdatedAt ? `Last updated: ${format(entriesUpdatedAt, "HH:mm:ss")}` : "Refresh"}
               >
                 <RefreshCw className={`w-4 h-4 ${entriesFetching ? "animate-spin" : ""}`} />
@@ -1261,6 +1334,7 @@ export default function SteepInPage() {
                     onChange={(e) => setNoteText(e.target.value)}
                     placeholder="e.g. covering for Alex..."
                     className={`h-24 text-sm resize-none ${t.noteInputBg} ${t.noteInputBorder} focus:border-[#4A5D45]/50 focus:ring-1 focus:ring-[#4A5D45]/20 rounded-xl placeholder:text-[#8C8C8C]/50 italic`}
+                    style={{ color: t.dialogTitle }}
                     maxLength={200}
                     data-testid="input-steepin-note"
                   />
@@ -1490,31 +1564,31 @@ export default function SteepInPage() {
           />
         </div>
         {empsLoading ? (
-          isSmallScreen ? (
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+          <>
+            <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
               {Array.from({ length: 6 }).map((_, i) => (
                 <GhostCard key={i} isDark={isDark} />
               ))}
             </div>
-          ) : (
-            <div className="space-y-3 max-w-lg mx-auto">
+            <div className="sm:hidden space-y-3 max-w-lg mx-auto">
               {Array.from({ length: 4 }).map((_, i) => (
                 <GhostCard key={i} isDark={isDark} isMobile />
               ))}
             </div>
-          )
-        ) : isSmallScreen ? (
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {filteredEmployees.map((emp) => (
-              <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} />
-            ))}
-          </div>
+          </>
         ) : (
-          <div className="space-y-3 max-w-lg mx-auto">
-            {filteredEmployees.map((emp) => (
-              <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} isMobile />
-            ))}
-          </div>
+          <>
+            <div className="hidden sm:grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+              {filteredEmployees.map((emp) => (
+                <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} />
+              ))}
+            </div>
+            <div className="sm:hidden space-y-3 max-w-lg mx-auto">
+              {filteredEmployees.map((emp) => (
+                <EmployeeCard key={emp.id} emp={emp} onClick={handleSelectEmployee} isDark={isDark} isMobile />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>

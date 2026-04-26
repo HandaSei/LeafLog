@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback, memo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -126,17 +126,21 @@ export default function Schedule() {
     setCurrentDate(direction > 0 ? addWeeks(currentDate, 1) : subWeeks(currentDate, 1));
   };
 
-  const handleAddShift = (dateStr?: string) => {
+  const handleAddShift = useCallback((dateStr?: string) => {
     setEditingShift(null);
     setSelectedDate(dateStr || selectedDateStr);
     setShiftDialogOpen(true);
-  };
+  }, [selectedDateStr]);
 
-  const handleEditShift = (shift: Shift) => {
+  const handleEditShift = useCallback((shift: Shift) => {
     setEditingShift(shift);
     setSelectedDate(undefined);
     setShiftDialogOpen(true);
-  };
+  }, []);
+
+  const handleDeleteShift = useCallback((id: number) => {
+    setPendingDeleteId(id);
+  }, []);
 
   const isLoading = shiftsLoading || employeesLoading;
 
@@ -215,7 +219,7 @@ export default function Schedule() {
             onSelectDayIndex={setSelectedDayIndex}
             onAddShift={handleAddShift}
             onEditShift={handleEditShift}
-            onDeleteShift={(id) => setPendingDeleteId(id)}
+            onDeleteShift={handleDeleteShift}
           />
         )}
       </div>
@@ -272,7 +276,7 @@ interface CalendarViewProps {
   onDeleteShift: (id: number) => void;
 }
 
-function WeekView({ days, shiftsByDate, employeeMap, selectedDayIndex, onSelectDayIndex, onAddShift, onEditShift, onDeleteShift }: CalendarViewProps) {
+const WeekView = memo(function WeekView({ days, shiftsByDate, employeeMap, selectedDayIndex, onSelectDayIndex, onAddShift, onEditShift, onDeleteShift }: CalendarViewProps) {
   const { isManager, isAdmin } = useAuth();
   const showHours = isManager || isAdmin;
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
@@ -406,7 +410,7 @@ function WeekView({ days, shiftsByDate, employeeMap, selectedDayIndex, onSelectD
                 data-testid={`employee-row-${empId}`}
               >
                 <EmployeeAvatar name={emp?.name || "?"} color={emp?.color || "#3B82F6"} size="sm" />
-                <div className="flex-1 min-w-0 overflow-x-auto custom-scrollbar">
+                <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
                   <div className="flex items-center gap-4">
                     <div className="flex-shrink-0 border-r pr-3 min-w-[80px]">
                       <span className="text-xs font-semibold truncate block">{emp?.name || "Unknown"}</span>
@@ -470,7 +474,7 @@ function WeekView({ days, shiftsByDate, employeeMap, selectedDayIndex, onSelectD
       </div>
     </div>
   );
-}
+});
 
 interface ShiftCardProps {
   shift: Shift;

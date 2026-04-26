@@ -4,7 +4,7 @@ import {
   format, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isSameDay,
   differenceInMinutes, startOfMonth, endOfMonth, addMonths, subMonths, addDays, parseISO,
 } from "date-fns";
-import { useState, useMemo } from "react";
+import { useState, useMemo, memo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, FileUp, Calendar, CalendarDays, Check, AlertCircle, StickyNote, Trash2, Clock as ClockIcon, AlertTriangle } from "lucide-react";
@@ -717,6 +717,92 @@ async function exportPDF(
   doc.save(`timesheets_${safeLabel}_${ts}.pdf`);
 }
 
+const statusConfig: Record<string, { label: string; color: string }> = {
+  working: { label: "Working", color: "#10B981" },
+  "on-break": { label: "On Break", color: "#F59E0B" },
+  completed: { label: "Completed", color: "#3B82F6" },
+  incomplete: { label: "Incomplete", color: "#EF4444" },
+};
+
+interface WorkdayCardProps {
+  sessions: EmployeeWorkday[];
+  date: Date;
+  approvalRequests: ApprovalRequest[];
+  onViewWorkday: (wd: EmployeeWorkday, date: Date) => void;
+}
+
+const WorkdayCard = memo(({ sessions, date, approvalRequests, onViewWorkday }: WorkdayCardProps) => {
+  const emp = sessions[0].employee;
+  const totalNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
+  const isSingle = sessions.length === 1;
+
+  return (
+    <div
+      className="w-full flex items-center gap-3 p-3 rounded-md border bg-card hover-elevate text-left"
+      data-testid={`timesheet-card-${emp.id}`}
+    >
+      <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
+      <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-4">
+          <div className="flex-shrink-0 border-r pr-3 min-w-[80px]">
+            <span className="text-xs font-semibold truncate block">{emp.name}</span>
+            <span className="text-[10px] text-muted-foreground">{emp.role || "No Role"}</span>
+          </div>
+          <div className="flex items-center gap-4 flex-nowrap">
+            {sessions.map((wd, idx) => {
+              const sc = statusConfig[wd.status];
+              return (
+                <button
+                  key={`${wd.employee.id}-${wd.clockIn?.getTime()}-${idx}`}
+                  onClick={() => { onViewWorkday(wd, date); }}
+                  className={`flex items-center gap-3 flex-shrink-0 cursor-pointer hover:bg-muted/50 rounded px-2 py-1 transition-colors ${!isSingle && idx > 0 ? "border-l pl-4" : ""}`}
+                >
+                  <div className="flex flex-col items-center">
+                    <div className="w-1.5 h-1.5 rounded-full mb-1" style={{ backgroundColor: sc.color }} />
+                    <div className="flex flex-col items-center">
+                      <span className="text-xs font-bold whitespace-nowrap">
+                        {wd.clockIn ? format(wd.clockIn, "HH:mm") : "--:--"} - {wd.clockOut ? format(wd.clockOut, "HH:mm") : "—"}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-medium text-muted-foreground">{wd.status === "incomplete" ? "—" : `${formatHoursDecimal(wd.netWorkedMinutes)}h`}</span>
+                        {wd.hasUnfinishedBreak && (
+                          <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">Unfinished break</span>
+                        )}
+                        {!wd.hasUnfinishedBreak && wd.status === "completed" && wd.totalBreakMinutes === 0 && wd.netWorkedMinutes >= 375 && (
+                          <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">No break</span>
+                        )}
+                        {!wd.hasUnfinishedBreak && wd.totalBreakMinutes > 0 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            (Break {formatMinutes(wd.totalBreakMinutes)}
+                            {wd.unpaidBreakMinutes > 0 && <span className="text-red-500 ml-0.5">-{formatMinutes(wd.unpaidBreakMinutes)}</span>})
+                          </span>
+                        )}
+                        {(() => {
+                          const entryDate = wd.entries.find(e => e.type === "clock-in")?.date;
+                          if (!entryDate) return null;
+                          const hasPending = approvalRequests.some(ar => ar.employeeId === wd.employee.id && ar.entryDate === entryDate && ar.status === "pending");
+                          const hasNotes = wd.entries.some(e => e.notes);
+                          return (
+                            <>
+                              {hasPending && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Pending approval" />}
+                              {hasNotes && <StickyNote className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <span className="text-xs font-bold text-muted-foreground ml-auto flex-shrink-0 pl-2">{formatHoursDecimal(totalNet)} h</span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export default function Timesheets() {
   const [, setLocation] = useLocation();
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
@@ -953,13 +1039,6 @@ export default function Timesheets() {
     });
     return total;
   }, [viewMode, workdays, monthWorkdays, weekDays, normalizedEntries, employees, selectedRole, employeeSearch, paidBreakMinutes]);
-
-  const statusConfig: Record<string, { label: string; color: string }> = {
-    working: { label: "Working", color: "#10B981" },
-    "on-break": { label: "On Break", color: "#F59E0B" },
-    completed: { label: "Completed", color: "#3B82F6" },
-    incomplete: { label: "Incomplete", color: "#EF4444" },
-  };
 
   const handleEditEntry = (entry: TimeEntry) => {
     setEditingEntry(entry);
@@ -1548,77 +1627,7 @@ export default function Timesheets() {
     );
   };
 
-  const WorkdayCard = ({ sessions, date }: { sessions: EmployeeWorkday[]; date: Date }) => {
-    const emp = sessions[0].employee;
-    const totalNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
-    const isSingle = sessions.length === 1;
 
-    return (
-      <div
-        className="w-full flex items-center gap-3 p-3 rounded-md border bg-card hover-elevate text-left"
-        data-testid={`timesheet-card-${emp.id}`}
-      >
-        <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
-        <div className="flex-1 min-w-0 overflow-x-auto custom-scrollbar">
-          <div className="flex items-center gap-4">
-            <div className="flex-shrink-0 border-r pr-3 min-w-[80px]">
-              <span className="text-xs font-semibold truncate block">{emp.name}</span>
-              <span className="text-[10px] text-muted-foreground">{emp.role || "No Role"}</span>
-            </div>
-            <div className="flex items-center gap-4 flex-nowrap">
-              {sessions.map((wd, idx) => {
-                const sc = statusConfig[wd.status];
-                return (
-                  <button
-                    key={`${wd.employee.id}-${wd.clockIn?.getTime()}-${idx}`}
-                    onClick={() => { setViewingWorkdayManual(wd, date); }}
-                    className={`flex items-center gap-3 flex-shrink-0 cursor-pointer hover:bg-muted/50 rounded px-2 py-1 transition-colors ${!isSingle && idx > 0 ? "border-l pl-4" : ""}`}
-                  >
-                    <div className="flex flex-col items-center">
-                      <div className="w-1.5 h-1.5 rounded-full mb-1" style={{ backgroundColor: sc.color }} />
-                      <div className="flex flex-col items-center">
-                        <span className="text-xs font-bold whitespace-nowrap">
-                          {wd.clockIn ? format(wd.clockIn, "HH:mm") : "--:--"} - {wd.clockOut ? format(wd.clockOut, "HH:mm") : "—"}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-medium text-muted-foreground">{wd.status === "incomplete" ? "—" : `${formatHoursDecimal(wd.netWorkedMinutes)}h`}</span>
-                          {wd.hasUnfinishedBreak && (
-                            <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">Unfinished break</span>
-                          )}
-                          {!wd.hasUnfinishedBreak && wd.status === "completed" && wd.totalBreakMinutes === 0 && wd.netWorkedMinutes >= 375 && (
-                            <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">No break</span>
-                          )}
-                          {!wd.hasUnfinishedBreak && wd.totalBreakMinutes > 0 && (
-                            <span className="text-[10px] text-muted-foreground">
-                              (Break {formatMinutes(wd.totalBreakMinutes)}
-                              {wd.unpaidBreakMinutes > 0 && <span className="text-red-500 ml-0.5">-{formatMinutes(wd.unpaidBreakMinutes)}</span>})
-                            </span>
-                          )}
-                          {(() => {
-                            const entryDate = wd.entries.find(e => e.type === "clock-in")?.date;
-                            if (!entryDate) return null;
-                            const hasPending = approvalRequests.some(ar => ar.employeeId === wd.employee.id && ar.entryDate === entryDate && ar.status === "pending");
-                            const hasNotes = wd.entries.some(e => e.notes);
-                            return (
-                              <>
-                                {hasPending && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Pending approval" />}
-                                {hasNotes && <StickyNote className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            <span className="text-xs font-bold text-muted-foreground ml-auto flex-shrink-0 pl-2">{formatHoursDecimal(totalNet)} h</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   if (empsLoading || entriesLoading) {
     return (
@@ -1796,7 +1805,7 @@ export default function Timesheets() {
                   grouped.set(wd.employee.id, list);
                 });
                 return Array.from(grouped.entries()).map(([empId, sessions]) => (
-                  <WorkdayCard key={empId} sessions={sessions} date={selectedDay} />
+                  <WorkdayCard key={empId} sessions={sessions} date={selectedDay} approvalRequests={approvalRequests} onViewWorkday={setViewingWorkdayManual} />
                 ));
               })()
             )
@@ -1826,7 +1835,7 @@ export default function Timesheets() {
                       grouped.set(wd.employee.id, list);
                     });
                     return Array.from(grouped.entries()).map(([empId, sessions]) => (
-                      <WorkdayCard key={empId} sessions={sessions} date={date} />
+                      <WorkdayCard key={empId} sessions={sessions} date={date} approvalRequests={approvalRequests} onViewWorkday={setViewingWorkdayManual} />
                     ));
                   })()}
                 </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -8,8 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LogIn, KeyRound, Monitor, UserPlus, ArrowLeft } from "lucide-react";
-import { useLocation } from "wouter";
-import logoImage from "@assets/m3MJU_1771476103365.png";
+import { useLocation, Redirect } from "wouter";
+import logoImage from "@assets/m3MJU_1771476103365.webp";
 
 const LEAF_YELLOW = "#D4C5A0";
 const LEAF_YELLOW_BG = "#E8DCC4";
@@ -35,11 +35,10 @@ export default function LoginPage() {
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [codeForm, setCodeForm] = useState({ code: "" });
   const [steepinForm, setSteepinForm] = useState({ username: "", password: "" });
-  const [registerForm, setRegisterForm] = useState({ username: "", password: "", email: "", agencyName: "" });
-  const [signupForm, setSignupForm] = useState({ username: "", password: "", email: "", agencyName: "" });
+  const [registerForm, setRegisterForm] = useState({ username: "", password: "", email: "", agencyName: "", country: "" });
+  const [signupForm, setSignupForm] = useState({ username: "", password: "", email: "", agencyName: "", country: "" });
   const [forgotForm, setForgotForm] = useState({ email: "" });
   const [emailSent, setEmailSent] = useState(true);
-  const [fallbackCode, setFallbackCode] = useState<string | undefined>(undefined);
   const [resetForm, setResetForm] = useState({ email: "", code: "", newPassword: "" });
   const [verifyCode, setVerifyCode] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
@@ -47,6 +46,30 @@ export default function LoginPage() {
   const [upgradeEmail, setUpgradeEmail] = useState("");
   const [upgradeCode, setUpgradeCode] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // When the user focuses the SteepIn tab, warm up the kiosk background
+  // image so the bg renders instantly the moment they hit Launch. Browsers
+  // ignore the fetch on slow networks, and the SW already pre-caches these
+  // for repeat visits — this only matters on first-ever visits.
+  useEffect(() => {
+    if (tab !== "steepin") return;
+    let isDark = false;
+    try {
+      const themeRaw = localStorage.getItem("leaflog_steepin_theme");
+      const theme = themeRaw ? JSON.parse(themeRaw) : null;
+      if (theme?.mode === "dark") {
+        isDark = true;
+      } else if (theme?.mode === "auto" || !theme) {
+        isDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+      }
+    } catch {
+      // ignore — fall back to light
+    }
+    const img = new Image();
+    img.src = isDark
+      ? "/steepin-bg-watercolor-dark.webp"
+      : "/steepin-bg-watercolor.webp";
+  }, [tab]);
 
   if (isAuthenticated && isShadowAccount) {
     if (view !== "upgrade-employee" && view !== "verify-upgrade") {
@@ -143,17 +166,10 @@ export default function LoginPage() {
                 </p>
               ) : (
                 <p className="text-sm" style={{ color: "#a06050" }}>
-                  Email delivery is not configured yet — your code appears below.
+                  We couldn't send the email. Please check your address or try again later.
                 </p>
               )}
             </div>
-            {!emailSent && fallbackCode && (
-              <div className="rounded-xl px-6 py-4 text-center" style={{ backgroundColor: "#f5f0e8", border: "2px dashed #8B9E8B" }}>
-                <p className="text-xs font-medium mb-2" style={{ color: "#8a7d60" }}>Your verification code</p>
-                <div className="font-mono text-3xl font-bold tracking-[0.4em]" style={{ color: LEAF_GREEN }} data-testid="text-upgrade-fallback-code">{fallbackCode}</div>
-                <p className="text-xs mt-2" style={{ color: "#aaa" }}>Copy this code and paste it below</p>
-              </div>
-            )}
             <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
               <form onSubmit={handleVerifyUpgrade} className="space-y-3">
                 <div className="space-y-1.5">
@@ -198,8 +214,7 @@ export default function LoginPage() {
   }
 
   if (isAuthenticated && !isShadowAccount) {
-    setLocation("/");
-    return null;
+    return <Redirect to="/" />;
   }
 
   async function handleLogin(e: React.FormEvent) {
@@ -251,12 +266,11 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      const result = await registerManager(registerForm.username, registerForm.password, registerForm.email, registerForm.agencyName);
+      const result = await registerManager(registerForm.username, registerForm.password, registerForm.email, registerForm.agencyName, registerForm.country || undefined);
       if (result.requiresVerification) {
         setPendingEmail(result.email);
         const sent = result.emailSent !== false;
         setEmailSent(sent);
-        setFallbackCode(sent ? undefined : result.fallbackCode);
         setView("verify-registration");
         if (sent) {
           toast({ title: "Check your email", description: "We sent a verification code to your email." });
@@ -277,12 +291,11 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      const result = await registerManager(signupForm.username, signupForm.password, signupForm.email, signupForm.agencyName);
+      const result = await registerManager(signupForm.username, signupForm.password, signupForm.email, signupForm.agencyName, signupForm.country || undefined);
       if (result.requiresVerification) {
         setPendingEmail(result.email);
         const sent = result.emailSent !== false;
         setEmailSent(sent);
-        setFallbackCode(sent ? undefined : result.fallbackCode);
         setView("verify-registration");
         if (sent) {
           toast({ title: "Check your email", description: "We sent a verification code to your email." });
@@ -317,7 +330,6 @@ export default function LoginPage() {
       setResetForm({ ...resetForm, email: forgotForm.email });
       const sent = result?.emailSent !== false;
       setEmailSent(sent);
-      setFallbackCode(sent ? undefined : result?.fallbackCode);
       setView("reset-password");
       if (sent) {
         toast({ title: "Check your email", description: "If an account exists with that email, we sent a reset code." });
@@ -361,7 +373,6 @@ export default function LoginPage() {
         setUpgradeEmail(result.email);
         const sent = result.emailSent !== false;
         setEmailSent(sent);
-        setFallbackCode(sent ? undefined : result.fallbackCode);
         setView("verify-upgrade");
         if (sent) {
           toast({ title: "Check your email", description: "We sent a verification code to your email." });
@@ -416,17 +427,10 @@ export default function LoginPage() {
               </p>
             ) : (
               <p className="text-sm" style={{ color: "#a06050" }}>
-                Email delivery is not configured yet — your code appears below.
+                We couldn't send the email. Please check your address or try again later.
               </p>
             )}
           </div>
-          {!emailSent && fallbackCode && (
-            <div className="rounded-xl px-6 py-4 text-center" style={{ backgroundColor: "#f5f0e8", border: "2px dashed #8B9E8B" }}>
-              <p className="text-xs font-medium mb-2" style={{ color: "#8a7d60" }}>Your verification code</p>
-              <div className="font-mono text-3xl font-bold tracking-[0.4em]" style={{ color: LEAF_GREEN }} data-testid="text-fallback-code">{fallbackCode}</div>
-              <p className="text-xs mt-2" style={{ color: "#aaa" }}>Copy this code and paste it below</p>
-            </div>
-          )}
           <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
             <form onSubmit={handleVerifyRegistration} className="space-y-3">
               <div className="space-y-1.5">
@@ -542,17 +546,10 @@ export default function LoginPage() {
               </p>
             ) : (
               <p className="text-sm" style={{ color: "#a06050" }}>
-                Email delivery is not configured yet — your code appears below.
+                We couldn't send the email. Please check your address or try again later.
               </p>
             )}
           </div>
-          {!emailSent && fallbackCode && (
-            <div className="rounded-xl px-6 py-4 text-center" style={{ backgroundColor: "#f5f0e8", border: "2px dashed #8B9E8B" }}>
-              <p className="text-xs font-medium mb-2" style={{ color: "#8a7d60" }}>Your reset code</p>
-              <div className="font-mono text-3xl font-bold tracking-[0.4em]" style={{ color: LEAF_GREEN }} data-testid="text-reset-fallback-code">{fallbackCode}</div>
-              <p className="text-xs mt-2" style={{ color: "#aaa" }}>Copy this code and paste it below</p>
-            </div>
-          )}
           <div className="rounded-xl p-6" style={{ backgroundColor: LEAF_GREEN }}>
             <form onSubmit={handleResetPassword} className="space-y-3">
               <div className="space-y-1.5">
@@ -632,6 +629,17 @@ export default function LoginPage() {
                   required
                   className={inputStyle}
                   data-testid="input-signup-agency"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="signup-country" style={labelStyle}>Country</Label>
+                <Input
+                  id="signup-country"
+                  placeholder="e.g. United Kingdom"
+                  value={signupForm.country}
+                  onChange={(e) => setSignupForm({ ...signupForm, country: e.target.value })}
+                  className={inputStyle}
+                  data-testid="input-signup-country"
                 />
               </div>
               <div className="space-y-1.5">
@@ -734,6 +742,17 @@ export default function LoginPage() {
                 />
               </div>
               <div className="space-y-1.5">
+                <Label htmlFor="reg-country" style={labelStyle}>Country</Label>
+                <Input
+                  id="reg-country"
+                  placeholder="e.g. United Kingdom"
+                  value={registerForm.country}
+                  onChange={(e) => setRegisterForm({ ...registerForm, country: e.target.value })}
+                  className={inputStyle}
+                  data-testid="input-register-country"
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="reg-email" style={labelStyle}>Email</Label>
                 <Input
                   id="reg-email"
@@ -790,29 +809,29 @@ export default function LoginPage() {
               <TabsList className="w-full grid grid-cols-3 mb-4 bg-[#7a8e7a]">
                 <TabsTrigger
                   value="login"
-                  className="text-xs data-[state=active]:bg-[#D4C5A0] data-[state=active]:text-[#3a4a3a] text-[#D4C5A0]/80"
+                  className="text-[10px] sm:text-xs px-1 sm:px-3 data-[state=active]:bg-[#D4C5A0] data-[state=active]:text-[#3a4a3a] text-[#D4C5A0]/80"
                   data-testid="tab-login"
                 >
-                  <LogIn className="w-3.5 h-3.5 mr-1" /> Head Gardener
+                  <LogIn className="w-3.5 h-3.5 mr-1 hidden sm:block" /> Head Gardener
                 </TabsTrigger>
                 <TabsTrigger
                   value="code"
-                  className="text-xs data-[state=active]:bg-[#D4C5A0] data-[state=active]:text-[#3a4a3a] text-[#D4C5A0]/80"
+                  className="text-[10px] sm:text-xs px-1 sm:px-3 data-[state=active]:bg-[#D4C5A0] data-[state=active]:text-[#3a4a3a] text-[#D4C5A0]/80"
                   data-testid="tab-code"
                 >
-                  <KeyRound className="w-3.5 h-3.5 mr-1" /> Leaf Login
+                  <KeyRound className="w-3.5 h-3.5 mr-1 hidden sm:block" /> Leaf Login
                 </TabsTrigger>
                 <TabsTrigger
                   value="steepin"
-                  className="text-xs data-[state=active]:bg-[#D4C5A0] data-[state=active]:text-[#3a4a3a] text-[#D4C5A0]/80"
+                  className="text-[10px] sm:text-xs px-1 sm:px-3 data-[state=active]:bg-[#D4C5A0] data-[state=active]:text-[#3a4a3a] text-[#D4C5A0]/80"
                   data-testid="tab-steepin"
                 >
-                  <Monitor className="w-3.5 h-3.5 mr-1" /> SteepIn
+                  <Monitor className="w-3.5 h-3.5 mr-1 hidden sm:block" /> SteepIn
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="login" className="space-y-4">
-                <p className="text-sm" style={{ color: "#d4d4c0" }}>Sign in with your admin or manager credentials.</p>
+                <p className="text-sm" style={{ color: "#d4d4c0" }}>Sign in with your manager credentials.</p>
                 <form onSubmit={handleLogin} className="space-y-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="username" style={labelStyle}>Username</Label>
@@ -895,14 +914,14 @@ export default function LoginPage() {
 
               <TabsContent value="steepin" className="space-y-4">
                 <p className="text-sm" style={{ color: "#d4d4c0" }}>
-                  Sign in with manager or admin credentials to launch the SteepIn mode for employee time tracking.
+                  Sign in with manager credentials to launch the SteepIn mode for employee time tracking.
                 </p>
                 <form onSubmit={handleSteepInLogin} className="space-y-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="steepin-username" style={labelStyle}>Username</Label>
                     <Input
                       id="steepin-username"
-                      placeholder="Manager or admin username"
+                      placeholder="Manager username"
                       value={steepinForm.username}
                       onChange={(e) => setSteepinForm({ ...steepinForm, username: e.target.value })}
                       required
