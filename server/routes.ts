@@ -1330,6 +1330,21 @@ export async function registerRoutes(
     res.json(response);
   });
 
+  router.get("/api/settings/steepin-theme", requireAuth, async (req, res) => {
+    const accountId = req.session.userId!;
+    const result = await pool.query(
+      `SELECT steepin_theme_mode, steepin_day_start_hour, steepin_night_start_hour
+       FROM accounts WHERE id = $1`,
+      [accountId],
+    );
+    const row = result.rows[0];
+    res.json({
+      mode: row?.steepin_theme_mode || "light",
+      dayStartHour: row?.steepin_day_start_hour ?? 7,
+      nightStartHour: row?.steepin_night_start_hour ?? 19,
+    });
+  });
+
   router.patch("/api/settings/steepin-theme", requireRole("admin", "manager"), async (req, res) => {
     const { mode, dayStartHour, nightStartHour } = req.body;
     const accountId = req.session.userId!;

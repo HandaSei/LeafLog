@@ -186,17 +186,13 @@ export default function SettingsPage() {
           setThemeLoaded(true);
         }
       } catch {}
-      const res = await apiRequest("GET", "/api/bootstrap");
-      const data = await res.json();
-      if (data.steepinThemeSettings) {
-        const s = data.steepinThemeSettings;
-        setThemeMode(s.mode || "light");
-        setDayStartHour(s.dayStartHour ?? 7);
-        setNightStartHour(s.nightStartHour ?? 19);
-        setThemeLoaded(true);
-        return s;
-      }
-      return { mode: "light", dayStartHour: 7, nightStartHour: 19 };
+      const res = await apiRequest("GET", "/api/settings/steepin-theme");
+      const s = await res.json();
+      setThemeMode(s.mode || "light");
+      setDayStartHour(s.dayStartHour ?? 7);
+      setNightStartHour(s.nightStartHour ?? 19);
+      setThemeLoaded(true);
+      return s;
     },
   });
 

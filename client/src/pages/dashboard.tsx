@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format, differenceInMinutes, parseISO } from "date-fns";
 import type { Shift, Employee } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -434,10 +435,6 @@ interface FlowRow {
 export default function Dashboard() {
   const [, setLocation] = useLocation();
 
-  const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
-    queryKey: ["/api/shifts"],
-  });
-
   const { data: employees = [], isLoading: employeesLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
   });
@@ -450,6 +447,14 @@ export default function Dashboard() {
     }, 60000);
     return () => clearInterval(id);
   }, []);
+
+  const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
+    queryKey: ["/api/shifts", todayStr],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/shifts?from=${todayStr}&to=${todayStr}`);
+      return res.json();
+    },
+  });
 
   const { data: breakPolicy } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({ queryKey: ["/api/settings/break-policy"] });
   const accountPaidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;

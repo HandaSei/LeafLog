@@ -12,7 +12,6 @@ import { MobileHeader, MobileBottomNav } from "@/components/mobile-nav";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBoundary } from "@/components/error-boundary";
-import SteepInPage from "@/pages/steepin";
 const LoginPage = lazy(() => import("@/pages/login"));
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -22,11 +21,28 @@ const Timesheets = lazy(() => import("@/pages/timesheets"));
 const Settings = lazy(() => import("@/pages/settings"));
 const AdminPage = lazy(() => import("@/pages/admin"));
 const NotFound = lazy(() => import("@/pages/not-found"));
+const SteepInPage = lazy(() => import("@/pages/steepin"));
 
 function PageFallback() {
   return (
     <div className="flex items-center justify-center h-full p-8">
       <Skeleton className="w-full max-w-2xl h-[400px] rounded-md" />
+    </div>
+  );
+}
+
+function SteepInFallback() {
+  return (
+    <div className="min-h-screen relative overflow-hidden" style={{ backgroundColor: "#F0EDE6" }}>
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage: "url('/steepin-bg-watercolor.webp')",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+        }}
+      />
     </div>
   );
 }
@@ -97,17 +113,21 @@ function AppContent() {
 
   if (isSteepIn) {
     return (
-      <Switch>
-        <Route path="/SteepIn" component={SteepInPage} />
-        <Route><Redirect to="/SteepIn" /></Route>
-      </Switch>
+      <Suspense fallback={<SteepInFallback />}>
+        <Switch>
+          <Route path="/SteepIn" component={SteepInPage} />
+          <Route><Redirect to="/SteepIn" /></Route>
+        </Switch>
+      </Suspense>
     );
   }
 
   return (
     <Switch>
       <Route path="/SteepIn">
-        <SteepInPage />
+        <Suspense fallback={<SteepInFallback />}>
+          <SteepInPage />
+        </Suspense>
       </Route>
       <Route path="/login">
         <Suspense fallback={<PageFallback />}>
