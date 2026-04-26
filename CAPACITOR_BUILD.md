@@ -44,7 +44,7 @@ npm install
 
 ### Step 3: Set your production URL
 
-Open the file `.env.android` in a text editor (Notepad is fine).
+Copy `.env.android.example` to `.env.android`, then open `.env.android` in a text editor (Notepad is fine).
 Replace the placeholder with your actual deployed Replit URL:
 
 ```

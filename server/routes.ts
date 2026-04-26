@@ -10,6 +10,17 @@ import { addSSEClient, removeSSEClient, broadcastEntryUpdate } from "./sse";
 
 const autoCloseCache = new Map<number, number>();
 const AUTO_CLOSE_CACHE_TTL_MS = 2 * 60 * 1000;
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function getDateRangeQuery(req: any) {
+  const from = typeof req.query.from === "string" ? req.query.from : undefined;
+  const to = typeof req.query.to === "string" ? req.query.to : undefined;
+  if (!from && !to) return null;
+  if (!from || !to || !DATE_ONLY_RE.test(from) || !DATE_ONLY_RE.test(to) || from > to) {
+    return { error: "Valid from and to dates are required" } as const;
+  }
+  return { from, to } as const;
+}
 
 async function autoCloseStaleSession(employeeId: number): Promise<void> {
   const cacheNow = Date.now();
@@ -140,6 +151,12 @@ export async function registerRoutes(
   // === SHIFTS ===
   router.get("/api/shifts", requireAuth, async (req, res) => {
     const ownerAccountId = req.session.userId!;
+    const range = getDateRangeQuery(req);
+    if (range && "error" in range) return res.status(400).json({ message: range.error });
+    if (range) {
+      const shifts = await storage.getShiftsByDateRange(ownerAccountId, range.from, range.to);
+      return res.json(shifts);
+    }
     const allShifts = await storage.getShifts(ownerAccountId);
     res.json(allShifts);
   });
@@ -353,6 +370,12 @@ export async function registerRoutes(
     const ownerAccountId = req.session.userId!;
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
     const date = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const range = getDateRangeQuery(req);
+    if (range && "error" in range) return res.status(400).json({ message: range.error });
+    if (range) {
+      const entries = await storage.getTimeEntriesByDateRange(ownerAccountId, range.from, range.to, employeeId);
+      return res.json(entries);
+    }
     if (employeeId && date) {
       const entries = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
       return res.json(entries);

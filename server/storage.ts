@@ -1,4 +1,4 @@
-import { eq, and, gt, desc, inArray, gte, asc } from "drizzle-orm";
+import { eq, and, gt, desc, inArray, gte, lte, asc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
@@ -43,6 +43,20 @@ if (isNeon) {
 }
 const db = drizzle(pool);
 
+function mapTimeEntryRow(row: any): TimeEntry {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    type: row.type,
+    timestamp: row.timestamp,
+    date: row.entry_date,
+    role: row.role ?? null,
+    notes: row.notes ?? null,
+    isUnpaid: row.is_unpaid ?? false,
+    source: row.source ?? "employee",
+  };
+}
+
 export interface IStorage {
   getEmployees(ownerAccountId?: number): Promise<Employee[]>;
   getEmployee(id: number): Promise<Employee | undefined>;
@@ -51,6 +65,7 @@ export interface IStorage {
   deleteEmployee(id: number): Promise<void>;
 
   getShifts(ownerAccountId?: number): Promise<Shift[]>;
+  getShiftsByDateRange(ownerAccountId: number | undefined, from: string, to: string): Promise<Shift[]>;
   getShift(id: number): Promise<Shift | undefined>;
   getShiftsByEmployee(employeeId: number): Promise<Shift[]>;
   getShiftsByEmployeeAndDate(employeeId: number, date: string): Promise<Shift[]>;
@@ -76,6 +91,7 @@ export interface IStorage {
   createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null, notes?: string | null, isUnpaid?: boolean, source?: string): Promise<TimeEntry>;
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
   getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
+  getTimeEntriesByDateRange(ownerAccountId: number | undefined, from: string, to: string, employeeId?: number): Promise<TimeEntry[]>;
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
   getOpenSessionDate(employeeId: number): Promise<string | null>;
   getOpenSessionEntries(ownerAccountId: number): Promise<TimeEntry[]>;
@@ -206,6 +222,19 @@ export class DatabaseStorage implements IStorage {
       return db.select().from(shifts).where(inArray(shifts.employeeId, empIds));
     }
     return db.select().from(shifts);
+  }
+
+  async getShiftsByDateRange(ownerAccountId: number | undefined, from: string, to: string): Promise<Shift[]> {
+    if (ownerAccountId) {
+      const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
+      if (empIds.length === 0) return [];
+      return db.select().from(shifts).where(
+        and(inArray(shifts.employeeId, empIds), gte(shifts.date, from), lte(shifts.date, to))
+      ).orderBy(asc(shifts.date), asc(shifts.startTime));
+    }
+    return db.select().from(shifts).where(
+      and(gte(shifts.date, from), lte(shifts.date, to))
+    ).orderBy(asc(shifts.date), asc(shifts.startTime));
   }
 
   async getShift(id: number): Promise<Shift | undefined> {
@@ -395,6 +424,30 @@ export class DatabaseStorage implements IStorage {
       isUnpaid: row.is_unpaid ?? false,
       source: row.source ?? "employee",
     }));
+  }
+
+  async getTimeEntriesByDateRange(ownerAccountId: number | undefined, from: string, to: string, employeeId?: number): Promise<TimeEntry[]> {
+    const params: any[] = [from, to];
+    const clauses = ["entry_date >= $1", "entry_date <= $2"];
+
+    if (employeeId) {
+      params.push(employeeId);
+      clauses.push(`employee_id = $${params.length}`);
+    }
+
+    if (ownerAccountId) {
+      params.push(ownerAccountId);
+      clauses.push(`employee_id IN (SELECT id FROM employees WHERE owner_account_id = $${params.length})`);
+    }
+
+    const result = await pool.query(
+      `SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source
+       FROM time_entries
+       WHERE ${clauses.join(" AND ")}
+       ORDER BY timestamp`,
+      params
+    );
+    return result.rows.map(mapTimeEntryRow);
   }
 
   async getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]> {

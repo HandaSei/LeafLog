@@ -4,3 +4,10 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+.env
+.env.*
+!.env.example
+!.env.android.example
+android/local.properties
+android/app/build
+android/.gradle

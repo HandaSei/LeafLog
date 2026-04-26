@@ -2,7 +2,14 @@ import { storage, pool } from "./storage";
 import { format, addDays } from "date-fns";
 import bcrypt from "bcryptjs";
 
-async function runMigrations() {
+async function createIndexIfTableExists(tableName: string, createIndexSql: string) {
+  const result = await pool.query("SELECT to_regclass($1) as table_name", [`public.${tableName}`]);
+  if (result.rows[0]?.table_name) {
+    await pool.query(createIndexSql);
+  }
+}
+
+export async function runMigrations() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS feedback (
       id integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
@@ -28,6 +35,14 @@ async function runMigrations() {
     UPDATE accounts SET role = 'admin'
     WHERE agency_name = 'LeafLog' AND role = 'manager'
   `);
+  await createIndexIfTableExists("employees", `CREATE INDEX IF NOT EXISTS employees_owner_status_idx ON employees (owner_account_id, status)`);
+  await createIndexIfTableExists("shifts", `CREATE INDEX IF NOT EXISTS shifts_employee_date_idx ON shifts (employee_id, date)`);
+  await createIndexIfTableExists("time_entries", `CREATE INDEX IF NOT EXISTS time_entries_employee_date_timestamp_idx ON time_entries (employee_id, entry_date, timestamp)`);
+  await createIndexIfTableExists("time_entries", `CREATE INDEX IF NOT EXISTS time_entries_employee_timestamp_idx ON time_entries (employee_id, timestamp)`);
+  await createIndexIfTableExists("approval_requests", `CREATE INDEX IF NOT EXISTS approval_requests_owner_status_created_idx ON approval_requests (owner_account_id, status, created_at DESC)`);
+  await createIndexIfTableExists("approval_requests", `CREATE INDEX IF NOT EXISTS approval_requests_employee_date_created_idx ON approval_requests (employee_id, entry_date, created_at DESC)`);
+  await createIndexIfTableExists("notifications", `CREATE INDEX IF NOT EXISTS notifications_account_read_created_idx ON notifications (account_id, read, created_at DESC)`);
+  await createIndexIfTableExists("kiosk_devices", `CREATE INDEX IF NOT EXISTS kiosk_devices_owner_device_idx ON kiosk_devices (owner_account_id, device_id)`);
 }
 
 const EMPLOYEE_DATA = [
@@ -51,8 +66,6 @@ const SHIFT_TEMPLATES = [
 ];
 
 export async function seedDatabase() {
-  await runMigrations();
-
   const anyAccounts = await storage.hasAnyManagers();
   if (anyAccounts) return;
 

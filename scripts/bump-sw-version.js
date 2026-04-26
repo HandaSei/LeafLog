@@ -11,15 +11,29 @@ function bumpSwVersion() {
   try {
     const content = fs.readFileSync(SW_PATH, "utf8");
     const now = new Date();
-    const version = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+    const version = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+      String(now.getHours()).padStart(2, "0"),
+      String(now.getMinutes()).padStart(2, "0"),
+      String(now.getSeconds()).padStart(2, "0"),
+    ].join("");
+    const pattern = /const CACHE_NAME = 'leaflog-cache-v\d+'/;
+
+    if (!pattern.test(content)) {
+      console.log("SW version not updated (pattern not found)");
+      return;
+    }
+
     const newContent = content.replace(
-      /const CACHE_NAME = 'leaflog-cache-v\d+'/,
+      pattern,
       `const CACHE_NAME = 'leaflog-cache-v${version}'`
     );
 
     if (content === newContent) {
-      console.log("SW version not updated (pattern not found)");
-      process.exit(1);
+      console.log("SW version already current");
+      return;
     }
 
     fs.writeFileSync(SW_PATH, newContent);

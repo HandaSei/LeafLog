@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileHeader, MobileBottomNav } from "@/components/mobile-nav";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorBoundary } from "@/components/error-boundary";
 const LoginPage = lazy(() => import("@/pages/login"));
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -140,9 +141,11 @@ function App() {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <AuthProvider>
-            <AppContent />
-          </AuthProvider>
+          <ErrorBoundary>
+            <AuthProvider>
+              <AppContent />
+            </AuthProvider>
+          </ErrorBoundary>
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>

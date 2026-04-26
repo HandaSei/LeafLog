@@ -74,6 +74,8 @@ export default function Schedule() {
   }, [currentDate]);
 
   const days = useMemo(() => getDaysBetween(dateRange.start, dateRange.end), [dateRange]);
+  const shiftsFrom = format(dateRange.start, "yyyy-MM-dd");
+  const shiftsTo = format(dateRange.end, "yyyy-MM-dd");
 
   useEffect(() => {
     const todayIdx = days.findIndex((d) => isToday(d));
@@ -84,7 +86,7 @@ export default function Schedule() {
   const selectedDateStr = format(selectedDay, "yyyy-MM-dd");
 
   const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
-    queryKey: ["/api/shifts"],
+    queryKey: [`/api/shifts?from=${shiftsFrom}&to=${shiftsTo}`],
   });
 
   const { data: employees = [], isLoading: employeesLoading } = useQuery<Employee[]>({
@@ -640,7 +642,12 @@ function SchedulePdfDialog({ open, onOpenChange, shifts, employees, defaultStart
         return;
       }
 
-      await exportSchedulePDF(rangeStart, rangeEnd, shifts, employees, targetIds, customRoles);
+      const rangeFrom = format(rangeStart, "yyyy-MM-dd");
+      const rangeTo = format(rangeEnd, "yyyy-MM-dd");
+      const res = await apiRequest("GET", `/api/shifts?from=${rangeFrom}&to=${rangeTo}`);
+      const shiftsForExport = await res.json();
+
+      await exportSchedulePDF(rangeStart, rangeEnd, shiftsForExport, employees, targetIds, customRoles);
       onOpenChange(false);
       toast({ title: "PDF downloaded", description: "Schedule PDF has been saved." });
     } catch (err: any) {

@@ -786,10 +786,14 @@ export default function Timesheets() {
   const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
   const weekDays = useMemo(() => eachDayOfInterval({ start: selectedWeek, end: weekEnd }), [selectedWeek]);
   const monthEnd = useMemo(() => endOfMonth(selectedMonth), [selectedMonth]);
+  const entriesFrom = format(addDays(viewMode === "week" ? selectedWeek : selectedMonth, -1), "yyyy-MM-dd");
+  const entriesTo = format(addDays(viewMode === "week" ? weekEnd : monthEnd, 1), "yyyy-MM-dd");
 
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
   const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({ queryKey: ["/api/steepin/entries"] });
+  const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
+    queryKey: [`/api/steepin/entries?from=${entriesFrom}&to=${entriesTo}`],
+  });
   const { data: breakPolicy } = useQuery<{ paidBreakMinutes: number | null; maxBreakMinutes: number | null }>({ queryKey: ["/api/settings/break-policy"] });
   const paidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
   const { data: approvalRequests = [] } = useQuery<ApprovalRequest[]>({ queryKey: ["/api/approval-requests"] });
@@ -1522,15 +1526,22 @@ export default function Timesheets() {
     try {
       const start = new Date(exportStartDate);
       const end = new Date(exportEndDate);
+      const startStr = format(start, "yyyy-MM-dd");
+      const endStr = format(end, "yyyy-MM-dd");
+      const queryStartStr = format(addDays(start, -1), "yyyy-MM-dd");
+      const queryEndStr = format(addDays(end, 1), "yyyy-MM-dd");
       const rangeLabel = `Period: ${format(start, "MMM d, yyyy")} – ${format(end, "MMM d, yyyy")}`;
+
+      const entriesRes = await apiRequest("GET", `/api/steepin/entries?from=${queryStartStr}&to=${queryEndStr}`);
+      const exportEntries = normalizeEntryDates(await entriesRes.json());
 
       let shiftsData: Shift[] | undefined;
       if (exportShowScheduled) {
-        const res = await fetch("/api/shifts", { credentials: "include" });
-        if (res.ok) shiftsData = await res.json();
+        const res = await apiRequest("GET", `/api/shifts?from=${startStr}&to=${endStr}`);
+        shiftsData = await res.json();
       }
 
-      await exportPDF(start, end, rangeLabel, normalizedEntries, employees, exportSelectedEmployeeIds, paidBreakMinutes, {
+      await exportPDF(start, end, rangeLabel, exportEntries, employees, exportSelectedEmployeeIds, paidBreakMinutes, {
         showScheduledComparison: exportShowScheduled,
         shifts: shiftsData,
       });
