@@ -440,6 +440,13 @@ export default function SteepInPage() {
   }, [themeSettings]);
 
   const t = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
+  const [softenInitialPaint, setSoftenInitialPaint] = useState(true);
+  const initialPaintClass = softenInitialPaint ? " steepin-initial-appear" : "";
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setSoftenInitialPaint(false), 220);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   const user = authState?.user;
   const isActive = !!authState?.authenticated && !!authState?.steepinMode;
@@ -1070,7 +1077,7 @@ export default function SteepInPage() {
 
   if (selectedEmployee) {
     return (
-      <div className="h-screen flex flex-col font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
+      <div className={`h-screen flex flex-col font-serif relative overflow-hidden${initialPaintClass}`} style={{ backgroundColor: t.bg }}>
         <BackgroundVector isDark={isDark} />
 
         <header className="flex items-center justify-between gap-3 pt-3 pb-2 px-6 relative z-10 shrink-0">
@@ -1329,7 +1336,7 @@ export default function SteepInPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col font-serif relative overflow-hidden" style={{ backgroundColor: t.bg }}>
+    <div className={`h-screen flex flex-col font-serif relative overflow-hidden${initialPaintClass}`} style={{ backgroundColor: t.bg }}>
       <BackgroundVector isDark={isDark} />
       
       {((!isOnline || pendingCount > 0) || !deviceLocked) && (
