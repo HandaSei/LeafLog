@@ -451,19 +451,19 @@ async function exportPDF(
 
   const drawEmpHeader = (empName: string, effectivePaidBreak: number | null | undefined) => {
     const hasPaidBreakNote = effectivePaidBreak != null && effectivePaidBreak > 0;
-    doc.setFontSize(11);
+    doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...TEA);
     doc.text("Timesheet", pageMargin, 10);
-    doc.setFontSize(7.5);
+    doc.setFontSize(9.5);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...MUTED);
     doc.text(rangeLabel, pageWidth - pageMargin, 10, { align: "right" });
     if (hasPaidBreakNote) {
-      doc.setFontSize(7);
+      doc.setFontSize(8.5);
       doc.text(`Break policy: ${effectivePaidBreak} min paid; excess is unpaid.`, pageMargin, 15);
     }
-    doc.setFontSize(9.5);
+    doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...INK);
     doc.text(empName, pageMargin, hasPaidBreakNote ? 21 : 16);
@@ -471,11 +471,11 @@ async function exportPDF(
   };
 
   const drawContinuationHeader = (empName: string) => {
-    doc.setFontSize(7.5);
+    doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...MUTED);
     doc.text(`Timesheet - ${rangeLabel}`, pageMargin, 8);
-    doc.setFontSize(9);
+    doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...INK);
     doc.text(`${empName} - continued`, pageMargin, 13);
@@ -628,15 +628,15 @@ async function exportPDF(
     let empSheetCount = 0;
 
     autoTable(doc, {
-      startY: hasPaidBreakNote ? 25 : 20,
-      margin: { top: 17, right: pageMargin, bottom: 8, left: pageMargin },
+      startY: hasPaidBreakNote ? 32 : 26,
+      margin: { top: 22, right: pageMargin, bottom: 8, left: pageMargin },
       head,
       body: rows,
       foot: [footerCells],
       showFoot: "lastPage",
-      headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 7.8, lineWidth: 0.1, lineColor: [135, 162, 135] },
-      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.8, lineWidth: 0.1, lineColor: LINE },
-      styles: { fontSize: 7.8, cellPadding: { top: 1.25, right: 1.5, bottom: 1.25, left: 1.5 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
+      headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 10, lineWidth: 0.1, lineColor: [135, 162, 135] },
+      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 10, lineWidth: 0.1, lineColor: LINE },
+      styles: { fontSize: 10, cellPadding: { top: 1.7, right: 1.8, bottom: 1.7, left: 1.8 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
       columnStyles: timesheetColumnStyles,
       tableWidth: reportTableWidth,
       didDrawPage: () => {
@@ -653,7 +653,7 @@ async function exportPDF(
     if (empSheetCount > 1) {
       empRenderedPages.forEach((pageNum, idx) => {
         doc.setPage(pageNum);
-        doc.setFontSize(8);
+        doc.setFontSize(9);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...MUTED);
         doc.text(`Sheet ${idx + 1} of ${empSheetCount}`, pageWidth - pageMargin, 8, { align: "right" });
@@ -677,11 +677,11 @@ async function exportPDF(
   if (selectedEmps.length > 1) {
     doc.addPage("a4", "portrait");
 
-    doc.setFontSize(11);
+    doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...TEA);
     doc.text("Timesheet Summary", pageMargin, 10);
-    doc.setFontSize(7.5);
+    doc.setFontSize(9.5);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...MUTED);
     doc.text(rangeLabel, pageWidth - pageMargin, 10, { align: "right" });
@@ -735,9 +735,9 @@ async function exportPDF(
       head: summaryHead,
       body: summaryRows,
       foot: summaryFoot,
-      headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: [135, 162, 135] },
-      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: LINE },
-      styles: { fontSize: 7.5, cellPadding: { top: 1.2, right: 1.5, bottom: 1.2, left: 1.5 }, lineWidth: 0.1, lineColor: LINE, valign: "middle" },
+      headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 9.8, lineWidth: 0.1, lineColor: [135, 162, 135] },
+      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 9.8, lineWidth: 0.1, lineColor: LINE },
+      styles: { fontSize: 9.8, cellPadding: { top: 1.6, right: 1.8, bottom: 1.6, left: 1.8 }, lineWidth: 0.1, lineColor: LINE, valign: "middle" },
       columnStyles: summaryColumnStyles,
       tableWidth: summaryTableWidth,
     });
