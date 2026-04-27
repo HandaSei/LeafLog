@@ -112,8 +112,7 @@ export default function SettingsPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/backups"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/timesheets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
       setConfirmRestoreId(null);
       toast({ title: "Backup restored", description: `${data.restored} time entries have been restored.` });
     },

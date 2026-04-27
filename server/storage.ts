@@ -69,6 +69,7 @@ export interface IStorage {
   getShift(id: number): Promise<Shift | undefined>;
   getShiftsByEmployee(employeeId: number): Promise<Shift[]>;
   getShiftsByEmployeeAndDate(employeeId: number, date: string): Promise<Shift[]>;
+  getShiftsByEmployeeAndDateRange(employeeId: number, from: string, to: string): Promise<Shift[]>;
   createShift(data: any): Promise<Shift>;
   updateShift(id: number, data: any): Promise<Shift | undefined>;
   deleteShift(id: number): Promise<void>;
@@ -250,6 +251,12 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(shifts).where(
       and(eq(shifts.employeeId, employeeId), eq(shifts.date, date))
     );
+  }
+
+  async getShiftsByEmployeeAndDateRange(employeeId: number, from: string, to: string): Promise<Shift[]> {
+    return db.select().from(shifts).where(
+      and(eq(shifts.employeeId, employeeId), gte(shifts.date, from), lte(shifts.date, to))
+    ).orderBy(asc(shifts.date), asc(shifts.startTime));
   }
 
   async updateEmployeeColorsByRole(roleName: string, color: string, ownerAccountId: number): Promise<void> {
@@ -522,44 +529,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOpenSessionEntries(ownerAccountId: number): Promise<TimeEntry[]> {
-    const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
-    if (empIds.length === 0) return [];
-    const placeholders = empIds.map((_, i) => `$${i + 1}`).join(',');
-    // For each employee, find the date of their recent open session (clock-in within 24h without subsequent clock-out)
-    // then return all entries for that date
     const result = await pool.query(
-      `SELECT t.id, t.employee_id, t.type, t.timestamp, t.entry_date::text, t.role, t.notes, t.is_unpaid, t.source
+      `WITH owner_employees AS (
+         SELECT id FROM employees WHERE owner_account_id = $1
+       ),
+       open_dates AS (
+         SELECT DISTINCT ON (t2.employee_id) t2.employee_id, t2.entry_date
+         FROM time_entries t2
+         JOIN owner_employees oe ON oe.id = t2.employee_id
+         WHERE t2.type = 'clock-in'
+           AND t2.timestamp > NOW() - INTERVAL '24 hours'
+           AND NOT EXISTS (
+             SELECT 1 FROM time_entries t3
+             WHERE t3.employee_id = t2.employee_id
+               AND t3.entry_date = t2.entry_date
+               AND t3.type = 'clock-out'
+               AND t3.timestamp > t2.timestamp
+           )
+         ORDER BY t2.employee_id, t2.entry_date DESC, t2.timestamp DESC
+       )
+       SELECT t.id, t.employee_id, t.type, t.timestamp, t.entry_date::text, t.role, t.notes, t.is_unpaid, t.source
        FROM time_entries t
-       WHERE t.employee_id IN (${placeholders})
-         AND t.entry_date = (
-           SELECT t2.entry_date FROM time_entries t2
-           WHERE t2.employee_id = t.employee_id
-             AND t2.type = 'clock-in'
-             AND t2.timestamp > NOW() - INTERVAL '24 hours'
-             AND NOT EXISTS (
-               SELECT 1 FROM time_entries t3
-               WHERE t3.employee_id = t.employee_id
-                 AND t3.entry_date = t2.entry_date
-                 AND t3.type = 'clock-out'
-                 AND t3.timestamp > t2.timestamp
-             )
-           ORDER BY t2.entry_date DESC, t2.timestamp DESC
-           LIMIT 1
-         )
+       JOIN open_dates od ON od.employee_id = t.employee_id AND od.entry_date = t.entry_date
        ORDER BY t.timestamp`,
-      [...empIds]
+      [ownerAccountId]
     );
-    return result.rows.map((row: any) => ({
-      id: row.id,
-      employeeId: row.employee_id,
-      type: row.type,
-      timestamp: row.timestamp,
-      date: row.entry_date,
-      role: row.role ?? null,
-      notes: row.notes ?? null,
-      isUnpaid: row.is_unpaid ?? false,
-      source: row.source ?? "employee",
-    }));
+    return result.rows.map(mapTimeEntryRow);
   }
 
   async updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined> {

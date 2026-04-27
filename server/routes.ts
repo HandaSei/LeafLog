@@ -22,6 +22,10 @@ function getDateRangeQuery(req: any) {
   return { from, to } as const;
 }
 
+function toDateOnly(value: string | Date): string {
+  return value instanceof Date ? format(value, "yyyy-MM-dd") : value.substring(0, 10);
+}
+
 async function autoCloseStaleSession(employeeId: number): Promise<void> {
   const cacheNow = Date.now();
   const lastCheck = autoCloseCache.get(employeeId);
@@ -172,17 +176,29 @@ export async function registerRoutes(
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
     }
-    const emp = await storage.getEmployee(parsed.data.employeeId);
+    const shiftData = parsed.data as {
+      employeeId: number;
+      date: string;
+      startTime: string;
+      endTime: string;
+      [key: string]: any;
+    };
+    const emp = await storage.getEmployee(shiftData.employeeId);
     if (!emp || emp.ownerAccountId !== req.session.userId) {
       return res.status(403).json({ message: "Access denied" });
     }
-    const existingShifts = await storage.getShiftsByEmployeeAndDate(parsed.data.employeeId, parsed.data.date);
     const toMinutes = (t: string) => {
       const [h, m] = t.split(":").map(Number);
       return h * 60 + m;
     };
-    const newStart = toMinutes(parsed.data.startTime);
-    const newEnd = toMinutes(parsed.data.endTime);
+    const currentDate = shiftData.date;
+    const prevDateStr = format(subDays(parseISO(currentDate), 1), "yyyy-MM-dd");
+    const nextDateStr = format(addDays(parseISO(currentDate), 1), "yyyy-MM-dd");
+    const nearbyShifts = await storage.getShiftsByEmployeeAndDateRange(shiftData.employeeId, prevDateStr, nextDateStr);
+    const shiftsOnDate = (date: string) => nearbyShifts.filter((s) => toDateOnly(s.date) === date);
+    const existingShifts = shiftsOnDate(currentDate);
+    const newStart = toMinutes(shiftData.startTime);
+    const newEnd = toMinutes(shiftData.endTime);
     const newEndAdj = newEnd <= newStart ? newEnd + 1440 : newEnd;
     const excludeId = req.body.excludeId ? Number(req.body.excludeId) : undefined;
     const conflict = existingShifts.find((s) => {
@@ -196,8 +212,7 @@ export async function registerRoutes(
       return res.status(409).json({ message: `This shift overlaps with an existing shift (${conflict.startTime.slice(0,5)}–${conflict.endTime.slice(0,5)}) for this employee.` });
     }
     // Previous-day check: does an overnight shift from D-1 extend into D and overlap with this shift?
-    const prevDateStr = format(subDays(parseISO(parsed.data.date), 1), "yyyy-MM-dd");
-    const prevShifts = await storage.getShiftsByEmployeeAndDate(parsed.data.employeeId, prevDateStr);
+    const prevShifts = shiftsOnDate(prevDateStr);
     const prevConflict = prevShifts.find((s) => {
       const sStart = toMinutes(s.startTime);
       const sEnd = toMinutes(s.endTime);
@@ -210,8 +225,7 @@ export async function registerRoutes(
     }
     // Next-day check: only needed when new shift is itself overnight
     if (newEnd <= newStart) {
-      const nextDateStr = format(addDays(parseISO(parsed.data.date), 1), "yyyy-MM-dd");
-      const nextShifts = await storage.getShiftsByEmployeeAndDate(parsed.data.employeeId, nextDateStr);
+      const nextShifts = shiftsOnDate(nextDateStr);
       const nextConflict = nextShifts.find((s) => {
         if (excludeId && s.id === excludeId) return false;
         const sStart = toMinutes(s.startTime);
@@ -242,7 +256,7 @@ export async function registerRoutes(
         });
       }
     }
-    const shift = await storage.createShift(parsed.data);
+    const shift = await storage.createShift(shiftData);
     res.status(201).json(shift);
   });
 
@@ -257,12 +271,24 @@ export async function registerRoutes(
     if (!emp || emp.ownerAccountId !== req.session.userId) {
       return res.status(403).json({ message: "Access denied" });
     }
-    const employeeId = partial.data.employeeId ?? existing.employeeId;
-    const date = partial.data.date ?? existing.date;
-    const startTime = partial.data.startTime ?? existing.startTime;
-    const endTime = partial.data.endTime ?? existing.endTime;
+    const shiftPatch = partial.data as Partial<{
+      employeeId: number;
+      date: string;
+      startTime: string;
+      endTime: string;
+      [key: string]: any;
+    }>;
+    const employeeId = shiftPatch.employeeId ?? existing.employeeId;
+    const date = shiftPatch.date ?? existing.date;
+    const startTime = shiftPatch.startTime ?? existing.startTime;
+    const endTime = shiftPatch.endTime ?? existing.endTime;
     const toMinutes = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
-    const existingShifts = await storage.getShiftsByEmployeeAndDate(employeeId, date);
+    const currentDate = toDateOnly(date);
+    const prevDateStr2 = format(subDays(parseISO(currentDate), 1), "yyyy-MM-dd");
+    const nextDateStr2 = format(addDays(parseISO(currentDate), 1), "yyyy-MM-dd");
+    const nearbyShifts = await storage.getShiftsByEmployeeAndDateRange(employeeId, prevDateStr2, nextDateStr2);
+    const shiftsOnDate = (date: string) => nearbyShifts.filter((s) => toDateOnly(s.date) === date);
+    const existingShifts = shiftsOnDate(currentDate);
     const newStart = toMinutes(startTime);
     const newEnd = toMinutes(endTime);
     const newEndAdj = newEnd <= newStart ? newEnd + 1440 : newEnd;
@@ -277,8 +303,7 @@ export async function registerRoutes(
       return res.status(409).json({ message: `This shift overlaps with an existing shift (${conflict.startTime.slice(0,5)}–${conflict.endTime.slice(0,5)}) for this employee.` });
     }
     // Previous-day check: does an overnight shift from D-1 extend into D and overlap?
-    const prevDateStr2 = format(subDays(parseISO(date), 1), "yyyy-MM-dd");
-    const prevShifts2 = await storage.getShiftsByEmployeeAndDate(employeeId, prevDateStr2);
+    const prevShifts2 = shiftsOnDate(prevDateStr2);
     const prevConflict2 = prevShifts2.find((s) => {
       if (s.id === Number(req.params.id)) return false;
       const sStart = toMinutes(s.startTime);
@@ -291,8 +316,7 @@ export async function registerRoutes(
     }
     // Next-day check: only when this shift is itself overnight
     if (newEnd <= newStart) {
-      const nextDateStr2 = format(addDays(parseISO(date), 1), "yyyy-MM-dd");
-      const nextShifts2 = await storage.getShiftsByEmployeeAndDate(employeeId, nextDateStr2);
+      const nextShifts2 = shiftsOnDate(nextDateStr2);
       const nextConflict2 = nextShifts2.find((s) => {
         if (s.id === Number(req.params.id)) return false;
         const sStart = toMinutes(s.startTime);
@@ -302,7 +326,7 @@ export async function registerRoutes(
         return res.status(409).json({ message: `This overnight shift overlaps with an existing shift on the next day (${nextConflict2.startTime.slice(0,5)}–${nextConflict2.endTime.slice(0,5)}) for this employee.` });
       }
     }
-    const shift = await storage.updateShift(Number(req.params.id), partial.data);
+    const shift = await storage.updateShift(Number(req.params.id), shiftPatch);
     res.json(shift);
   });
 

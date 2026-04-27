@@ -86,7 +86,11 @@ export default function Schedule() {
   const selectedDateStr = format(selectedDay, "yyyy-MM-dd");
 
   const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
-    queryKey: [`/api/shifts?from=${shiftsFrom}&to=${shiftsTo}`],
+    queryKey: ["/api/shifts", "range", shiftsFrom, shiftsTo],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/shifts?from=${shiftsFrom}&to=${shiftsTo}`);
+      return res.json();
+    },
   });
 
   const { data: employees = [], isLoading: employeesLoading } = useQuery<Employee[]>({

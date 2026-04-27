@@ -452,7 +452,7 @@ export default function Dashboard() {
   const yesterdayStr = useMemo(() => format(addDays(parseISO(todayStr), -1), "yyyy-MM-dd"), [todayStr]);
 
   const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
-    queryKey: ["/api/shifts", yesterdayStr, todayStr],
+    queryKey: ["/api/shifts", "range", yesterdayStr, todayStr],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/shifts?from=${yesterdayStr}&to=${todayStr}`);
       return res.json();
@@ -463,7 +463,11 @@ export default function Dashboard() {
   const accountPaidBreakMinutes = breakPolicy?.paidBreakMinutes ?? null;
 
   const { data: todayEntries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
-    queryKey: [`/api/steepin/entries?date=${todayStr}`],
+    queryKey: ["/api/steepin/entries", "date", todayStr],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/steepin/entries?date=${todayStr}`);
+      return res.json();
+    },
     refetchInterval: () => document.hidden ? false : 30000,
   });
 
