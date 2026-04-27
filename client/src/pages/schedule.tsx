@@ -783,8 +783,9 @@ async function exportSchedulePDF(
 
   const INK: [number, number, number] = [35, 35, 35];
   const MUTED: [number, number, number] = [105, 105, 105];
-  const LINE: [number, number, number] = [220, 220, 220];
-  const HEADER_BG: [number, number, number] = [245, 245, 245];
+  const LINE: [number, number, number] = [210, 224, 210];
+  const HEADER_BG: [number, number, number] = [238, 246, 238];
+  const TEA: [number, number, number] = [109, 140, 109];
 
   const doc = new jsPDF({ orientation: "portrait" });
   const pageWidth = doc.internal.pageSize.width;
@@ -817,7 +818,7 @@ async function exportSchedulePDF(
 
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...INK);
+    doc.setTextColor(...TEA);
     doc.text("Schedule", pageMargin, 10);
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "normal");
@@ -893,7 +894,7 @@ async function exportSchedulePDF(
       body: rows,
       foot: [footerCells],
       showFoot: "lastPage",
-      headStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.2, lineWidth: 0.1, lineColor: LINE },
+      headStyles: { fillColor: HEADER_BG, textColor: TEA, fontStyle: "bold", fontSize: 7.2, lineWidth: 0.1, lineColor: LINE },
       footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.3, lineWidth: 0.1, lineColor: LINE },
       styles: { fontSize: 7.2, cellPadding: { top: 1.1, right: 1.3, bottom: 1.1, left: 1.3 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
       columnStyles: {
@@ -944,7 +945,7 @@ async function exportSchedulePDF(
 
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...INK);
+    doc.setTextColor(...TEA);
     doc.text("Schedule Summary", pageMargin, 10);
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "normal");
@@ -973,7 +974,7 @@ async function exportSchedulePDF(
       head: summaryHead,
       body: summaryRows,
       foot: [summaryFooter],
-      headStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: LINE },
+      headStyles: { fillColor: HEADER_BG, textColor: TEA, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: LINE },
       footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: LINE },
       styles: { fontSize: 7.5, cellPadding: { top: 1.2, right: 1.5, bottom: 1.2, left: 1.5 }, lineWidth: 0.1, lineColor: LINE },
       columnStyles: {
