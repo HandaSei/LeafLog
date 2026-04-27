@@ -6,7 +6,6 @@ import type { Shift, Employee } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Calendar, ArrowRight, CalendarDays, CheckCircle2, Clock, AlertTriangle, XCircle, Coffee, AlertCircle, Plus } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { formatTime } from "@/lib/constants";
@@ -688,10 +687,8 @@ export default function Dashboard() {
             </Button>
           </div>
           {isLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-14 rounded-md" />
-              ))}
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              Loading today's flow...
             </div>
           ) : employees.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg bg-primary/5 border-primary/20">

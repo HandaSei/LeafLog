@@ -6,7 +6,6 @@ import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, parseISO, isToday, 
 import type { Shift, Employee, CustomRole } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -85,7 +84,7 @@ export default function Schedule() {
   const selectedDay = days[selectedDayIndex];
   const selectedDateStr = format(selectedDay, "yyyy-MM-dd");
 
-  const { data: shifts = [], isLoading: shiftsLoading } = useQuery<Shift[]>({
+  const { data: shifts = [], isLoading: shiftsLoading, isFetching: shiftsFetching } = useQuery<Shift[]>({
     queryKey: ["/api/shifts", "range", shiftsFrom, shiftsTo],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/shifts?from=${shiftsFrom}&to=${shiftsTo}`);
@@ -93,7 +92,7 @@ export default function Schedule() {
     },
   });
 
-  const { data: employees = [], isLoading: employeesLoading } = useQuery<Employee[]>({
+  const { data: employees = [], isLoading: employeesLoading, isFetching: employeesFetching } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
   });
 
@@ -145,6 +144,7 @@ export default function Schedule() {
   };
 
   const isLoading = shiftsLoading || employeesLoading;
+  const isUpdating = !isLoading && (shiftsFetching || employeesFetching);
 
   return (
     <div className="flex flex-col h-full">
@@ -204,13 +204,14 @@ export default function Schedule() {
       </div>
 
       <div className="flex-1 overflow-auto">
+        {isUpdating && (
+          <div className="border-b px-4 py-1 text-[11px] text-muted-foreground">
+            Updating schedule...
+          </div>
+        )}
         {isLoading ? (
-          <div className="p-4">
-            <div className="grid grid-cols-7 gap-2">
-              {Array.from({ length: 7 }).map((_, i) => (
-                <Skeleton key={i} className="h-32 rounded-md" />
-              ))}
-            </div>
+          <div className="flex min-h-[220px] items-center justify-center px-4 text-sm text-muted-foreground">
+            Loading schedule...
           </div>
         ) : (
           <WeekView

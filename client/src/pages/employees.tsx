@@ -7,7 +7,6 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,9 +44,10 @@ export default function Employees() {
   const [payConfigEmployee, setPayConfigEmployee] = useState<Employee | null>(null);
   const { toast } = useToast();
 
-  const { data: employees = [], isLoading } = useQuery<Employee[]>({
+  const { data: employees = [], isLoading, isFetching } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
   });
+  const isUpdating = !isLoading && isFetching;
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -139,11 +139,14 @@ export default function Employees() {
       </div>
 
       <div className="flex-1 overflow-auto p-4">
+        {isUpdating && (
+          <div className="mb-3 text-[11px] text-muted-foreground">
+            Updating employees...
+          </div>
+        )}
         {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-[140px] rounded-md" />
-            ))}
+          <div className="flex min-h-[220px] items-center justify-center text-sm text-muted-foreground">
+            Loading employees...
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-16">

@@ -49,12 +49,27 @@
         background-color: #F5F5F0;
         color: #1a1f1a;
       }
+
+      .dark {
+        --background: 100 8% 8%;
+        --foreground: 40 15% 92%;
+        --border: 100 6% 18%;
+        --card: 100 6% 11%;
+        --card-foreground: 40 15% 92%;
+        --primary: 120 12% 48%;
+        --primary-foreground: 0 0% 100%;
+        --muted: 100 5% 18%;
+        --muted-foreground: 40 8% 62%;
+        background-color: #10120f;
+        color: #ece7dc;
+      }
       
       /* Prevent flash of unstyled content */
       html, body {
         margin: 0;
         padding: 0;
         min-height: 100vh;
+        background-color: hsl(var(--background));
       }
       
       /* Critical layout styles */
@@ -64,7 +79,7 @@
     </style>
     <style>
       *, *::before, *::after { box-sizing: border-box; }
-      html, body { margin: 0; padding: 0; background-color: #F5F5F0; }
+      html, body { margin: 0; padding: 0; background-color: hsl(var(--background)); }
       #root { min-height: 100vh; }
       ._ll_steepin_shell {
         min-height: 100vh;
@@ -90,20 +105,18 @@
       ._ll_dark ._ll_dark_overlay { display: block; }
       ._ll_generic_shell {
         min-height: 100vh;
-        background-color: #F5F5F0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        background-color: hsl(var(--background));
       }
-      ._ll_generic_shell ._ll_loader {
-        width: 40px; height: 40px;
-        border: 3px solid rgba(139, 158, 139, 0.2);
-        border-top-color: #8B9E8B;
-        border-radius: 50%;
-        animation: _ll_spin 0.8s linear infinite;
-      }
-      @keyframes _ll_spin { to { transform: rotate(360deg); } }
     </style>
+    <script>
+      (function() {
+        try {
+          if (localStorage.getItem('theme') === 'dark') {
+            document.documentElement.classList.add('dark');
+          }
+        } catch(e) {}
+      })();
+    </script>
     
     <!-- Font loading detection - minimize layout shift -->
     <script>
@@ -136,9 +149,7 @@
         <div class="_ll_bg"></div>
         <div class="_ll_dark_overlay"></div>
       </div>
-      <div id="_ll_generic" class="_ll_generic_shell" style="display:none">
-        <div class="_ll_loader"></div>
-      </div>
+      <div id="_ll_generic" class="_ll_generic_shell" style="display:none"></div>
       <script>
         (function() {
           try {

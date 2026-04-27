@@ -6,7 +6,6 @@ import {
 } from "date-fns";
 import { useState, useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, FileUp, Calendar, CalendarDays, Check, AlertCircle, StickyNote, Trash2, Clock as ClockIcon, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -884,8 +883,8 @@ export default function Timesheets() {
   const entriesTo = format(addDays(viewMode === "week" ? weekEnd : monthEnd, 1), "yyyy-MM-dd");
 
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
-  const { data: employees = [], isLoading: empsLoading } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<TimeEntry[]>({
+  const { data: employees = [], isLoading: empsLoading, isFetching: empsFetching } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+  const { data: entries = [], isLoading: entriesLoading, isFetching: entriesFetching } = useQuery<TimeEntry[]>({
     queryKey: ["/api/steepin/entries", "range", entriesFrom, entriesTo],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/steepin/entries?from=${entriesFrom}&to=${entriesTo}`);
@@ -1056,6 +1055,9 @@ export default function Timesheets() {
     });
     return total;
   }, [viewMode, workdays, monthWorkdays, weekDays, indexedEntries, employees, selectedRole, employeeSearch, paidBreakMinutes]);
+
+  const isInitialTimesheetLoading = empsLoading || entriesLoading;
+  const isTimesheetUpdating = !isInitialTimesheetLoading && (empsFetching || entriesFetching);
 
   const statusConfig: Record<string, { label: string; color: string }> = {
     working: { label: "Working", color: "#10B981" },
@@ -1730,17 +1732,6 @@ export default function Timesheets() {
     );
   };
 
-  if (empsLoading || entriesLoading) {
-    return (
-      <div className="h-full overflow-auto p-6 space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-16 w-full" />
-        {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-md" />)}
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex flex-col gap-4 p-4 border-b bg-muted/20">
@@ -1828,6 +1819,11 @@ export default function Timesheets() {
       </div>
 
       <div className="p-4 space-y-4 flex-1 overflow-auto">
+        {isTimesheetUpdating && (
+          <div className="text-[11px] text-muted-foreground">
+            Updating timesheets...
+          </div>
+        )}
         <div className="flex flex-col md:flex-row gap-2">
           <div className="flex flex-col sm:flex-row gap-2 flex-1">
             <div className="flex flex-col gap-1.5 flex-1 sm:flex-none sm:w-[150px]">
@@ -1891,7 +1887,11 @@ export default function Timesheets() {
         )}
 
         <div className="space-y-3 pb-20">
-          {viewMode === "week" ? (
+          {isInitialTimesheetLoading ? (
+            <div className="flex min-h-[220px] items-center justify-center text-sm text-muted-foreground">
+              Loading timesheets...
+            </div>
+          ) : viewMode === "week" ? (
             workdays.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50 italic text-sm">
                 <Calendar className="w-8 h-8 mb-2 opacity-20" />
@@ -1946,7 +1946,7 @@ export default function Timesheets() {
         </div>
       </div>
 
-      {(viewMode === "week" ? workdays.length > 0 : monthWorkdays.length > 0) && (
+      {!isInitialTimesheetLoading && (viewMode === "week" ? workdays.length > 0 : monthWorkdays.length > 0) && (
         <div className="border-t bg-background sticky bottom-0 z-10 px-4 py-3 flex items-center justify-end gap-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <span className="text-sm text-muted-foreground">Total:</span>
           <span className="text-lg font-bold" data-testid="text-total-hours">{formatHoursDecimal(totalHours)} h</span>

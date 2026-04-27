@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -35,10 +35,54 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ROLE_COLORS } from "@/lib/constants";
 
+type SettingsTab = "management" | "account" | "aesthetic";
+
+function readCachedSteepInTheme() {
+  try {
+    const cached = localStorage.getItem("leaflog_steepin_theme");
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      return {
+        mode: parsed.mode || "light",
+        dayStartHour: parsed.dayStartHour ?? 7,
+        nightStartHour: parsed.nightStartHour ?? 19,
+      };
+    }
+  } catch {}
+  return { mode: "light", dayStartHour: 7, nightStartHour: 19 };
+}
+
+function useDeferredSettingsQueries() {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    const win = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const hasIdleCallback = typeof win.requestIdleCallback === "function";
+    const task = hasIdleCallback
+      ? win.requestIdleCallback!(() => setEnabled(true), { timeout: 1500 })
+      : window.setTimeout(() => setEnabled(true), 450);
+
+    return () => {
+      if (hasIdleCallback && win.cancelIdleCallback) {
+        win.cancelIdleCallback(task);
+      } else {
+        window.clearTimeout(task);
+      }
+    };
+  }, []);
+
+  return enabled;
+}
+
 export default function SettingsPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const deferredSettingsQueriesEnabled = useDeferredSettingsQueries();
+  const [activeTab, setActiveTab] = useState<SettingsTab>("management");
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleColor, setNewRoleColor] = useState(ROLE_COLORS[0]);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -67,12 +111,12 @@ export default function SettingsPage() {
   } | null>(null);
   const [renamingDeviceId, setRenamingDeviceId] = useState<number | null>(null);
   const [renameDeviceValue, setRenameDeviceValue] = useState("");
-  const [themeMode, setThemeMode] = useState<string>("light");
-  const [dayStartHour, setDayStartHour] = useState<number>(7);
-  const [nightStartHour, setNightStartHour] = useState<number>(19);
-  const [themeLoaded, setThemeLoaded] = useState(false);
+  const [themeMode, setThemeMode] = useState<string>(() => readCachedSteepInTheme().mode);
+  const [dayStartHour, setDayStartHour] = useState<number>(() => readCachedSteepInTheme().dayStartHour);
+  const [nightStartHour, setNightStartHour] = useState<number>(() => readCachedSteepInTheme().nightStartHour);
 
   const { theme: managerTheme, setTheme: setManagerTheme } = useTheme();
+  const shouldLoadDeferredManagement = deferredSettingsQueriesEnabled && activeTab === "management";
 
   const { data: roles = [], isLoading } = useQuery<CustomRole[]>({
     queryKey: ["/api/roles"],
@@ -91,6 +135,7 @@ export default function SettingsPage() {
 
   const { data: backups = [], isLoading: backupsLoading } = useQuery<Omit<TimesheetBackup, "snapshot">[]>({
     queryKey: ["/api/backups"],
+    enabled: shouldLoadDeferredManagement,
   });
 
   const createBackupMutation = useMutation({
@@ -135,6 +180,7 @@ export default function SettingsPage() {
 
   const { data: kioskDevices = [], isLoading: devicesLoading } = useQuery<KioskDevice[]>({
     queryKey: ["/api/devices"],
+    enabled: shouldLoadDeferredManagement,
   });
 
   const lockDeviceMutation = useMutation({
@@ -172,25 +218,15 @@ export default function SettingsPage() {
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const { isLoading: themeSettingsLoading } = useQuery<any>({
+  useQuery<any>({
     queryKey: ["/api/settings/steepin-theme"],
+    enabled: activeTab === "aesthetic",
     queryFn: async () => {
-      try {
-        const cached = localStorage.getItem("leaflog_steepin_theme");
-        if (cached && !themeLoaded) {
-          const parsed = JSON.parse(cached);
-          setThemeMode(parsed.mode || "light");
-          setDayStartHour(parsed.dayStartHour ?? 7);
-          setNightStartHour(parsed.nightStartHour ?? 19);
-          setThemeLoaded(true);
-        }
-      } catch {}
       const res = await apiRequest("GET", "/api/settings/steepin-theme");
       const s = await res.json();
       setThemeMode(s.mode || "light");
       setDayStartHour(s.dayStartHour ?? 7);
       setNightStartHour(s.nightStartHour ?? 19);
-      setThemeLoaded(true);
       return s;
     },
   });
@@ -416,7 +452,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="management" className="w-full">
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)} className="w-full">
         <TabsList className="w-full grid grid-cols-3 mb-2">
           <TabsTrigger value="management" data-testid="tab-management">Management</TabsTrigger>
           <TabsTrigger value="account" data-testid="tab-account">Account</TabsTrigger>
@@ -709,10 +745,13 @@ export default function SettingsPage() {
                   To unlock it, simply toggle the lock off from this page on any other device. The locked device will update within 30 seconds.
                 </p>
               </div>
-              {devicesLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-12 w-full" />
-                  <Skeleton className="h-12 w-full" />
+              {!deferredSettingsQueriesEnabled ? (
+                <div className="text-center py-6 text-muted-foreground text-sm">
+                  Loading devices...
+                </div>
+              ) : devicesLoading ? (
+                <div className="text-center py-6 text-muted-foreground text-sm">
+                  Updating devices...
                 </div>
               ) : kioskDevices.length === 0 ? (
                 <div className="text-center py-6 text-muted-foreground text-sm italic">
@@ -842,10 +881,13 @@ export default function SettingsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {backupsLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
+              {!deferredSettingsQueriesEnabled ? (
+                <div className="text-center py-6 text-muted-foreground text-sm">
+                  Loading backups...
+                </div>
+              ) : backupsLoading ? (
+                <div className="text-center py-6 text-muted-foreground text-sm">
+                  Updating backups...
                 </div>
               ) : backups.length === 0 ? (
                 <div className="text-center py-6 text-muted-foreground text-sm">

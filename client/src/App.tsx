@@ -1,5 +1,5 @@
 import { Switch, Route, Redirect } from "wouter";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -10,23 +10,37 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileHeader, MobileBottomNav } from "@/components/mobile-nav";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBoundary } from "@/components/error-boundary";
+import Dashboard from "@/pages/dashboard";
+
 const LoginPage = lazy(() => import("@/pages/login"));
 
-const Dashboard = lazy(() => import("@/pages/dashboard"));
-const Schedule = lazy(() => import("@/pages/schedule"));
-const Employees = lazy(() => import("@/pages/employees"));
-const Timesheets = lazy(() => import("@/pages/timesheets"));
-const Settings = lazy(() => import("@/pages/settings"));
-const AdminPage = lazy(() => import("@/pages/admin"));
+const loadSchedule = () => import("@/pages/schedule");
+const loadEmployees = () => import("@/pages/employees");
+const loadTimesheets = () => import("@/pages/timesheets");
+const loadSettings = () => import("@/pages/settings");
+const loadAdmin = () => import("@/pages/admin");
+
+const Schedule = lazy(loadSchedule);
+const Employees = lazy(loadEmployees);
+const Timesheets = lazy(loadTimesheets);
+const Settings = lazy(loadSettings);
+const AdminPage = lazy(loadAdmin);
 const NotFound = lazy(() => import("@/pages/not-found"));
 const SteepInPage = lazy(() => import("@/pages/steepin"));
 
 function PageFallback() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setShow(true), 180);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  if (!show) return null;
   return (
-    <div className="flex items-center justify-center h-full p-8">
-      <Skeleton className="w-full max-w-2xl h-[400px] rounded-md" />
+    <div className="fixed left-0 right-0 top-0 z-[100] h-0.5 overflow-hidden bg-primary/15">
+      <div className="h-full w-1/3 animate-pulse bg-primary" />
     </div>
   );
 }
@@ -64,13 +78,47 @@ function AuthenticatedRouter() {
 }
 
 function AuthenticatedLayout() {
+  const { isAdmin, isManager } = useAuth();
   const style = {
     "--sidebar-width": "15rem",
     "--sidebar-width-icon": "3rem",
   };
 
+  useEffect(() => {
+    const primaryTimer = window.setTimeout(() => {
+      void loadSchedule();
+      if (isAdmin || isManager) {
+        void loadEmployees();
+        void loadSettings();
+      }
+      if (isAdmin) void loadAdmin();
+    }, 250);
+
+    const win = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const hasIdleCallback = typeof win.requestIdleCallback === "function";
+    const idleTask = hasIdleCallback
+      ? win.requestIdleCallback!(() => {
+          if (isAdmin || isManager) void loadTimesheets();
+        }, { timeout: 2500 })
+      : window.setTimeout(() => {
+          if (isAdmin || isManager) void loadTimesheets();
+        }, 1800);
+
+    return () => {
+      window.clearTimeout(primaryTimer);
+      if (hasIdleCallback && win.cancelIdleCallback) {
+        win.cancelIdleCallback(idleTask);
+      } else {
+        window.clearTimeout(idleTask);
+      }
+    };
+  }, [isAdmin, isManager]);
+
   return (
-    <SidebarProvider style={style as React.CSSProperties}>
+    <SidebarProvider style={style as CSSProperties}>
       <div className="flex h-screen w-full overflow-hidden" style={{ height: "100dvh" }}>
         <div className="hidden md:block">
           <AppSidebar />
@@ -98,17 +146,8 @@ function AuthenticatedLayout() {
 function AppContent() {
   const { isAuthenticated, isLoading, isSteepIn } = useAuth();
 
-  // Show loading spinner only during initial auth verification
-  // This happens when there's no cached auth and we're checking with the server
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#F5F5F0" }}>
-        <div
-          className="w-10 h-10 border-[3px] rounded-full animate-spin"
-          style={{ borderColor: "rgba(139, 158, 139, 0.2)", borderTopColor: "#8B9E8B" }}
-        />
-      </div>
-    );
+    return <div className="min-h-screen bg-background" />;
   }
 
   if (isSteepIn) {
