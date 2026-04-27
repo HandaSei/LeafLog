@@ -1,4 +1,4 @@
-const CACHE_NAME = 'leaflog-cache-v20260427024127';
+const CACHE_NAME = 'leaflog-cache-v20260427041410';
 
 const PRECACHE_ASSETS = [
   '/',

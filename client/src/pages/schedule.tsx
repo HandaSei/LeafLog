@@ -781,12 +781,14 @@ async function exportSchedulePDF(
   const autoTable = (await import("jspdf-autotable")).default;
   const jsPDF = jspdf.jsPDF;
 
-  const GREEN: [number, number, number] = [109, 140, 109];
-  const LIGHT_GREEN: [number, number, number] = [220, 232, 220];
-  const GRAY: [number, number, number] = [150, 150, 150];
+  const INK: [number, number, number] = [35, 35, 35];
+  const MUTED: [number, number, number] = [105, 105, 105];
+  const LINE: [number, number, number] = [220, 220, 220];
+  const HEADER_BG: [number, number, number] = [245, 245, 245];
 
-  const doc = new jsPDF({ orientation: "landscape" });
+  const doc = new jsPDF({ orientation: "portrait" });
   const pageWidth = doc.internal.pageSize.width;
+  const pageMargin = 8;
 
   const rangeLabel = `${format(rangeStart, "MMM d, yyyy")} – ${format(rangeEnd, "MMM d, yyyy")}`;
   const days = eachDayOfInterval({ start: rangeStart, end: rangeEnd });
@@ -809,22 +811,22 @@ async function exportSchedulePDF(
   const summaries: EmpSummary[] = [];
 
   selectedEmps.forEach((emp, empIndex) => {
-    if (empIndex > 0) doc.addPage("a4", "landscape");
+    if (empIndex > 0) doc.addPage("a4", "portrait");
 
-    const empLabel = `${emp.name}${emp.role && emp.role !== "No Role" ? `  ·  ${emp.role}` : ""}`;
+    const empLabel = `${emp.name}${emp.role && emp.role !== "No Role" ? ` - ${emp.role}` : ""}`;
 
-    doc.setFontSize(16);
+    doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(40, 40, 40);
-    doc.text("Schedule Report", 14, 16);
-    doc.setFontSize(10);
+    doc.setTextColor(...INK);
+    doc.text("Schedule", pageMargin, 10);
+    doc.setFontSize(7.5);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(80, 80, 80);
-    doc.text(rangeLabel, 14, 23);
-    doc.setFontSize(13);
+    doc.setTextColor(...MUTED);
+    doc.text(rangeLabel, pageWidth - pageMargin, 10, { align: "right" });
+    doc.setFontSize(9.5);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(40, 40, 40);
-    doc.text(empLabel, 14, 31);
+    doc.setTextColor(...INK);
+    doc.text(empLabel, pageMargin, 16);
 
     const rows: any[][] = [];
     let empTotalMinutes = 0;
@@ -841,8 +843,8 @@ async function exportSchedulePDF(
       dayShifts.forEach((shift, idx) => {
         const isFirst = idx === 0;
         const durationMins = calcShiftDurationMinutes(shift.startTime, shift.endTime);
-        const roleName = shift.role || "—";
-        const notes = shift.notes || "—";
+        const roleName = shift.role || "-";
+        const notes = shift.notes || "-";
         empTotalMinutes += durationMins;
         empTotalShifts++;
 
@@ -852,11 +854,11 @@ async function exportSchedulePDF(
           row.push({
             content: format(day, "EEE, MMM d"),
             rowSpan: dayShifts.length,
-            styles: { fontStyle: "bold", lineWidth: { top: 0.5, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LIGHT_GREEN },
+            styles: { fontStyle: "bold", lineWidth: { top: 0.2, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LINE },
           });
         }
 
-        const borderStyle = { lineWidth: { top: isFirst ? 0.5 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: isFirst ? LIGHT_GREEN : GRAY };
+        const borderStyle = { lineWidth: { top: isFirst ? 0.2 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LINE };
 
         row.push({ content: formatTime(shift.startTime), styles: borderStyle });
         row.push({ content: formatTime(shift.endTime), styles: borderStyle });
@@ -885,29 +887,36 @@ async function exportSchedulePDF(
     let empSheetCount = 0;
 
     autoTable(doc, {
-      startY: 37,
-      margin: { top: 27, right: 14, bottom: 10, left: 14 },
+      startY: 20,
+      margin: { top: 17, right: pageMargin, bottom: 8, left: pageMargin },
       head,
       body: rows,
       foot: [footerCells],
       showFoot: "lastPage",
-      headStyles: { fillColor: GREEN, textColor: 255, fontStyle: "bold", fontSize: 8.5 },
-      footStyles: { fillColor: [240, 243, 240], textColor: [40, 40, 40], fontStyle: "bold", lineWidth: { top: 0.5, bottom: 0.5, left: 0.1, right: 0.1 } },
-      styles: { fontSize: 9, cellPadding: 2.5, lineWidth: 0.1, lineColor: GRAY, valign: "middle" },
-      tableWidth: "auto",
+      headStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.2, lineWidth: 0.1, lineColor: LINE },
+      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.3, lineWidth: 0.1, lineColor: LINE },
+      styles: { fontSize: 7.2, cellPadding: { top: 1.1, right: 1.3, bottom: 1.1, left: 1.3 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
+      columnStyles: {
+        0: { cellWidth: 27 },
+        1: { cellWidth: 16, halign: "center" },
+        2: { cellWidth: 16, halign: "center" },
+        3: { cellWidth: 19, halign: "center" },
+        4: { cellWidth: 32 },
+      },
+      tableWidth: pageWidth - pageMargin * 2,
       didDrawPage: () => {
         empSheetCount++;
         const curPage = (doc.internal as any).getCurrentPageInfo().pageNumber;
         empRenderedPages.push(curPage);
         if (empSheetCount > 1) {
-          doc.setFontSize(9);
+          doc.setFontSize(7.5);
           doc.setFont("helvetica", "normal");
-          doc.setTextColor(120, 120, 120);
-          doc.text("Schedule Report  ·  " + rangeLabel, 14, 12);
-          doc.setFontSize(12);
+          doc.setTextColor(...MUTED);
+          doc.text(`Schedule - ${rangeLabel}`, pageMargin, 8);
+          doc.setFontSize(9);
           doc.setFont("helvetica", "bold");
-          doc.setTextColor(40, 40, 40);
-          doc.text(empLabel + "  —  continued", 14, 20);
+          doc.setTextColor(...INK);
+          doc.text(`${empLabel} - continued`, pageMargin, 13);
         }
       },
     });
@@ -917,8 +926,8 @@ async function exportSchedulePDF(
         doc.setPage(pageNum);
         doc.setFontSize(8);
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(140, 140, 140);
-        doc.text(`Sheet ${idx + 1} of ${empSheetCount}`, pageWidth - 14, 12, { align: "right" });
+        doc.setTextColor(...MUTED);
+        doc.text(`Sheet ${idx + 1} of ${empSheetCount}`, pageWidth - pageMargin, 8, { align: "right" });
       });
       doc.setPage(empRenderedPages[empRenderedPages.length - 1]);
     }
@@ -931,18 +940,17 @@ async function exportSchedulePDF(
   });
 
   if (selectedEmps.length > 1) {
-    doc.addPage("a4", "landscape");
+    doc.addPage("a4", "portrait");
 
-    doc.setFontSize(16);
+    doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(40, 40, 40);
-    doc.text("Summary", 14, 16);
-    doc.setFontSize(10);
+    doc.setTextColor(...INK);
+    doc.text("Schedule Summary", pageMargin, 10);
+    doc.setFontSize(7.5);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(80, 80, 80);
-    doc.text(rangeLabel, 14, 23);
-    doc.setFontSize(8.5);
-    doc.text(`${selectedEmps.length} employees  ·  ${summaries.reduce((s, e) => s + e.totalShifts, 0)} total shifts`, 14, 29);
+    doc.setTextColor(...MUTED);
+    doc.text(rangeLabel, pageWidth - pageMargin, 10, { align: "right" });
+    doc.text(`${selectedEmps.length} employees - ${summaries.reduce((s, e) => s + e.totalShifts, 0)} total shifts`, pageMargin, 15);
 
     const grandMinutes = summaries.reduce((s, e) => s + e.totalMinutes, 0);
     const grandHours = grandMinutes / 60;
@@ -960,14 +968,20 @@ async function exportSchedulePDF(
     ];
 
     autoTable(doc, {
-      startY: 35,
-      margin: { top: 14, right: 14, bottom: 10, left: 14 },
+      startY: 20,
+      margin: { top: 14, right: pageMargin, bottom: 8, left: pageMargin },
       head: summaryHead,
       body: summaryRows,
       foot: [summaryFooter],
-      headStyles: { fillColor: GREEN, textColor: 255, fontStyle: "bold", fontSize: 9 },
-      footStyles: { fillColor: [240, 243, 240], textColor: [40, 40, 40], fontStyle: "bold" },
-      styles: { fontSize: 9, cellPadding: 3, lineWidth: 0.1, lineColor: GRAY },
+      headStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: LINE },
+      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: LINE },
+      styles: { fontSize: 7.5, cellPadding: { top: 1.2, right: 1.5, bottom: 1.2, left: 1.5 }, lineWidth: 0.1, lineColor: LINE },
+      columnStyles: {
+        0: { fontStyle: "bold", cellWidth: 70 },
+        1: { halign: "center", cellWidth: 18 },
+        2: { halign: "right", cellWidth: 28 },
+      },
+      tableWidth: pageWidth - pageMargin * 2,
     });
   }
 
