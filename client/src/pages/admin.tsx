@@ -5,7 +5,6 @@ import { Redirect } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Search, ArrowUpDown } from "lucide-react";
@@ -28,9 +27,10 @@ export default function AdminPage() {
   const [sortField, setSortField] = useState<SortField>("username");
   const [sortAsc, setSortAsc] = useState(true);
 
-  const { data: accounts, isLoading } = useQuery<AccountRow[]>({
+  const { data: accounts, isLoading, isFetching } = useQuery<AccountRow[]>({
     queryKey: ["/api/admin/accounts"],
   });
+  const isUpdating = !isLoading && isFetching;
 
   const filtered = useMemo(() => {
     if (!accounts) return [];
@@ -86,11 +86,14 @@ export default function AdminPage() {
           </div>
         </CardHeader>
         <CardContent>
+          {isUpdating && (
+            <div className="mb-3 text-[11px] text-muted-foreground">
+              Updating accounts...
+            </div>
+          )}
           {isLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
+            <div className="flex min-h-[180px] items-center justify-center text-sm text-muted-foreground">
+              Loading accounts...
             </div>
           ) : (
             <div className="overflow-x-auto">
