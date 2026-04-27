@@ -309,6 +309,15 @@ function normalizeEntryDates(entries: TimeEntry[]): TimeEntry[] {
 }
 
 type EntriesByDate = Map<string, Map<number, TimeEntry[]>>;
+type EntriesByEmployee = Map<number, TimeEntry[]>;
+type WorkdayGroup = { employeeId: number; sessions: EmployeeWorkday[] };
+type DayWorkdayGroup = { date: Date; groups: WorkdayGroup[]; totalMinutes: number };
+
+function buildEmployeeMap(employees: Employee[]): Map<number, Employee> {
+  const map = new Map<number, Employee>();
+  employees.forEach(e => map.set(e.id, e));
+  return map;
+}
 
 function buildEntryIndexByDate(entries: TimeEntry[]): EntriesByDate {
   const index: EntriesByDate = new Map();
@@ -325,6 +334,26 @@ function buildEntryIndexByDate(entries: TimeEntry[]): EntriesByDate {
     byEmployee.set(entry.employeeId, list);
   });
   return index;
+}
+
+function buildEntryIndexByEmployee(entries: TimeEntry[]): EntriesByEmployee {
+  const index: EntriesByEmployee = new Map();
+  entries.forEach(entry => {
+    const list = index.get(entry.employeeId) || [];
+    list.push(entry);
+    index.set(entry.employeeId, list);
+  });
+  return index;
+}
+
+function groupWorkdaysByEmployee(workdays: EmployeeWorkday[]): WorkdayGroup[] {
+  const grouped = new Map<number, EmployeeWorkday[]>();
+  workdays.forEach(wd => {
+    const list = grouped.get(wd.employee.id) || [];
+    list.push(wd);
+    grouped.set(wd.employee.id, list);
+  });
+  return Array.from(grouped.entries()).map(([employeeId, sessions]) => ({ employeeId, sessions }));
 }
 
 function buildWorkdaysFromGroups(
@@ -375,10 +404,21 @@ function buildWorkdaysForDate(
   paidBreakMinutes?: number | null
 ): EmployeeWorkday[] {
   const dateStr = format(date, "yyyy-MM-dd");
-  const empMap = new Map<number, Employee>();
-  employees.forEach(e => empMap.set(e.id, e));
+  const empMap = buildEmployeeMap(employees);
   const employeeSearchLower = employeeSearch.trim().toLowerCase();
   const entryIndex = buildEntryIndexByDate(entries);
+  return buildWorkdaysFromGroups(entryIndex.get(dateStr), empMap, selectedRole, employeeSearchLower, paidBreakMinutes);
+}
+
+function buildWorkdaysForIndexedDateWithMap(
+  entryIndex: EntriesByDate,
+  empMap: Map<number, Employee>,
+  date: Date,
+  selectedRole: string,
+  employeeSearchLower: string,
+  paidBreakMinutes?: number | null
+): EmployeeWorkday[] {
+  const dateStr = format(date, "yyyy-MM-dd");
   return buildWorkdaysFromGroups(entryIndex.get(dateStr), empMap, selectedRole, employeeSearchLower, paidBreakMinutes);
 }
 
@@ -390,10 +430,8 @@ function buildWorkdaysForIndexedDate(
   employeeSearch: string,
   paidBreakMinutes?: number | null
 ): EmployeeWorkday[] {
-  const dateStr = format(date, "yyyy-MM-dd");
-  const empMap = new Map<number, Employee>();
-  employees.forEach(e => empMap.set(e.id, e));
-  return buildWorkdaysFromGroups(entryIndex.get(dateStr), empMap, selectedRole, employeeSearch.trim().toLowerCase(), paidBreakMinutes);
+  const empMap = buildEmployeeMap(employees);
+  return buildWorkdaysForIndexedDateWithMap(entryIndex, empMap, date, selectedRole, employeeSearch.trim().toLowerCase(), paidBreakMinutes);
 }
 
 function buildWorkdaysForRange(
@@ -420,10 +458,21 @@ function buildWorkdaysForIndexedRange(
   targetEmployeeIds: number[] | null = null,
   paidBreakMinutes?: number | null
 ): { date: Date; workdays: EmployeeWorkday[] }[] {
+  const empMap = buildEmployeeMap(employees);
+  return buildWorkdaysForIndexedRangeWithMap(entryIndex, empMap, startDate, endDate, selectedRole, employeeSearch.trim().toLowerCase(), targetEmployeeIds, paidBreakMinutes);
+}
+
+function buildWorkdaysForIndexedRangeWithMap(
+  entryIndex: EntriesByDate,
+  empMap: Map<number, Employee>,
+  startDate: Date,
+  endDate: Date,
+  selectedRole: string,
+  employeeSearchLower: string,
+  targetEmployeeIds: number[] | null = null,
+  paidBreakMinutes?: number | null
+): { date: Date; workdays: EmployeeWorkday[] }[] {
   const days = eachDayOfInterval({ start: startDate, end: endDate });
-  const empMap = new Map<number, Employee>();
-  employees.forEach(e => empMap.set(e.id, e));
-  const employeeSearchLower = employeeSearch.trim().toLowerCase();
   const targetSet = targetEmployeeIds && targetEmployeeIds.length > 0 ? new Set(targetEmployeeIds) : null;
   return days
     .map(day => {
@@ -1005,16 +1054,28 @@ export default function Timesheets() {
 
   const normalizedEntries = useMemo(() => normalizeEntryDates(entries), [entries]);
   const indexedEntries = useMemo(() => buildEntryIndexByDate(normalizedEntries), [normalizedEntries]);
+  const employeeMap = useMemo(() => buildEmployeeMap(employees), [employees]);
+  const employeeSearchLower = useMemo(() => employeeSearch.trim().toLowerCase(), [employeeSearch]);
+  const employeeEntriesById = useMemo(() => buildEntryIndexByEmployee(normalizedEntries), [normalizedEntries]);
+  const rawEmployeeEntriesById = useMemo(() => buildEntryIndexByEmployee(entries), [entries]);
 
-  const workdays = useMemo(
-    () => buildWorkdaysForIndexedDate(indexedEntries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes),
-    [indexedEntries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]
-  );
+  const weekWorkdaysByDay = useMemo(() => {
+    if (viewMode !== "week") return [];
+    return weekDays.map(day => ({
+      date: day,
+      workdays: buildWorkdaysForIndexedDateWithMap(indexedEntries, employeeMap, day, selectedRole, employeeSearchLower, paidBreakMinutes),
+    }));
+  }, [viewMode, weekDays, indexedEntries, employeeMap, selectedRole, employeeSearchLower, paidBreakMinutes]);
 
-  const monthWorkdays = useMemo(
-    () => buildWorkdaysForIndexedRange(indexedEntries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, null, paidBreakMinutes),
-    [indexedEntries, employees, selectedMonth, monthEnd, selectedRole, employeeSearch, paidBreakMinutes]
-  );
+  const workdays = useMemo(() => {
+    if (viewMode !== "week") return [];
+    return weekWorkdaysByDay.find(day => isSameDay(day.date, selectedDay))?.workdays || [];
+  }, [viewMode, weekWorkdaysByDay, selectedDay]);
+
+  const monthWorkdays = useMemo(() => {
+    if (viewMode !== "month") return [];
+    return buildWorkdaysForIndexedRangeWithMap(indexedEntries, employeeMap, selectedMonth, monthEnd, selectedRole, employeeSearchLower, null, paidBreakMinutes);
+  }, [viewMode, indexedEntries, employeeMap, selectedMonth, monthEnd, selectedRole, employeeSearchLower, paidBreakMinutes]);
 
   const [selectedWorkday, setSelectedWorkday] = useState<EmployeeWorkday | null>(null);
 
@@ -1026,27 +1087,35 @@ export default function Timesheets() {
   const viewingWorkday = useMemo(() => {
     if (!selectedWorkday) return null;
     const dateToUse = viewingDate || selectedDay;
-    const dayWorkdays = buildWorkdaysForIndexedDate(indexedEntries, employees, dateToUse, selectedRole, employeeSearch, paidBreakMinutes);
+    const dayWorkdays = buildWorkdaysForIndexedDateWithMap(indexedEntries, employeeMap, dateToUse, selectedRole, employeeSearchLower, paidBreakMinutes);
     return dayWorkdays.find(w => 
       w.employee.id === selectedWorkday.employee.id && 
       w.clockIn?.getTime() === selectedWorkday.clockIn?.getTime()
     ) || null;
-  }, [selectedWorkday, viewingDate, indexedEntries, employees, selectedDay, selectedRole, employeeSearch, paidBreakMinutes]);
+  }, [selectedWorkday, viewingDate, indexedEntries, employeeMap, selectedDay, selectedRole, employeeSearchLower, paidBreakMinutes]);
 
   const activeDay = viewingDate || selectedDay;
+  const weekWorkdayGroups = useMemo(() => groupWorkdaysByEmployee(workdays), [workdays]);
+  const monthWorkdayGroups = useMemo<DayWorkdayGroup[]>(() => {
+    if (viewMode !== "month") return [];
+    return monthWorkdays.map(({ date, workdays: dayWorkdays }) => ({
+      date,
+      groups: groupWorkdaysByEmployee(dayWorkdays),
+      totalMinutes: dayWorkdays.reduce((sum, workday) => sum + workday.netWorkedMinutes, 0),
+    }));
+  }, [viewMode, monthWorkdays]);
+  const hasVisibleWorkdays = viewMode === "week" ? workdays.length > 0 : monthWorkdays.length > 0;
 
   const totalHours = useMemo(() => {
     if (viewMode === "week") return workdays.reduce((s, w) => s + w.netWorkedMinutes, 0);
-    return monthWorkdays.reduce((s, d) => s + d.workdays.reduce((ss, w) => ss + w.netWorkedMinutes, 0), 0);
-  }, [viewMode, workdays, monthWorkdays]);
+    return monthWorkdayGroups.reduce((s, d) => s + d.totalMinutes, 0);
+  }, [viewMode, workdays, monthWorkdayGroups]);
 
   const totalPay = useMemo(() => {
     const anyHasPay = employees.some(e => hasPayConfig(e));
     if (!anyHasPay) return null;
 
-    const source = viewMode === "week"
-      ? weekDays.map(day => ({ date: day, workdays: buildWorkdaysForIndexedDate(indexedEntries, employees, day, selectedRole, employeeSearch, paidBreakMinutes) }))
-      : monthWorkdays;
+    const source = viewMode === "week" ? weekWorkdaysByDay : monthWorkdays;
 
     const weekKeyForDate = (d: Date) => {
       const ws = startOfWeek(d, { weekStartsOn: 1 });
@@ -1069,7 +1138,7 @@ export default function Timesheets() {
       });
     });
     return total;
-  }, [viewMode, workdays, monthWorkdays, weekDays, indexedEntries, employees, selectedRole, employeeSearch, paidBreakMinutes]);
+  }, [viewMode, weekWorkdaysByDay, monthWorkdays, employees]);
 
   const isInitialTimesheetLoading = empsLoading || entriesLoading;
   const isTimesheetUpdating = !isInitialTimesheetLoading && (empsFetching || entriesFetching);
@@ -1193,7 +1262,7 @@ export default function Timesheets() {
     const newClockInTs = new Date(`${dateStr}T${editShiftClockIn}:00`).getTime();
     const clockOutTs = clockOutTimestamp ? new Date(clockOutTimestamp).getTime() : Infinity;
 
-    const empEntries = normalizedEntries.filter(e => e.employeeId === editingShift.employee.id);
+    const empEntries = employeeEntriesById.get(editingShift.employee.id) || [];
     const allSessions = processEntriesForEmployee(editingShift.employee, empEntries, paidBreakMinutes);
     const relevantSessions = getRelevantSessions(allSessions, dateStr);
     const origEnd = editingShift.clockOut?.getTime() ?? null;
@@ -1446,7 +1515,7 @@ export default function Timesheets() {
     const clockOutTs = clockOutDateTime.getTime();
     const durationHours = (clockOutTs - clockInTs) / (1000 * 60 * 60);
 
-    const empEntries = normalizedEntries.filter(e => e.employeeId === emp.id);
+    const empEntries = employeeEntriesById.get(emp.id) || [];
     const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
     const relevantSessions = getRelevantSessions(allSessions, dateStr);
     const conflictSession = relevantSessions.find(session => {
@@ -1521,7 +1590,7 @@ export default function Timesheets() {
 
     if (!clockOutTimestamp) {
       const clockInTs = new Date(clockInTimestamp).getTime();
-      const empEntries = normalizedEntries.filter(e => e.employeeId === empId);
+      const empEntries = employeeEntriesById.get(empId) || [];
       const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
       const relevantSessions = getRelevantSessions(allSessions, dateStr);
 
@@ -1596,7 +1665,7 @@ export default function Timesheets() {
     const clockOutTs = new Date(clockOutTimestamp).getTime();
     const durationHours = (clockOutTs - clockInTs) / (1000 * 60 * 60);
 
-    const empEntries = normalizedEntries.filter(e => e.employeeId === empId);
+    const empEntries = employeeEntriesById.get(empId) || [];
     const allSessions = processEntriesForEmployee(emp, empEntries, paidBreakMinutes);
     const relevantSessions = getRelevantSessions(allSessions, dateStr);
     const conflictSession = relevantSessions.find(session => {
@@ -1913,17 +1982,9 @@ export default function Timesheets() {
                 <p>No entries for this day</p>
               </div>
             ) : (
-              (() => {
-                const grouped = new Map<number, EmployeeWorkday[]>();
-                workdays.forEach(wd => {
-                  const list = grouped.get(wd.employee.id) || [];
-                  list.push(wd);
-                  grouped.set(wd.employee.id, list);
-                });
-                return Array.from(grouped.entries()).map(([empId, sessions]) => (
-                  <WorkdayCard key={empId} sessions={sessions} date={selectedDay} />
-                ));
-              })()
+              weekWorkdayGroups.map(({ employeeId, sessions }) => (
+                <WorkdayCard key={employeeId} sessions={sessions} date={selectedDay} />
+              ))
             )
           ) : (
             monthWorkdays.length === 0 ? (
@@ -1932,7 +1993,7 @@ export default function Timesheets() {
                 <p>No entries for this month</p>
               </div>
             ) : (
-              monthWorkdays.map(({ date, workdays: dayWds }) => (
+              monthWorkdayGroups.map(({ date, groups, totalMinutes }) => (
                 <div key={date.toISOString()} className="space-y-2">
                   <div className="flex items-center gap-2 pt-2">
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
@@ -1940,20 +2001,12 @@ export default function Timesheets() {
                     </span>
                     <div className="flex-1 h-px bg-border" />
                     <span className="text-xs text-muted-foreground">
-                      {formatHoursDecimal(dayWds.reduce((s, w) => s + w.netWorkedMinutes, 0))} h total
+                      {formatHoursDecimal(totalMinutes)} h total
                     </span>
                   </div>
-                  {(() => {
-                    const grouped = new Map<number, EmployeeWorkday[]>();
-                    dayWds.forEach(wd => {
-                      const list = grouped.get(wd.employee.id) || [];
-                      list.push(wd);
-                      grouped.set(wd.employee.id, list);
-                    });
-                    return Array.from(grouped.entries()).map(([empId, sessions]) => (
-                      <WorkdayCard key={empId} sessions={sessions} date={date} />
-                    ));
-                  })()}
+                  {groups.map(({ employeeId, sessions }) => (
+                    <WorkdayCard key={employeeId} sessions={sessions} date={date} />
+                  ))}
                 </div>
               ))
             )
@@ -1961,7 +2014,7 @@ export default function Timesheets() {
         </div>
       </div>
 
-      {!isInitialTimesheetLoading && (viewMode === "week" ? workdays.length > 0 : monthWorkdays.length > 0) && (
+      {!isInitialTimesheetLoading && hasVisibleWorkdays && (
         <div className="border-t bg-background sticky bottom-0 z-10 px-4 py-3 flex items-center justify-end gap-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <span className="text-sm text-muted-foreground">Total:</span>
           <span className="text-lg font-bold" data-testid="text-total-hours">{formatHoursDecimal(totalHours)} h</span>
@@ -2338,7 +2391,7 @@ export default function Timesheets() {
 
                 {clockOut && (() => {
                   // Only show for the last completed session AND only if the employee has no open session
-                  const allEmpEntries = entries.filter(e => e.employeeId === emp.id);
+                  const allEmpEntries = rawEmployeeEntriesById.get(emp.id) || [];
                   const allSessions = processEntriesForEmployee(emp, allEmpEntries, paidBreakMinutes);
                   const hasOpenSession = allSessions.some(s => s.status === "working" || s.status === "on-break");
                   if (hasOpenSession) return null;
