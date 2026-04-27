@@ -1241,6 +1241,14 @@ export async function registerRoutes(
     }
     const accountId = req.session.userId;
     const isSteepInSession = req.session.steepinMode ?? false;
+    const dashboardToday =
+      typeof req.query.dashboardToday === "string" && DATE_ONLY_RE.test(req.query.dashboardToday)
+        ? req.query.dashboardToday
+        : format(new Date(), "yyyy-MM-dd");
+    const dashboardYesterday =
+      typeof req.query.dashboardYesterday === "string" && DATE_ONLY_RE.test(req.query.dashboardYesterday)
+        ? req.query.dashboardYesterday
+        : format(subDays(parseISO(dashboardToday), 1), "yyyy-MM-dd");
 
     // Start employees query first; if in SteepIn mode, kick off the recent-entries
     // query as soon as employee IDs are known so it overlaps with the remaining
@@ -1303,6 +1311,21 @@ export async function registerRoutes(
       dayStartHour: account.steepinDayStartHour ?? 7,
       nightStartHour: account.steepinNightStartHour ?? 19,
     };
+
+    if (!isSteepIn && (account.role === "admin" || account.role === "manager")) {
+      const [dashboardShifts, dashboardEntries, dashboardOpenSessionEntries] = await Promise.all([
+        storage.getShiftsByDateRange(accountId, dashboardYesterday, dashboardToday),
+        storage.getTimeEntriesByDate(dashboardToday, accountId),
+        storage.getOpenSessionEntries(accountId),
+      ]);
+      response.dashboard = {
+        today: dashboardToday,
+        yesterday: dashboardYesterday,
+        shifts: dashboardShifts,
+        entries: dashboardEntries,
+        openSessionEntries: dashboardOpenSessionEntries,
+      };
+    }
 
     if (isSteepIn) {
       const todayStr = format(new Date(), "yyyy-MM-dd");

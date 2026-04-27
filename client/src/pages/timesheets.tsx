@@ -882,6 +882,21 @@ export default function Timesheets() {
   const entriesFrom = format(addDays(viewMode === "week" ? selectedWeek : selectedMonth, -1), "yyyy-MM-dd");
   const entriesTo = format(addDays(viewMode === "week" ? weekEnd : monthEnd, 1), "yyyy-MM-dd");
 
+  const invalidateVisibleEntries = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["/api/steepin/entries", "range", entriesFrom, entriesTo],
+      exact: true,
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["/api/steepin/entries", "date", format(new Date(), "yyyy-MM-dd")],
+      exact: true,
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["/api/steepin/open-sessions"],
+      exact: true,
+    });
+  };
+
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
   const { data: employees = [], isLoading: empsLoading, isFetching: empsFetching } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
   const { data: entries = [], isLoading: entriesLoading, isFetching: entriesFetching } = useQuery<TimeEntry[]>({
@@ -902,7 +917,7 @@ export default function Timesheets() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/approval-requests"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+      invalidateVisibleEntries();
       toast({ title: "Success", description: "Approval request updated" });
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -916,7 +931,7 @@ export default function Timesheets() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+      invalidateVisibleEntries();
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -926,7 +941,7 @@ export default function Timesheets() {
       const res = await apiRequest("POST", "/api/steepin/entries", data);
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }),
+    onSuccess: () => invalidateVisibleEntries(),
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
@@ -934,7 +949,7 @@ export default function Timesheets() {
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/steepin/entries/${id}`);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }),
+    onSuccess: () => invalidateVisibleEntries(),
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
@@ -952,7 +967,7 @@ export default function Timesheets() {
       await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "shift-reopened", date: clockOutDate, timestamp: new Date().toISOString() });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+      invalidateVisibleEntries();
       setReopenGapDialog(null);
       toast({ title: "Shift reopened", description: "The clock-out has been removed and the shift is now in progress." });
     },
@@ -965,7 +980,7 @@ export default function Timesheets() {
       await apiRequest("POST", "/api/steepin/entries/delete-batch", { ids });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+      invalidateVisibleEntries();
       toast({ title: "Success", description: "Timesheet deleted successfully" });
       setSelectedWorkday(null);
       setViewingDate(null);
@@ -1241,7 +1256,7 @@ export default function Timesheets() {
       const idsToDelete = editingShift.entries.map(e => e.id);
       apiRequest("POST", "/api/steepin/entries/delete-batch", { ids: idsToDelete })
         .then(() => {
-          queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+          invalidateVisibleEntries();
           setMergeDialog(null);
           setEditingShift(null);
           toast({ title: "Shifts combined", description: "The overlapping shifts have been merged into one." });
@@ -1401,7 +1416,7 @@ export default function Timesheets() {
       apiRequest("POST", "/api/steepin/entries", { employeeId: empId, type: "break-end", date: dateStr, timestamp: endTs }),
     ])
       .then(() => {
-        queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] });
+        invalidateVisibleEntries();
         toast({ title: "Break added", description: "The break has been recorded." });
       })
       .catch((err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }));
@@ -2244,7 +2259,7 @@ export default function Timesheets() {
                                 <button
                                   className={`text-[10px] px-1.5 py-0.5 rounded font-medium border transition-colors ${bp.start.isUnpaid ? "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800" : "bg-muted text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 hover:border-red-200"}`}
                                   title={bp.start.isUnpaid ? "Marked as unpaid — click to toggle" : "Mark as unpaid break"}
-                                  onClick={() => apiRequest("PATCH", `/api/steepin/entries/${bp.start.id}`, { isUnpaid: !bp.start.isUnpaid }).then(() => queryClient.invalidateQueries({ queryKey: ["/api/steepin/entries"] }))}
+                                  onClick={() => apiRequest("PATCH", `/api/steepin/entries/${bp.start.id}`, { isUnpaid: !bp.start.isUnpaid }).then(() => invalidateVisibleEntries())}
                                   data-testid={`button-toggle-unpaid-${idx}`}
                                 >
                                   {bp.start.isUnpaid ? "Unpaid" : "Paid"}

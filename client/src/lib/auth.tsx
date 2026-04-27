@@ -27,6 +27,23 @@ function saveCachedAuth(auth: AuthState | null) {
   } catch {}
 }
 
+function toLocalDateString(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDashboardBootstrapDates() {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  return {
+    today: toLocalDateString(today),
+    yesterday: toLocalDateString(yesterday),
+  };
+}
+
 async function attemptSteepinRestore(): Promise<boolean> {
   try {
     const deviceId = localStorage.getItem("leaflog_device_id");
@@ -54,7 +71,12 @@ async function fetchBootstrapWithTimeout(retryCount = 0, timeoutMs = BOOTSTRAP_T
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
-    const res = await fetch(`${API_BASE_URL}/api/bootstrap`, { 
+    const dashboardDates = getDashboardBootstrapDates();
+    const params = new URLSearchParams({
+      dashboardToday: dashboardDates.today,
+      dashboardYesterday: dashboardDates.yesterday,
+    });
+    const res = await fetch(`${API_BASE_URL}/api/bootstrap?${params.toString()}`, {
       credentials: "include",
       signal: controller.signal
     });
@@ -91,6 +113,20 @@ async function fetchBootstrapWithTimeout(retryCount = 0, timeoutMs = BOOTSTRAP_T
     }
     if (data.notificationCount !== undefined) {
       queryClient.setQueryData(["/api/notifications/unread-count"], { count: data.notificationCount });
+    }
+    if (data.dashboard) {
+      queryClient.setQueryData(
+        ["/api/shifts", "range", data.dashboard.yesterday, data.dashboard.today],
+        data.dashboard.shifts ?? [],
+      );
+      queryClient.setQueryData(
+        ["/api/steepin/entries", "date", data.dashboard.today],
+        data.dashboard.entries ?? [],
+      );
+      queryClient.setQueryData(
+        ["/api/steepin/open-sessions"],
+        data.dashboard.openSessionEntries ?? [],
+      );
     }
     
     // Mark bootstrap data as fresh so pages don't refetch immediately
