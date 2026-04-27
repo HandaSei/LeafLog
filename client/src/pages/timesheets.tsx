@@ -599,13 +599,25 @@ async function exportPDF(
     ]];
 
     const totalHoursStr = empNetHoursDisplay.toFixed(2) + " h";
-    const timesheetColumnStyles: Record<number, any> = {
-      0: { cellWidth: 31 },
-      1: { cellWidth: 36, halign: "center" },
-      2: { cellWidth: 22, halign: "center" },
-      ...(hasUnpaid ? { 3: { cellWidth: 22, halign: "center" } } : {}),
-      [3 + (hasUnpaid ? 1 : 0) + (showScheduled ? 2 : 0)]: { cellWidth: 23, halign: "right" },
-    };
+    const reportTableWidth = pageWidth - pageMargin * 2;
+    const timesheetColumns = [
+      { weight: 1.45 },
+      { weight: 1.7, halign: "center" },
+      { weight: 1.05, halign: "center" },
+      ...(hasUnpaid ? [{ weight: 1.05, halign: "center" }] : []),
+      ...(showScheduled ? [{ weight: 1.25, halign: "center" }, { weight: 1.25, halign: "center" }] : []),
+      { weight: 1.1, halign: "right" },
+    ];
+    const timesheetWeight = timesheetColumns.reduce((sum, col) => sum + col.weight, 0);
+    const timesheetColumnStyles: Record<number, any> = Object.fromEntries(
+      timesheetColumns.map((col, index) => [
+        index,
+        {
+          cellWidth: (reportTableWidth * col.weight) / timesheetWeight,
+          ...(col.halign ? { halign: col.halign } : {}),
+        },
+      ])
+    );
     const footerCells: any[] = [
       { content: `Total: ${empWorkdaysByDate.length} shift${empWorkdaysByDate.length !== 1 ? "s" : ""}`, colSpan: 3 + (hasUnpaid ? 1 : 0) + (showScheduled ? 2 : 0), styles: { halign: "right", fontStyle: "bold" } },
       { content: totalHoursStr, styles: { halign: "right", fontStyle: "bold" } },
@@ -626,7 +638,7 @@ async function exportPDF(
       footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.8, lineWidth: 0.1, lineColor: LINE },
       styles: { fontSize: 7.8, cellPadding: { top: 1.25, right: 1.5, bottom: 1.25, left: 1.5 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
       columnStyles: timesheetColumnStyles,
-      tableWidth: pageWidth - pageMargin * 2,
+      tableWidth: reportTableWidth,
       didDrawPage: () => {
         empSheetCount++;
         const curPage = (doc.internal as any).getCurrentPageInfo().pageNumber;
@@ -696,6 +708,26 @@ async function exportPDF(
       { content: "Grand Total", colSpan: summaryFootColSpan, styles: { halign: "right", fontStyle: "bold" } },
       { content: grandHours.toFixed(2) + " h", styles: { fontStyle: "bold" } },
     ]];
+    const summaryTableWidth = pageWidth - pageMargin * 2;
+    const summaryColumns = [
+      { weight: 2.6, fontStyle: "bold" },
+      { weight: 0.8, halign: "center" },
+      { weight: 1.1, halign: "right" },
+      ...(hasUnpaid ? [{ weight: 1.1, halign: "center", textColor: RED }] : []),
+      ...(showScheduled ? [{ weight: 1.1, halign: "center" }, { weight: 1.2, halign: "center" }] : []),
+    ];
+    const summaryWeight = summaryColumns.reduce((sum, col) => sum + col.weight, 0);
+    const summaryColumnStyles: Record<number, any> = Object.fromEntries(
+      summaryColumns.map((col, index) => [
+        index,
+        {
+          cellWidth: (summaryTableWidth * col.weight) / summaryWeight,
+          ...(col.halign ? { halign: col.halign } : {}),
+          ...(col.fontStyle ? { fontStyle: col.fontStyle } : {}),
+          ...(col.textColor ? { textColor: col.textColor } : {}),
+        },
+      ])
+    );
 
     autoTable(doc, {
       startY: 20,
@@ -706,13 +738,8 @@ async function exportPDF(
       headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: [135, 162, 135] },
       footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: LINE },
       styles: { fontSize: 7.5, cellPadding: { top: 1.2, right: 1.5, bottom: 1.2, left: 1.5 }, lineWidth: 0.1, lineColor: LINE, valign: "middle" },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 70 },
-        1: { halign: "center", cellWidth: 18 },
-        2: { halign: "right", cellWidth: 28 },
-        ...(hasUnpaid ? { 3: { halign: "center", cellWidth: 26, textColor: RED } } : {}),
-      },
-      tableWidth: pageWidth - pageMargin * 2,
+      columnStyles: summaryColumnStyles,
+      tableWidth: summaryTableWidth,
     });
 
     if (grandUnpaid > 0) {

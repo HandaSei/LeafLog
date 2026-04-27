@@ -877,6 +877,24 @@ async function exportSchedulePDF(
     const head: string[][] = [["Date", "Time", "Duration", "Role", "Notes"]];
 
     const totalHoursStr = (empTotalMinutes / 60).toFixed(2) + " h";
+    const reportTableWidth = pageWidth - pageMargin * 2;
+    const scheduleColumns = [
+      { weight: 1.35 },
+      { weight: 1.75, halign: "center" },
+      { weight: 1.05, halign: "center" },
+      { weight: 1.45 },
+      { weight: 2.9 },
+    ];
+    const scheduleWeight = scheduleColumns.reduce((sum, col) => sum + col.weight, 0);
+    const scheduleColumnStyles: Record<number, any> = Object.fromEntries(
+      scheduleColumns.map((col, index) => [
+        index,
+        {
+          cellWidth: (reportTableWidth * col.weight) / scheduleWeight,
+          ...(col.halign ? { halign: col.halign } : {}),
+        },
+      ])
+    );
     const footerCells: any[] = [
       { content: `Total: ${empTotalShifts} shift${empTotalShifts !== 1 ? "s" : ""}`, colSpan: 2, styles: { halign: "right", fontStyle: "bold" } },
       { content: totalHoursStr, styles: { fontStyle: "bold" } },
@@ -896,13 +914,8 @@ async function exportSchedulePDF(
       headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 7.8, lineWidth: 0.1, lineColor: [135, 162, 135] },
       footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.8, lineWidth: 0.1, lineColor: LINE },
       styles: { fontSize: 7.8, cellPadding: { top: 1.25, right: 1.5, bottom: 1.25, left: 1.5 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
-      columnStyles: {
-        0: { cellWidth: 31 },
-        1: { cellWidth: 38, halign: "center" },
-        2: { cellWidth: 24, halign: "center" },
-        3: { cellWidth: 34 },
-      },
-      tableWidth: pageWidth - pageMargin * 2,
+      columnStyles: scheduleColumnStyles,
+      tableWidth: reportTableWidth,
       didDrawPage: () => {
         empSheetCount++;
         const curPage = (doc.internal as any).getCurrentPageInfo().pageNumber;
@@ -965,6 +978,23 @@ async function exportSchedulePDF(
       { content: String(summaries.reduce((s, e) => s + e.totalShifts, 0)), styles: { fontStyle: "bold" } },
       { content: grandHours.toFixed(2) + " h", styles: { fontStyle: "bold" } },
     ];
+    const summaryTableWidth = pageWidth - pageMargin * 2;
+    const summaryColumns = [
+      { weight: 2.8, fontStyle: "bold" },
+      { weight: 0.9, halign: "center" },
+      { weight: 1.1, halign: "right" },
+    ];
+    const summaryWeight = summaryColumns.reduce((sum, col) => sum + col.weight, 0);
+    const summaryColumnStyles: Record<number, any> = Object.fromEntries(
+      summaryColumns.map((col, index) => [
+        index,
+        {
+          cellWidth: (summaryTableWidth * col.weight) / summaryWeight,
+          ...(col.halign ? { halign: col.halign } : {}),
+          ...(col.fontStyle ? { fontStyle: col.fontStyle } : {}),
+        },
+      ])
+    );
 
     autoTable(doc, {
       startY: 20,
@@ -975,12 +1005,8 @@ async function exportSchedulePDF(
       headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: [135, 162, 135] },
       footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.5, lineWidth: 0.1, lineColor: LINE },
       styles: { fontSize: 7.5, cellPadding: { top: 1.2, right: 1.5, bottom: 1.2, left: 1.5 }, lineWidth: 0.1, lineColor: LINE },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 70 },
-        1: { halign: "center", cellWidth: 18 },
-        2: { halign: "right", cellWidth: 28 },
-      },
-      tableWidth: pageWidth - pageMargin * 2,
+      columnStyles: summaryColumnStyles,
+      tableWidth: summaryTableWidth,
     });
   }
 
