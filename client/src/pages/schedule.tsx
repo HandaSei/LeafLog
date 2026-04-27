@@ -861,8 +861,7 @@ async function exportSchedulePDF(
 
         const borderStyle = { lineWidth: { top: isFirst ? 0.2 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LINE };
 
-        row.push({ content: formatTime(shift.startTime), styles: borderStyle });
-        row.push({ content: formatTime(shift.endTime), styles: borderStyle });
+        row.push({ content: `${formatTime(shift.startTime)} - ${formatTime(shift.endTime)}`, styles: { ...borderStyle, halign: "center" } });
         row.push({ content: formatDurationFromMinutes(durationMins), styles: borderStyle });
         row.push({ content: roleName, styles: borderStyle });
         row.push({ content: notes, styles: { ...borderStyle, cellWidth: 'auto' } });
@@ -872,14 +871,14 @@ async function exportSchedulePDF(
     });
 
     if (rows.length === 0) {
-      rows.push(["No scheduled shifts in this period.", "", "", "", "", ""]);
+      rows.push(["No scheduled shifts in this period.", "", "", "", ""]);
     }
 
-    const head: string[][] = [["Date", "Start", "End", "Duration", "Role", "Notes"]];
+    const head: string[][] = [["Date", "Time", "Duration", "Role", "Notes"]];
 
     const totalHoursStr = (empTotalMinutes / 60).toFixed(2) + " h";
     const footerCells: any[] = [
-      { content: `Total: ${empTotalShifts} shift${empTotalShifts !== 1 ? "s" : ""}`, colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
+      { content: `Total: ${empTotalShifts} shift${empTotalShifts !== 1 ? "s" : ""}`, colSpan: 2, styles: { halign: "right", fontStyle: "bold" } },
       { content: totalHoursStr, styles: { fontStyle: "bold" } },
       { content: "", colSpan: 2 },
     ];
@@ -894,15 +893,14 @@ async function exportSchedulePDF(
       body: rows,
       foot: [footerCells],
       showFoot: "lastPage",
-      headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 7.2, lineWidth: 0.1, lineColor: [135, 162, 135] },
-      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.3, lineWidth: 0.1, lineColor: LINE },
-      styles: { fontSize: 7.2, cellPadding: { top: 1.1, right: 1.3, bottom: 1.1, left: 1.3 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
+      headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 7.8, lineWidth: 0.1, lineColor: [135, 162, 135] },
+      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.8, lineWidth: 0.1, lineColor: LINE },
+      styles: { fontSize: 7.8, cellPadding: { top: 1.25, right: 1.5, bottom: 1.25, left: 1.5 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
       columnStyles: {
-        0: { cellWidth: 27 },
-        1: { cellWidth: 16, halign: "center" },
-        2: { cellWidth: 16, halign: "center" },
-        3: { cellWidth: 19, halign: "center" },
-        4: { cellWidth: 32 },
+        0: { cellWidth: 31 },
+        1: { cellWidth: 38, halign: "center" },
+        2: { cellWidth: 24, halign: "center" },
+        3: { cellWidth: 34 },
       },
       tableWidth: pageWidth - pageMargin * 2,
       didDrawPage: () => {

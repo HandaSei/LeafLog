@@ -550,8 +550,8 @@ async function exportPDF(
         }
 
         const borderStyle = { lineWidth: { top: isFirst ? 0.2 : 0.1, right: 0.1, bottom: 0.1, left: 0.1 }, lineColor: LINE };
-        row.push({ content: wd.clockIn ? format(wd.clockIn, "HH:mm") : "-", styles: borderStyle });
-        row.push({ content: wd.clockOut ? format(wd.clockOut, "HH:mm") : "-", styles: borderStyle });
+        const timeRange = `${wd.clockIn ? format(wd.clockIn, "HH:mm") : "-"} - ${wd.clockOut ? format(wd.clockOut, "HH:mm") : "-"}`;
+        row.push({ content: timeRange, styles: { ...borderStyle, halign: "center" } });
         row.push({ content: wd.totalBreakMinutes > 0 ? formatMinutes(wd.totalBreakMinutes) : "-", styles: borderStyle });
 
         if (hasUnpaid) {
@@ -587,20 +587,27 @@ async function exportPDF(
     });
 
     if (rows.length === 0) {
-      rows.push(["No completed shifts in this period.", "", "", "", ...(hasUnpaid ? [""] : []), ...(showScheduled ? ["", ""] : []), ""]);
+      rows.push(["No completed shifts in this period.", "", "", ...(hasUnpaid ? [""] : []), ...(showScheduled ? ["", ""] : []), ""]);
     }
 
     const head: string[][] = [[
       "Date",
-      "Clock In", "Clock Out", "Break",
+      "Time", "Break",
       ...(hasUnpaid ? ["Unpaid"] : []),
       ...(showScheduled ? ["Arrived Late", "Over / Under"] : []),
       "Hours",
     ]];
 
     const totalHoursStr = empNetHoursDisplay.toFixed(2) + " h";
+    const timesheetColumnStyles: Record<number, any> = {
+      0: { cellWidth: 31 },
+      1: { cellWidth: 36, halign: "center" },
+      2: { cellWidth: 22, halign: "center" },
+      ...(hasUnpaid ? { 3: { cellWidth: 22, halign: "center" } } : {}),
+      [3 + (hasUnpaid ? 1 : 0) + (showScheduled ? 2 : 0)]: { cellWidth: 23, halign: "right" },
+    };
     const footerCells: any[] = [
-      { content: `Total: ${empWorkdaysByDate.length} shift${empWorkdaysByDate.length !== 1 ? "s" : ""}`, colSpan: 1 + (hasUnpaid ? 1 : 0) + (showScheduled ? 2 : 0) + 3, styles: { halign: "right", fontStyle: "bold" } },
+      { content: `Total: ${empWorkdaysByDate.length} shift${empWorkdaysByDate.length !== 1 ? "s" : ""}`, colSpan: 3 + (hasUnpaid ? 1 : 0) + (showScheduled ? 2 : 0), styles: { halign: "right", fontStyle: "bold" } },
       { content: totalHoursStr, styles: { halign: "right", fontStyle: "bold" } },
     ];
 
@@ -615,16 +622,10 @@ async function exportPDF(
       body: rows,
       foot: [footerCells],
       showFoot: "lastPage",
-      headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 7.2, lineWidth: 0.1, lineColor: [135, 162, 135] },
-      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.3, lineWidth: 0.1, lineColor: LINE },
-      styles: { fontSize: 7.2, cellPadding: { top: 1.1, right: 1.3, bottom: 1.1, left: 1.3 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
-      columnStyles: {
-        0: { cellWidth: 27 },
-        1: { cellWidth: 16, halign: "center" },
-        2: { cellWidth: 16, halign: "center" },
-        3: { cellWidth: 18, halign: "center" },
-        ...(hasUnpaid ? { 4: { cellWidth: 18, halign: "center" } } : {}),
-      },
+      headStyles: { fillColor: TEA, textColor: 255, fontStyle: "bold", fontSize: 7.8, lineWidth: 0.1, lineColor: [135, 162, 135] },
+      footStyles: { fillColor: HEADER_BG, textColor: INK, fontStyle: "bold", fontSize: 7.8, lineWidth: 0.1, lineColor: LINE },
+      styles: { fontSize: 7.8, cellPadding: { top: 1.25, right: 1.5, bottom: 1.25, left: 1.5 }, lineWidth: 0.1, lineColor: LINE, valign: "middle", overflow: "linebreak" },
+      columnStyles: timesheetColumnStyles,
       tableWidth: pageWidth - pageMargin * 2,
       didDrawPage: () => {
         empSheetCount++;
