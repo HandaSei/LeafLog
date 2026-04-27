@@ -85,34 +85,42 @@ function AuthenticatedLayout() {
   };
 
   useEffect(() => {
-    const primaryTimer = window.setTimeout(() => {
+    const win = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const hasIdleCallback = typeof win.requestIdleCallback === "function";
+    const timeoutIds: number[] = [];
+    const idleIds: number[] = [];
+
+    const schedulePrefetch = (callback: () => void, delayMs: number, idleTimeoutMs: number) => {
+      const delayId = window.setTimeout(() => {
+        if (hasIdleCallback) {
+          idleIds.push(win.requestIdleCallback!(callback, { timeout: idleTimeoutMs }));
+        } else {
+          timeoutIds.push(window.setTimeout(callback, idleTimeoutMs));
+        }
+      }, delayMs);
+      timeoutIds.push(delayId);
+    };
+
+    schedulePrefetch(() => {
       void loadSchedule();
       if (isAdmin || isManager) {
         void loadEmployees();
         void loadSettings();
       }
       if (isAdmin) void loadAdmin();
-    }, 250);
+    }, 1200, 2000);
 
-    const win = window as typeof window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const hasIdleCallback = typeof win.requestIdleCallback === "function";
-    const idleTask = hasIdleCallback
-      ? win.requestIdleCallback!(() => {
-          if (isAdmin || isManager) void loadTimesheets();
-        }, { timeout: 2500 })
-      : window.setTimeout(() => {
-          if (isAdmin || isManager) void loadTimesheets();
-        }, 1800);
+    schedulePrefetch(() => {
+      if (isAdmin || isManager) void loadTimesheets();
+    }, 3200, 3500);
 
     return () => {
-      window.clearTimeout(primaryTimer);
+      timeoutIds.forEach((id) => window.clearTimeout(id));
       if (hasIdleCallback && win.cancelIdleCallback) {
-        win.cancelIdleCallback(idleTask);
-      } else {
-        window.clearTimeout(idleTask);
+        idleIds.forEach((id) => win.cancelIdleCallback!(id));
       }
     };
   }, [isAdmin, isManager]);
