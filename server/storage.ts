@@ -218,20 +218,36 @@ export class DatabaseStorage implements IStorage {
 
   async getShifts(ownerAccountId?: number): Promise<Shift[]> {
     if (ownerAccountId) {
-      const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
-      if (empIds.length === 0) return [];
-      return db.select().from(shifts).where(inArray(shifts.employeeId, empIds));
+      const result = await pool.query(
+        `SELECT s.id, s.employee_id as "employeeId", s.date::text as date,
+                s.start_time as "startTime", s.end_time as "endTime",
+                s.status, s.notes, s.color, s.role
+         FROM shifts s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE e.owner_account_id = $1
+         ORDER BY s.date ASC, s.start_time ASC`,
+        [ownerAccountId],
+      );
+      return result.rows;
     }
     return db.select().from(shifts);
   }
 
   async getShiftsByDateRange(ownerAccountId: number | undefined, from: string, to: string): Promise<Shift[]> {
     if (ownerAccountId) {
-      const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
-      if (empIds.length === 0) return [];
-      return db.select().from(shifts).where(
-        and(inArray(shifts.employeeId, empIds), gte(shifts.date, from), lte(shifts.date, to))
-      ).orderBy(asc(shifts.date), asc(shifts.startTime));
+      const result = await pool.query(
+        `SELECT s.id, s.employee_id as "employeeId", s.date::text as date,
+                s.start_time as "startTime", s.end_time as "endTime",
+                s.status, s.notes, s.color, s.role
+         FROM shifts s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE e.owner_account_id = $1
+           AND s.date >= $2
+           AND s.date <= $3
+         ORDER BY s.date ASC, s.start_time ASC`,
+        [ownerAccountId, from, to],
+      );
+      return result.rows;
     }
     return db.select().from(shifts).where(
       and(gte(shifts.date, from), lte(shifts.date, to))
@@ -397,12 +413,14 @@ export class DatabaseStorage implements IStorage {
 
   async getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]> {
     if (ownerAccountId) {
-      const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
-      if (empIds.length === 0) return [];
-      const placeholders = empIds.map((_, i) => `$${i + 2}`).join(',');
       const result = await pool.query(
-        `SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source FROM time_entries WHERE entry_date = $1 AND employee_id IN (${placeholders}) ORDER BY timestamp`,
-        [date, ...empIds]
+        `SELECT t.id, t.employee_id, t.type, t.timestamp, t.entry_date::text, t.role, t.notes, t.is_unpaid, t.source
+         FROM time_entries t
+         JOIN employees e ON e.id = t.employee_id
+         WHERE t.entry_date = $1
+           AND e.owner_account_id = $2
+         ORDER BY t.timestamp`,
+        [date, ownerAccountId]
       );
       return result.rows.map((row: any) => ({
         id: row.id,
@@ -459,12 +477,13 @@ export class DatabaseStorage implements IStorage {
 
   async getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]> {
     if (ownerAccountId) {
-      const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
-      if (empIds.length === 0) return [];
-      const placeholders = empIds.map((_, i) => `$${i + 1}`).join(',');
       const result = await pool.query(
-        `SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source FROM time_entries WHERE employee_id IN (${placeholders}) ORDER BY timestamp`,
-        [...empIds]
+        `SELECT t.id, t.employee_id, t.type, t.timestamp, t.entry_date::text, t.role, t.notes, t.is_unpaid, t.source
+         FROM time_entries t
+         JOIN employees e ON e.id = t.employee_id
+         WHERE e.owner_account_id = $1
+         ORDER BY t.timestamp`,
+        [ownerAccountId]
       );
       return result.rows.map((row: any) => ({
         id: row.id,
