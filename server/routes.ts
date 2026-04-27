@@ -12,6 +12,15 @@ const autoCloseCache = new Map<number, number>();
 const AUTO_CLOSE_CACHE_TTL_MS = 2 * 60 * 1000;
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+type RecentEntryRow = {
+  id: number;
+  employee_id: number;
+  type: string;
+  timestamp: Date;
+  date: string;
+  source: string | null;
+};
+
 function getDateRangeQuery(req: any) {
   const from = typeof req.query.from === "string" ? req.query.from : undefined;
   const to = typeof req.query.to === "string" ? req.query.to : undefined;
@@ -755,7 +764,7 @@ export async function registerRoutes(
   });
 
   router.patch("/api/steepin/entries/:id", requireRole("admin", "manager"), async (req, res) => {
-    const id = parseInt(req.params.id);
+    const id = Number(req.params.id);
     const updateData: any = { source: "manager" };
     if (req.body.timestamp) {
       updateData.timestamp = new Date(req.body.timestamp);
@@ -1254,14 +1263,14 @@ export async function registerRoutes(
     // query as soon as employee IDs are known so it overlaps with the remaining
     // queries below instead of running sequentially after them.
     const employeesPromise = storage.getEmployees(accountId);
-    const recentEntriesPromise: Promise<any> | null = isSteepInSession
+    const recentEntriesPromise: Promise<{ rows: RecentEntryRow[] }> | null = isSteepInSession
       ? employeesPromise.then(async (emps) => {
           const activeEmps = emps.filter(
             (e: any) => e.status === "active" && !e.hiddenFromSteepin,
           );
           const empIds = activeEmps.map((e) => e.id);
-          if (empIds.length === 0) return { rows: [] as any[] };
-          return pool.query(
+          if (empIds.length === 0) return { rows: [] };
+          return pool.query<RecentEntryRow>(
             `SELECT id, employee_id, type, timestamp, entry_date::text as date, source 
              FROM time_entries 
              WHERE employee_id = ANY($1) 

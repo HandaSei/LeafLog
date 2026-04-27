@@ -497,6 +497,14 @@ function formatHoursDecimal(minutes: number): string {
   return (minutes / 60).toFixed(2);
 }
 
+function toEntryDateString(value: string | Date): string {
+  return value instanceof Date ? format(value, "yyyy-MM-dd") : value.substring(0, 10);
+}
+
+function toEntryTimestampIso(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
 function shiftMinutes(timeStr: string): number {
   const [h, m] = timeStr.split(":").map(Number);
   return h * 60 + m;
@@ -2062,9 +2070,9 @@ export default function Timesheets() {
               <div className="flex items-center justify-between">
                 <Label>Employees</Label>
                 <Button 
-                  variant="link" 
-                  size="sm" 
-                  className="h-auto p-0 text-[11px]" 
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto min-h-0 p-0 text-[11px] text-primary hover:bg-transparent hover:underline"
                   onClick={() => setExportSelectedEmployeeIds(
                     exportSelectedEmployeeIds.length === employees.filter(e => e.status === "active").length
                       ? []
@@ -2201,7 +2209,7 @@ export default function Timesheets() {
                         <button 
                           className="text-[10px] text-primary hover:underline font-medium"
                           onClick={() => {
-                            setViewingWorkday(null);
+                            setSelectedWorkday(null);
                             setLocation("/settings");
                           }}
                         >
@@ -2323,9 +2331,11 @@ export default function Timesheets() {
                               {bp.end && (
                                 <Button variant="ghost" size="icon" className="h-6 w-6"
                                   onClick={() => {
-                                    setEditingBreak({ start: bp.start, end: bp.end });
+                                    if (!bp.end) return;
+                                    const breakEnd = bp.end;
+                                    setEditingBreak({ start: bp.start, end: breakEnd });
                                     setEditBreakStart(format(new Date(bp.start.timestamp), "HH:mm"));
-                                    setEditBreakEnd(format(new Date(bp.end.timestamp), "HH:mm"));
+                                    setEditBreakEnd(format(new Date(breakEnd.timestamp), "HH:mm"));
                                   }}
                                   data-testid={`button-edit-break-${idx}`}
                                 >
@@ -2423,10 +2433,16 @@ export default function Timesheets() {
                               clockOutEntry: freshClockOut,
                               gapMinutes,
                               employeeId: emp.id,
-                              clockOutDate: freshClockOut.date as string,
+                              clockOutDate: toEntryDateString(freshClockOut.date),
                             });
                           } else {
-                            reopenShiftMutation.mutate({ clockOutEntryId: freshClockOut.id, employeeId: emp.id, clockOutDate: freshClockOut.date as string, clockOutTimestamp: freshClockOut.timestamp as string, gapOption: "none" });
+                            reopenShiftMutation.mutate({
+                              clockOutEntryId: freshClockOut.id,
+                              employeeId: emp.id,
+                              clockOutDate: toEntryDateString(freshClockOut.date),
+                              clockOutTimestamp: toEntryTimestampIso(freshClockOut.timestamp),
+                              gapOption: "none",
+                            });
                           }
                         }}
                         disabled={deleteEntryMutation.isPending || reopenShiftMutation.isPending}
@@ -2943,7 +2959,7 @@ export default function Timesheets() {
                     variant="outline"
                     className="justify-start h-auto py-3 px-4"
                     disabled={reopenShiftMutation.isPending}
-                    onClick={() => reopenShiftMutation.mutate({ clockOutEntryId: clockOutEntry.id, employeeId, clockOutDate, clockOutTimestamp: clockOutEntry.timestamp as string, gapOption: "break" })}
+                    onClick={() => reopenShiftMutation.mutate({ clockOutEntryId: clockOutEntry.id, employeeId, clockOutDate, clockOutTimestamp: toEntryTimestampIso(clockOutEntry.timestamp), gapOption: "break" })}
                     data-testid="button-reopen-as-break"
                   >
                     <div className="text-left">
@@ -2955,7 +2971,7 @@ export default function Timesheets() {
                     variant="outline"
                     className="justify-start h-auto py-3 px-4"
                     disabled={reopenShiftMutation.isPending}
-                    onClick={() => reopenShiftMutation.mutate({ clockOutEntryId: clockOutEntry.id, employeeId, clockOutDate, clockOutTimestamp: clockOutEntry.timestamp as string, gapOption: "unpaid-break" })}
+                    onClick={() => reopenShiftMutation.mutate({ clockOutEntryId: clockOutEntry.id, employeeId, clockOutDate, clockOutTimestamp: toEntryTimestampIso(clockOutEntry.timestamp), gapOption: "unpaid-break" })}
                     data-testid="button-reopen-as-unpaid-break"
                   >
                     <div className="text-left">
@@ -2967,7 +2983,7 @@ export default function Timesheets() {
                     variant="outline"
                     className="justify-start h-auto py-3 px-4"
                     disabled={reopenShiftMutation.isPending}
-                    onClick={() => reopenShiftMutation.mutate({ clockOutEntryId: clockOutEntry.id, employeeId, clockOutDate, clockOutTimestamp: clockOutEntry.timestamp as string, gapOption: "worked" })}
+                    onClick={() => reopenShiftMutation.mutate({ clockOutEntryId: clockOutEntry.id, employeeId, clockOutDate, clockOutTimestamp: toEntryTimestampIso(clockOutEntry.timestamp), gapOption: "worked" })}
                     data-testid="button-reopen-as-worked"
                   >
                     <div className="text-left">

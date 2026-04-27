@@ -14,6 +14,8 @@ import logoImage from "@assets/m3MJU_1771476103365.webp";
 const LEAF_YELLOW = "#D4C5A0";
 const LEAF_YELLOW_BG = "#E8DCC4";
 const LEAF_GREEN = "#8B9E8B";
+const inputStyle = "bg-white/90 border-[#b8cbb8] text-[#3a4a3a] placeholder:text-[#8B9E8B]/70 focus-visible:ring-[#8B9E8B]";
+const labelStyle = { color: LEAF_YELLOW };
 
 type View = "main" | "signup" | "verify-registration" | "forgot-password" | "reset-password" | "upgrade-employee" | "verify-upgrade";
 
@@ -276,7 +278,7 @@ export default function LoginPage() {
     try {
       const result = await registerManager(registerForm.username, registerForm.password, registerForm.email, registerForm.agencyName, registerForm.country || undefined);
       if (result.requiresVerification) {
-        setPendingEmail(result.email);
+        setPendingEmail(result.email ?? registerForm.email);
         const sent = result.emailSent !== false;
         setEmailSent(sent);
         setFallbackCode(sent ? undefined : result.fallbackCode);
@@ -302,7 +304,7 @@ export default function LoginPage() {
     try {
       const result = await registerManager(signupForm.username, signupForm.password, signupForm.email, signupForm.agencyName, signupForm.country || undefined);
       if (result.requiresVerification) {
-        setPendingEmail(result.email);
+        setPendingEmail(result.email ?? signupForm.email);
         const sent = result.emailSent !== false;
         setEmailSent(sent);
         setFallbackCode(sent ? undefined : result.fallbackCode);
@@ -381,7 +383,7 @@ export default function LoginPage() {
     try {
       const result = await upgradeEmployee(upgradeForm.username, upgradeForm.password, upgradeForm.email);
       if (result.requiresVerification) {
-        setUpgradeEmail(result.email);
+        setUpgradeEmail(result.email ?? upgradeForm.email);
         const sent = result.emailSent !== false;
         setEmailSent(sent);
         setFallbackCode(sent ? undefined : result.fallbackCode);
@@ -410,9 +412,6 @@ export default function LoginPage() {
       setLoading(false);
     }
   }
-
-  const inputStyle = "bg-white/90 border-[#b8cbb8] text-[#3a4a3a] placeholder:text-[#8B9E8B]/70 focus-visible:ring-[#8B9E8B]";
-  const labelStyle = { color: LEAF_YELLOW };
 
   if (setupLoading) {
     return (

@@ -39,7 +39,6 @@ export function setupSession(app: any) {
           return connStr;
         })(),
         createTableIfMissing: true,
-        ssl: { rejectUnauthorized: false },
       }),
       secret: (() => {
         const secret = process.env.SESSION_SECRET;
@@ -238,9 +237,10 @@ export function registerAuthRoutes(router: Router) {
       return res.status(400).json({ message: "Invalid or expired verification code" });
     }
 
-    const accountData = typeof verification.account_data === "string"
-      ? JSON.parse(verification.account_data)
-      : verification.account_data;
+    const verificationAccountData = verification.accountData ?? (verification as { account_data?: string | null }).account_data;
+    const accountData = typeof verificationAccountData === "string"
+      ? JSON.parse(verificationAccountData)
+      : verificationAccountData;
 
     if (!accountData) {
       return res.status(400).json({ message: "Invalid verification data" });
@@ -369,9 +369,10 @@ export function registerAuthRoutes(router: Router) {
       return res.status(400).json({ message: "Invalid or expired verification code" });
     }
 
-    const upgradeData = typeof verification.account_data === "string"
-      ? JSON.parse(verification.account_data)
-      : verification.account_data;
+    const verificationAccountData = verification.accountData ?? (verification as { account_data?: string | null }).account_data;
+    const upgradeData = typeof verificationAccountData === "string"
+      ? JSON.parse(verificationAccountData)
+      : verificationAccountData;
 
     if (!upgradeData || upgradeData.accountId !== req.session.userId) {
       return res.status(400).json({ message: "Invalid verification data" });

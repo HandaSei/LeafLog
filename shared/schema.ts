@@ -151,20 +151,20 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
   role: z.string().optional(),
   department: z.string().optional(),
   accessCode: z.string().min(4, "Passcode must be 4–6 digits").max(6, "Passcode must be 4–6 digits").regex(/^[0-9]+$/, "Passcode must be numeric").optional(),
-}).omit({ id: true });
+}).omit({ id: true } as any);
 
 export const insertShiftSchema = createInsertSchema(shifts, {
   date: z.string().min(1),
   startTime: z.string().min(1),
   endTime: z.string().min(1),
   employeeId: z.coerce.number().min(1),
-}).omit({ id: true });
+}).omit({ id: true } as any);
 
 export const insertAccountSchema = createInsertSchema(accounts, {
   username: z.string().min(3),
   password: z.string().min(6),
   role: z.string().min(1),
-}).omit({ id: true, createdAt: true });
+}).omit({ id: true, createdAt: true } as any);
 
 export const loginSchema = z.object({
   username: z.string().min(1),
@@ -257,8 +257,8 @@ export const feedback = pgTable("feedback", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const insertCustomRoleSchema = createInsertSchema(customRoles).omit({ id: true });
-export const insertFeedbackSchema = createInsertSchema(feedback).omit({ id: true, createdAt: true });
+export const insertCustomRoleSchema = createInsertSchema(customRoles).omit({ id: true } as any);
+export const insertFeedbackSchema = createInsertSchema(feedback).omit({ id: true, createdAt: true } as any);
 export type Feedback = typeof feedback.$inferSelect;
 
 export type Account = typeof accounts.$inferSelect;

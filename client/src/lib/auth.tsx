@@ -182,6 +182,13 @@ interface AuthState {
   steepinMode: boolean;
 }
 
+interface AuthEmailResult {
+  requiresVerification?: boolean;
+  email?: string;
+  emailSent?: boolean;
+  fallbackCode?: string;
+}
+
 interface AuthContextType {
   user: AuthUser | null;
   employee: any | null;
@@ -195,11 +202,11 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<void>;
   loginSteepIn: (username: string, password: string) => Promise<void>;
   loginWithCode: (code: string) => Promise<void>;
-  registerManager: (username: string, password: string, email: string, agencyName: string, country?: string) => Promise<any>;
+  registerManager: (username: string, password: string, email: string, agencyName: string, country?: string) => Promise<AuthEmailResult>;
   verifyEmail: (email: string, code: string) => Promise<void>;
-  forgotPassword: (email: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<AuthEmailResult>;
   resetPassword: (email: string, code: string, newPassword: string) => Promise<void>;
-  upgradeEmployee: (username: string, password: string, email: string) => Promise<any>;
+  upgradeEmployee: (username: string, password: string, email: string) => Promise<AuthEmailResult>;
   verifyEmployeeUpgrade: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   exitSteepIn: (username: string, password: string) => Promise<void>;
