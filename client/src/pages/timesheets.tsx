@@ -1499,25 +1499,42 @@ export default function Timesheets() {
   const handleSaveBreakEdit = () => {
     if (!editingBreak) return;
 
-    // Build overnight-aware Date objects for the new break-start/end times.
-    // Anchor to the entry's own date column (already normalized to clock-in date),
-    // then push forward 24h if the resulting time would land before clock-in.
-    const toBreakEditTs = (timeStr: string, anchorDateStr: string): Date => {
-      const naive = new Date(`${anchorDateStr}T${timeStr}:00`);
-      if (viewingWorkday?.clockIn && naive.getTime() < viewingWorkday.clockIn.getTime()) {
-        return new Date(naive.getTime() + 24 * 60 * 60 * 1000);
-      }
-      return naive;
+    const toBreakEditTs = (timeStr: string, originalEntry: TimeEntry): Date => {
+      const originalTs = new Date(originalEntry.timestamp);
+      const originalDateStr = format(originalTs, "yyyy-MM-dd");
+      const entryDateStr = toEntryDateString(originalEntry.date);
+      const anchorDates = Array.from(new Set([
+        originalDateStr,
+        entryDateStr,
+        viewingWorkday?.clockIn ? format(viewingWorkday.clockIn, "yyyy-MM-dd") : null,
+        viewingWorkday?.clockOut ? format(viewingWorkday.clockOut, "yyyy-MM-dd") : null,
+      ].filter(Boolean) as string[]));
+
+      const candidates = anchorDates.flatMap((dateStr) => {
+        const base = new Date(`${dateStr}T${timeStr}:00`);
+        return [-1, 0, 1].map(days => new Date(base.getTime() + days * 24 * 60 * 60 * 1000));
+      });
+
+      const minMs = viewingWorkday?.clockIn ? viewingWorkday.clockIn.getTime() + 60 * 1000 : -Infinity;
+      const maxMs = viewingWorkday?.clockOut ? viewingWorkday.clockOut.getTime() - 60 * 1000 : Infinity;
+      const inShift = candidates.filter(candidate => candidate.getTime() >= minMs && candidate.getTime() <= maxMs);
+      const pool = inShift.length > 0 ? inShift : candidates;
+
+      return pool.reduce((best, candidate) => (
+        Math.abs(candidate.getTime() - originalTs.getTime()) < Math.abs(best.getTime() - originalTs.getTime())
+          ? candidate
+          : best
+      ));
     };
 
     const hasStart = !!(editingBreak.start && /^\d{2}:\d{2}$/.test(editBreakStart));
     const hasEnd = !!(editingBreak.end && /^\d{2}:\d{2}$/.test(editBreakEnd));
 
     const newStartTs = hasStart
-      ? toBreakEditTs(editBreakStart, editingBreak.start!.date)
+      ? toBreakEditTs(editBreakStart, editingBreak.start!)
       : (editingBreak.start ? new Date(editingBreak.start.timestamp) : null);
     const newEndTs = hasEnd
-      ? toBreakEditTs(editBreakEnd, editingBreak.end!.date)
+      ? toBreakEditTs(editBreakEnd, editingBreak.end!)
       : (editingBreak.end ? new Date(editingBreak.end.timestamp) : null);
 
     // Validation: Break end must be after break start
