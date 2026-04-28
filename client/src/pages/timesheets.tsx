@@ -14,7 +14,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -2181,6 +2180,7 @@ export default function Timesheets() {
         if (!open) {
           setSelectedWorkday(null); 
           setViewingDate(null); 
+          setNoteEditor(null);
           setConfirmDelete(false);
         }
       }}>
@@ -2511,6 +2511,25 @@ export default function Timesheets() {
                           </Button>
                         )}
                       </div>
+                      {noteEditor && dayEntries.some(e => e.id === noteEditor.entry.id) && (
+                        <div className="mb-3 space-y-2 rounded border border-blue-200/70 dark:border-blue-800/70 bg-background/70 p-2">
+                          <Textarea
+                            value={noteEditor.value}
+                            onChange={(e) => setNoteEditor({ ...noteEditor, value: e.target.value })}
+                            placeholder="Write a short note for this timesheet..."
+                            className="min-h-[90px] resize-none text-sm"
+                            data-testid="textarea-timesheet-note"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="sm" onClick={() => setNoteEditor(null)} disabled={updateEntryMutation.isPending}>
+                              Cancel
+                            </Button>
+                            <Button size="sm" onClick={handleSaveNote} disabled={updateEntryMutation.isPending || !noteEditor.value.trim()} data-testid="button-save-timesheet-note">
+                              {updateEntryMutation.isPending ? "Saving..." : "Save Note"}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       {noteEntries.length === 0 ? (
                         <p className="text-xs text-muted-foreground">No notes yet.</p>
                       ) : (
@@ -2656,35 +2675,6 @@ export default function Timesheets() {
               </div>
             );
           })()}
-        </DialogContent>
-      </Dialog>
-
-      {/* Add / edit timesheet note */}
-      <Dialog open={!!noteEditor} onOpenChange={(open) => { if (!open) setNoteEditor(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{noteEditor?.entry.notes ? "Edit Note" : "Add Note"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Textarea
-              value={noteEditor?.value || ""}
-              onChange={(e) => noteEditor && setNoteEditor({ ...noteEditor, value: e.target.value })}
-              placeholder="Write a short note for this timesheet..."
-              className="min-h-[120px] resize-none text-sm"
-              data-testid="textarea-timesheet-note"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Notes are saved on this shift's time entry and stay visible in the timesheet details.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setNoteEditor(null)} disabled={updateEntryMutation.isPending}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveNote} disabled={updateEntryMutation.isPending || !noteEditor?.value.trim()} data-testid="button-save-timesheet-note">
-              {updateEntryMutation.isPending ? "Saving..." : "Save Note"}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

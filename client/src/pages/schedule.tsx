@@ -203,7 +203,7 @@ export default function Schedule() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto custom-scrollbar">
         {isUpdating && (
           <div className="border-b px-4 py-1 text-[11px] text-muted-foreground">
             Updating schedule...
@@ -381,7 +381,7 @@ function WeekView({ days, shiftsByDate, employeeMap, selectedDayIndex, onSelectD
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 flex-1 overflow-y-auto hide-scrollbar">
+      <div className="flex flex-col gap-3 flex-1 overflow-y-auto custom-scrollbar pr-1">
         {dayShifts.length === 0 ? (
           <button
             onClick={() => onAddShift(selectedDateStr)}
