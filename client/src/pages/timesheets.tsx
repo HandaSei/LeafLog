@@ -44,6 +44,8 @@ interface EmployeeWorkday {
   status: "working" | "on-break" | "completed" | "incomplete";
 }
 
+const STALE_OPEN_SESSION_MINUTES = 24 * 60;
+
 type EntryCreateInput = {
   employeeId: number;
   type: string;
@@ -218,9 +220,9 @@ function processEntriesForEmployee(emp: Employee, dayEntries: TimeEntry[], accou
       currentWorkday.status = "incomplete";
     } else {
       const lastClockInRef = currentWorkday.lastClockIn || currentWorkday.clockIn;
-      const hoursElapsed = lastClockInRef ? differenceInMinutes(new Date(), lastClockInRef) / 60 : 25;
+      const minutesElapsed = lastClockInRef ? differenceInMinutes(new Date(), lastClockInRef) : STALE_OPEN_SESSION_MINUTES + 1;
       
-      if (hoursElapsed >= 24) {
+      if (minutesElapsed >= STALE_OPEN_SESSION_MINUTES) {
         currentWorkday.status = "incomplete";
       } else {
         if (currentWorkday.lastClockIn) {
@@ -932,8 +934,9 @@ export default function Timesheets() {
   const [deletingClockOut, setDeletingClockOut] = useState<{
     entry: TimeEntry;
     employee: Employee;
-    impact: "reopen" | "incomplete";
+    impact: "active" | "stale-incomplete" | "newer-incomplete";
     nextClockIn: TimeEntry | null;
+    clockIn: Date | null;
   } | null>(null);
   const [editingBreak, setEditingBreak] = useState<{ start: TimeEntry | null, end: TimeEntry | null } | null>(null);
   const [editBreakStart, setEditBreakStart] = useState<string>("");
@@ -1159,18 +1162,25 @@ export default function Timesheets() {
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const getClockOutDeletePreview = (entry: TimeEntry, employee: Employee) => {
+  const getClockOutDeletePreview = (entry: TimeEntry, employee: Employee, clockIn: Date | null) => {
     const entryTime = new Date(entry.timestamp).getTime();
     const employeeEntries = rawEmployeeEntriesById.get(employee.id) || [];
     const nextClockIn = employeeEntries
       .filter(e => e.type === "clock-in" && new Date(e.timestamp).getTime() > entryTime)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[0] || null;
+    const clockInAgeMinutes = clockIn ? differenceInMinutes(new Date(), clockIn) : STALE_OPEN_SESSION_MINUTES + 1;
+    const impact: "active" | "stale-incomplete" | "newer-incomplete" = nextClockIn
+      ? "newer-incomplete"
+      : clockInAgeMinutes >= STALE_OPEN_SESSION_MINUTES
+        ? "stale-incomplete"
+        : "active";
 
     return {
       entry,
       employee,
-      impact: nextClockIn ? "incomplete" as const : "reopen" as const,
+      impact,
       nextClockIn,
+      clockIn,
     };
   };
 
@@ -2479,7 +2489,7 @@ export default function Timesheets() {
                               variant="ghost"
                               size="sm"
                               className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => setDeletingClockOut(getClockOutDeletePreview(clockOutEntry, emp))}
+                              onClick={() => setDeletingClockOut(getClockOutDeletePreview(clockOutEntry, emp, clockIn))}
                               disabled={deleteEntryMutation.isPending}
                               data-testid="button-delete-clock-out"
                             >
@@ -2997,9 +3007,13 @@ export default function Timesheets() {
                 </span>
                 .
               </p>
-              {deletingClockOut.impact === "reopen" ? (
+              {deletingClockOut.impact === "active" ? (
                 <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-                  This is the newest shift for {deletingClockOut.employee.name}, so deleting the clock-out will reopen the timesheet and make it active again.
+                  This is the newest shift for {deletingClockOut.employee.name}, and the clock-in is still inside the active-session window. Deleting the clock-out will reopen the timesheet as active.
+                </div>
+              ) : deletingClockOut.impact === "stale-incomplete" ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                  This is the newest shift for {deletingClockOut.employee.name}, but its clock-in is already more than 24 hours old. Deleting the clock-out will remove the close time, but the timesheet will be shown as incomplete instead of active.
                 </div>
               ) : (
                 <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
@@ -3030,8 +3044,10 @@ export default function Timesheets() {
                     setDeletingClockOut(null);
                     toast({
                       title: "Clock-out deleted",
-                      description: impact === "reopen"
-                        ? "The timesheet has been reopened."
+                      description: impact === "active"
+                        ? "The timesheet has been reopened as active."
+                        : impact === "stale-incomplete"
+                          ? "The timesheet is now open-ended and marked incomplete."
                         : "The older timesheet is now marked incomplete.",
                     });
                   },
