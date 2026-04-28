@@ -929,6 +929,12 @@ export default function Timesheets() {
   const [addingClockOut, setAddingClockOut] = useState<EmployeeWorkday | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [clockOutTime, setClockOutTime] = useState<string>("");
+  const [deletingClockOut, setDeletingClockOut] = useState<{
+    entry: TimeEntry;
+    employee: Employee;
+    impact: "reopen" | "incomplete";
+    nextClockIn: TimeEntry | null;
+  } | null>(null);
   const [editingBreak, setEditingBreak] = useState<{ start: TimeEntry | null, end: TimeEntry | null } | null>(null);
   const [editBreakStart, setEditBreakStart] = useState<string>("");
   const [editBreakEnd, setEditBreakEnd] = useState<string>("");
@@ -1152,6 +1158,21 @@ export default function Timesheets() {
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
+
+  const getClockOutDeletePreview = (entry: TimeEntry, employee: Employee) => {
+    const entryTime = new Date(entry.timestamp).getTime();
+    const employeeEntries = rawEmployeeEntriesById.get(employee.id) || [];
+    const nextClockIn = employeeEntries
+      .filter(e => e.type === "clock-in" && new Date(e.timestamp).getTime() > entryTime)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[0] || null;
+
+    return {
+      entry,
+      employee,
+      impact: nextClockIn ? "incomplete" as const : "reopen" as const,
+      nextClockIn,
+    };
+  };
 
 
   const navigateWeek = (direction: number) => {
@@ -2332,6 +2353,7 @@ export default function Timesheets() {
           setViewingDate(null); 
           setNoteEditor(null);
           setConfirmDelete(false);
+          setDeletingClockOut(null);
         }
       }}>
         <DialogContent className="max-w-md">
@@ -2452,6 +2474,18 @@ export default function Timesheets() {
                           >
                             <Edit2 className="w-3 h-3" />
                           </Button>
+                          {clockOutEntry && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => setDeletingClockOut(getClockOutDeletePreview(clockOutEntry, emp))}
+                              disabled={deleteEntryMutation.isPending}
+                              data-testid="button-delete-clock-out"
+                            >
+                              <Trash2 className="w-3 h-3 mr-1" /> Delete Clock Out
+                            </Button>
+                          )}
                           {!clockOut && (
                             <Button variant="outline" size="sm" className="h-6 text-xs px-2"
                               onClick={() => openClock(clockIn ? format(clockIn, "HH:mm") : format(new Date(), "HH:mm"), (v) => {
@@ -2943,6 +2977,69 @@ export default function Timesheets() {
               data-testid="button-overlap-edit-existing"
             >
               Edit Existing Break
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Clock Out Confirmation Dialog */}
+      <Dialog open={!!deletingClockOut} onOpenChange={(open) => { if (!open) setDeletingClockOut(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Clock Out</DialogTitle>
+          </DialogHeader>
+          {deletingClockOut && (
+            <div className="space-y-3 py-1">
+              <p className="text-sm text-muted-foreground">
+                This will delete only the clock-out at{" "}
+                <span className="font-medium text-foreground">
+                  {format(new Date(deletingClockOut.entry.timestamp), "HH:mm")}
+                </span>
+                .
+              </p>
+              {deletingClockOut.impact === "reopen" ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                  This is the newest shift for {deletingClockOut.employee.name}, so deleting the clock-out will reopen the timesheet and make it active again.
+                </div>
+              ) : (
+                <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                  There is a newer timesheet starting at{" "}
+                  <span className="font-semibold">
+                    {deletingClockOut.nextClockIn ? format(new Date(deletingClockOut.nextClockIn.timestamp), "EEE, MMM d HH:mm") : "a later time"}
+                  </span>
+                  , so this older timesheet will become incomplete instead of reopening.
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Other clock-ins, breaks, notes, and newer timesheets will stay unchanged.
+              </p>
+            </div>
+          )}
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" onClick={() => setDeletingClockOut(null)} data-testid="button-cancel-delete-clock-out">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteEntryMutation.isPending}
+              onClick={() => {
+                if (!deletingClockOut) return;
+                const impact = deletingClockOut.impact;
+                deleteEntryMutation.mutate(deletingClockOut.entry.id, {
+                  onSuccess: () => {
+                    setDeletingClockOut(null);
+                    toast({
+                      title: "Clock-out deleted",
+                      description: impact === "reopen"
+                        ? "The timesheet has been reopened."
+                        : "The older timesheet is now marked incomplete.",
+                    });
+                  },
+                });
+              }}
+              data-testid="button-confirm-delete-clock-out"
+            >
+              {deleteEntryMutation.isPending ? "Deleting..." : "Delete Clock Out"}
             </Button>
           </div>
         </DialogContent>
