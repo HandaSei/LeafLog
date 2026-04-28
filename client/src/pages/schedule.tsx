@@ -413,7 +413,7 @@ function WeekView({ days, shiftsByDate, employeeMap, selectedDayIndex, onSelectD
                 data-testid={`employee-row-${empId}`}
               >
                 <EmployeeAvatar name={emp?.name || "?"} color={emp?.color || "#3B82F6"} size="sm" />
-                <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+                <div className="flex-1 min-w-0 overflow-x-auto custom-scrollbar pb-1">
                   <div className="flex items-center gap-4">
                     <div className="flex-shrink-0 border-r pr-3 min-w-[80px]">
                       <span className="text-xs font-semibold truncate block">{emp?.name || "Unknown"}</span>

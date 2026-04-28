@@ -775,6 +775,10 @@ export async function registerRoutes(
     if (req.body.role !== undefined) {
       updateData.role = req.body.role;
     }
+    if (req.body.notes !== undefined) {
+      const note = typeof req.body.notes === "string" ? req.body.notes.trim() : "";
+      updateData.notes = note || null;
+    }
     if (req.body.isUnpaid !== undefined) {
       updateData.isUnpaid = Boolean(req.body.isUnpaid);
     }

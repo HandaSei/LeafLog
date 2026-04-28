@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
@@ -877,6 +878,7 @@ export default function Timesheets() {
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
   const [editTime, setEditTime] = useState<string>("");
+  const [noteEditor, setNoteEditor] = useState<{ entry: TimeEntry; value: string } | null>(null);
   const [editingShift, setEditingShift] = useState<EmployeeWorkday | null>(null);
   const [editShiftClockIn, setEditShiftClockIn] = useState<string>("");
   const [editShiftClockOut, setEditShiftClockOut] = useState<string>("");
@@ -981,9 +983,11 @@ export default function Timesheets() {
   });
 
   const updateEntryMutation = useMutation({
-    mutationFn: async (data: { id: number; timestamp: string; role?: string }) => {
-      const body: any = { timestamp: data.timestamp };
+    mutationFn: async (data: { id: number; timestamp?: string; role?: string; notes?: string | null }) => {
+      const body: any = {};
+      if (data.timestamp !== undefined) body.timestamp = data.timestamp;
       if (data.role !== undefined) body.role = data.role;
+      if (data.notes !== undefined) body.notes = data.notes;
       const res = await apiRequest("PATCH", `/api/steepin/entries/${data.id}`, body);
       return res.json();
     },
@@ -1161,6 +1165,28 @@ export default function Timesheets() {
   const handleEditEntry = (entry: TimeEntry) => {
     setEditingEntry(entry);
     setEditTime(format(new Date(entry.timestamp), "HH:mm"));
+  };
+
+  const handleSaveNote = () => {
+    if (!noteEditor) return;
+    updateEntryMutation.mutate(
+      { id: noteEditor.entry.id, notes: noteEditor.value },
+      {
+        onSuccess: () => {
+          toast({ title: "Note saved", description: "Timesheet note updated." });
+          setNoteEditor(null);
+        },
+      },
+    );
+  };
+
+  const handleDeleteNote = (entry: TimeEntry) => {
+    updateEntryMutation.mutate(
+      { id: entry.id, notes: null },
+      {
+        onSuccess: () => toast({ title: "Note deleted", description: "Timesheet note removed." }),
+      },
+    );
   };
 
   const handleSaveEdit = () => {
@@ -2454,25 +2480,78 @@ export default function Timesheets() {
                   );
                 })()}
 
-                {dayEntries.some(e => e.notes) && (
-                  <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <StickyNote className="w-3.5 h-3.5 text-blue-500" />
-                      <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">Notes</span>
+                {(() => {
+                  const noteEntries = dayEntries.filter(e => e.notes);
+                  const addNoteTarget =
+                    dayEntries.find(e => e.type === "clock-in" && !e.notes) ||
+                    dayEntries.find(e => !e.notes);
+                  const typeLabel = (entryType: string) =>
+                    entryType === "clock-in" ? "Clock In"
+                      : entryType === "clock-out" ? "Clock Out"
+                        : entryType === "break-start" ? "Break Start"
+                          : entryType === "break-end" ? "Break End"
+                            : entryType;
+                  return (
+                    <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <StickyNote className="w-3.5 h-3.5 text-blue-500" />
+                          <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">Notes</span>
+                        </div>
+                        {addNoteTarget && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
+                            onClick={() => setNoteEditor({ entry: addNoteTarget, value: "" })}
+                            disabled={updateEntryMutation.isPending}
+                            data-testid="button-add-timesheet-note"
+                          >
+                            <Plus className="w-3 h-3 mr-1" /> {noteEntries.length > 0 ? "Add" : "Add Note"}
+                          </Button>
+                        )}
+                      </div>
+                      {noteEntries.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No notes yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {noteEntries.map(e => (
+                            <div key={e.id} className="rounded border border-blue-200/70 dark:border-blue-800/70 bg-background/60 p-2 text-xs" data-testid={`note-entry-${e.id}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <span className="font-medium text-blue-600 dark:text-blue-400">{typeLabel(e.type)}</span>
+                                  <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{e.notes}</p>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => setNoteEditor({ entry: e, value: e.notes || "" })}
+                                    disabled={updateEntryMutation.isPending}
+                                    data-testid={`button-edit-note-${e.id}`}
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-destructive"
+                                    onClick={() => handleDeleteNote(e)}
+                                    disabled={updateEntryMutation.isPending}
+                                    data-testid={`button-delete-note-${e.id}`}
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="space-y-1.5">
-                      {dayEntries.filter(e => e.notes).map(e => {
-                        const typeLabel = e.type === "clock-in" ? "Clock In" : e.type === "clock-out" ? "Clock Out" : e.type === "break-start" ? "Break Start" : "Break End";
-                        return (
-                          <div key={e.id} className="text-xs" data-testid={`note-entry-${e.id}`}>
-                            <span className="font-medium text-blue-600 dark:text-blue-400">{typeLabel}:</span>{" "}
-                            <span className="text-muted-foreground">{e.notes}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {(() => {
                   const dateStr = dayEntries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
@@ -2577,6 +2656,35 @@ export default function Timesheets() {
               </div>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add / edit timesheet note */}
+      <Dialog open={!!noteEditor} onOpenChange={(open) => { if (!open) setNoteEditor(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{noteEditor?.entry.notes ? "Edit Note" : "Add Note"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Textarea
+              value={noteEditor?.value || ""}
+              onChange={(e) => noteEditor && setNoteEditor({ ...noteEditor, value: e.target.value })}
+              placeholder="Write a short note for this timesheet..."
+              className="min-h-[120px] resize-none text-sm"
+              data-testid="textarea-timesheet-note"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Notes are saved on this shift's time entry and stay visible in the timesheet details.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNoteEditor(null)} disabled={updateEntryMutation.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveNote} disabled={updateEntryMutation.isPending || !noteEditor?.value.trim()} data-testid="button-save-timesheet-note">
+              {updateEntryMutation.isPending ? "Saving..." : "Save Note"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
