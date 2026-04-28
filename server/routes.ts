@@ -797,7 +797,11 @@ export async function registerRoutes(
       updateData.isUnpaid = Boolean(req.body.isUnpaid);
     }
     const entry = await storage.updateTimeEntry(id, updateData, req.session.userId!);
-    if (!entry) return res.status(404).json({ message: "Entry not found" });
+    if (!entry) {
+      console.warn(`[PATCH /api/steepin/entries/${id}] No row matched. ownerAccountId=${req.session.userId}, body=${JSON.stringify(req.body)}`);
+      return res.status(404).json({ message: "Entry not found" });
+    }
+    console.log(`[PATCH /api/steepin/entries/${id}] OK. ownerAccountId=${req.session.userId}, fields=${Object.keys(updateData).join(",")}, savedNotes=${JSON.stringify(entry.notes)}, savedSource=${entry.source}`);
     broadcastEntryUpdate(entry.employeeId, {
       type: entry.type,
       timestamp: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : String(entry.timestamp),

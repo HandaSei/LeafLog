@@ -1579,32 +1579,44 @@ export default function Timesheets() {
   const handleAddNewBreak = async () => {
     if (!addingNewBreak || !newBreakStartTime || !newBreakEndTime) return;
     if (!/^\d{2}:\d{2}$/.test(newBreakStartTime) || !/^\d{2}:\d{2}$/.test(newBreakEndTime)) return;
-    if (newBreakEndTime <= newBreakStartTime) {
+
+    // Validate break is within clock-in / clock-out with 1-minute buffer.
+    // Use full Date math (not HH:mm string compare) so overnight shifts work
+    // (e.g. break 23:00 -> 01:00 on a shift that crosses midnight).
+    const dateStr = addingNewBreak.entries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
+    const toBreakTs = (timeStr: string): Date => {
+      const naive = new Date(`${dateStr}T${timeStr}:00`);
+      // Overnight shift: if the entered time-of-day is earlier than the clock-in, it belongs to the next calendar day.
+      if (addingNewBreak.clockIn && naive.getTime() < addingNewBreak.clockIn.getTime()) {
+        return new Date(naive.getTime() + 24 * 60 * 60 * 1000);
+      }
+      return naive;
+    };
+    const breakStartTs = toBreakTs(newBreakStartTime);
+    const breakEndTs = toBreakTs(newBreakEndTime);
+
+    if (breakEndTs.getTime() <= breakStartTs.getTime()) {
       toast({ title: "Invalid Time", description: "Break end must be after break start.", variant: "destructive" });
       return;
     }
-
-    // Validate break is within clock-in / clock-out with 1-minute buffer
-    const clockInStr = addingNewBreak.clockIn ? format(addingNewBreak.clockIn, "HH:mm") : null;
-    const clockOutStr = addingNewBreak.clockOut ? format(addingNewBreak.clockOut, "HH:mm") : null;
-    if (clockInStr && newBreakStartTime <= clockInStr) {
+    if (addingNewBreak.clockIn && breakStartTs.getTime() <= addingNewBreak.clockIn.getTime()) {
       toast({ title: "Invalid Time", description: "Break must start at least 1 minute after clock-in.", variant: "destructive" });
       return;
     }
-    if (clockOutStr && newBreakEndTime >= clockOutStr) {
+    if (addingNewBreak.clockOut && breakEndTs.getTime() >= addingNewBreak.clockOut.getTime()) {
       toast({ title: "Invalid Time", description: "Break must end at least 1 minute before clock-out.", variant: "destructive" });
       return;
     }
-    if (clockOutStr && newBreakStartTime >= clockOutStr) {
+    if (addingNewBreak.clockOut && breakStartTs.getTime() >= addingNewBreak.clockOut.getTime()) {
       toast({ title: "Invalid Time", description: "Break cannot start at or after clock-out.", variant: "destructive" });
       return;
     }
 
     const existingBreaks = getBreakPairs(addingNewBreak.entries, addingNewBreak.clockIn, addingNewBreak.clockOut);
     for (const other of existingBreaks) {
-      const otherStart = format(new Date(other.start.timestamp), "HH:mm");
-      const otherEnd = other.end ? format(new Date(other.end.timestamp), "HH:mm") : null;
-      if (otherEnd && newBreakStartTime <= otherEnd && newBreakEndTime >= otherStart) {
+      const otherStartTs = new Date(other.start.timestamp).getTime();
+      const otherEndTs = other.end ? new Date(other.end.timestamp).getTime() : null;
+      if (otherEndTs !== null && breakStartTs.getTime() <= otherEndTs && breakEndTs.getTime() >= otherStartTs) {
         setAddingNewBreak(null);
         setNewBreakStartTime("");
         setNewBreakEndTime("");
@@ -1613,10 +1625,9 @@ export default function Timesheets() {
       }
     }
 
-    const dateStr = addingNewBreak.entries.find(e => e.type === "clock-in")?.date || format(activeDay, "yyyy-MM-dd");
     const empId = addingNewBreak.employee.id;
-    const startTs = new Date(`${dateStr}T${newBreakStartTime}:00`).toISOString();
-    const endTs = new Date(`${dateStr}T${newBreakEndTime}:00`).toISOString();
+    const startTs = breakStartTs.toISOString();
+    const endTs = breakEndTs.toISOString();
     setAddingNewBreak(null);
     setNewBreakStartTime("");
     setNewBreakEndTime("");
