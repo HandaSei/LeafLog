@@ -782,7 +782,7 @@ export async function registerRoutes(
     if (req.body.isUnpaid !== undefined) {
       updateData.isUnpaid = Boolean(req.body.isUnpaid);
     }
-    const entry = await storage.updateTimeEntry(id, updateData);
+    const entry = await storage.updateTimeEntry(id, updateData, req.session.userId!);
     if (!entry) return res.status(404).json({ message: "Entry not found" });
     broadcastEntryUpdate(entry.employeeId, {
       type: entry.type,

@@ -203,7 +203,7 @@ export default function Schedule() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto custom-scrollbar">
+      <div className="flex-1 overflow-y-scroll custom-scrollbar scrollbar-gutter-stable">
         {isUpdating && (
           <div className="border-b px-4 py-1 text-[11px] text-muted-foreground">
             Updating schedule...
@@ -323,7 +323,7 @@ function WeekView({ days, shiftsByDate, employeeMap, selectedDayIndex, onSelectD
   }, [shiftsByEmployee, employeeMap, selectedDateStr]);
 
   return (
-    <div className="flex flex-col gap-4 h-full pb-20 px-4 pt-4">
+    <div className="flex min-h-full flex-col gap-4 pb-20 px-4 pt-4">
       <div className="grid grid-cols-7 gap-1.5" data-testid="day-selector-bar">
         {days.map((day, idx) => {
           const today = isToday(day);
@@ -381,7 +381,7 @@ function WeekView({ days, shiftsByDate, employeeMap, selectedDayIndex, onSelectD
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 flex-1 overflow-y-auto custom-scrollbar pr-1">
+      <div className="flex flex-col gap-3">
         {dayShifts.length === 0 ? (
           <button
             onClick={() => onAddShift(selectedDateStr)}

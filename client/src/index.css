@@ -220,6 +220,10 @@
     background: hsl(var(--muted-foreground) / 0.4);
   }
 
+  .scrollbar-gutter-stable {
+    scrollbar-gutter: stable;
+  }
+
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;

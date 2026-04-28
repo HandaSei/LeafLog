@@ -955,6 +955,56 @@ export default function Timesheets() {
     });
   };
 
+  const normalizeEntryForCache = (entry: TimeEntry): TimeEntry => ({
+    ...entry,
+    date: toEntryDateString(entry.date) as unknown as TimeEntry["date"],
+    timestamp: toEntryTimestampIso(entry.timestamp) as unknown as TimeEntry["timestamp"],
+  });
+
+  const sortEntriesForCache = (list: TimeEntry[]) =>
+    [...list].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  const replaceEntryInCaches = (entry: TimeEntry) => {
+    const normalized = normalizeEntryForCache(entry);
+    const replace = (old: TimeEntry[] | undefined) => {
+      if (!Array.isArray(old) || !old.some(e => e.id === normalized.id)) return old;
+      return sortEntriesForCache(old.map(e => e.id === normalized.id ? { ...e, ...normalized } : e));
+    };
+
+    queryClient.setQueriesData<TimeEntry[]>({ queryKey: ["/api/steepin/entries"] }, replace);
+    queryClient.setQueryData<TimeEntry[]>(["/api/steepin/open-sessions"], replace);
+  };
+
+  const upsertEntryInVisibleCaches = (entry: TimeEntry) => {
+    const normalized = normalizeEntryForCache(entry);
+    const entryDate = toEntryDateString(normalized.date);
+    const upsert = (old: TimeEntry[] | undefined) => {
+      if (!Array.isArray(old)) return old;
+      const exists = old.some(e => e.id === normalized.id);
+      const next = exists
+        ? old.map(e => e.id === normalized.id ? { ...e, ...normalized } : e)
+        : [...old, normalized];
+      return sortEntriesForCache(next);
+    };
+
+    if (entryDate >= entriesFrom && entryDate <= entriesTo) {
+      queryClient.setQueryData<TimeEntry[]>(["/api/steepin/entries", "range", entriesFrom, entriesTo], upsert);
+    }
+    queryClient.setQueryData<TimeEntry[]>(["/api/steepin/entries", "date", entryDate], upsert);
+  };
+
+  const removeEntriesFromCaches = (ids: number[]) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const remove = (old: TimeEntry[] | undefined) => {
+      if (!Array.isArray(old) || !old.some(e => idSet.has(e.id))) return old;
+      return old.filter(e => !idSet.has(e.id));
+    };
+
+    queryClient.setQueriesData<TimeEntry[]>({ queryKey: ["/api/steepin/entries"] }, remove);
+    queryClient.setQueryData<TimeEntry[]>(["/api/steepin/open-sessions"], remove);
+  };
+
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
   const { data: employees = [], isLoading: empsLoading, isFetching: empsFetching } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
   const { data: entries = [], isLoading: entriesLoading, isFetching: entriesFetching } = useQuery<TimeEntry[]>({
@@ -982,15 +1032,17 @@ export default function Timesheets() {
   });
 
   const updateEntryMutation = useMutation({
-    mutationFn: async (data: { id: number; timestamp?: string; role?: string; notes?: string | null }) => {
+    mutationFn: async (data: { id: number; timestamp?: string; role?: string; notes?: string | null; isUnpaid?: boolean }) => {
       const body: any = {};
       if (data.timestamp !== undefined) body.timestamp = data.timestamp;
       if (data.role !== undefined) body.role = data.role;
       if (data.notes !== undefined) body.notes = data.notes;
+      if (data.isUnpaid !== undefined) body.isUnpaid = data.isUnpaid;
       const res = await apiRequest("PATCH", `/api/steepin/entries/${data.id}`, body);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (entry: TimeEntry) => {
+      replaceEntryInCaches(entry);
       invalidateVisibleEntries();
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -1001,7 +1053,10 @@ export default function Timesheets() {
       const res = await apiRequest("POST", "/api/steepin/entries", data);
       return res.json();
     },
-    onSuccess: () => invalidateVisibleEntries(),
+    onSuccess: (entry: TimeEntry) => {
+      upsertEntryInVisibleCaches(entry);
+      invalidateVisibleEntries();
+    },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
@@ -1009,7 +1064,10 @@ export default function Timesheets() {
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/steepin/entries/${id}`);
     },
-    onSuccess: () => invalidateVisibleEntries(),
+    onSuccess: (_data, id) => {
+      removeEntriesFromCaches([id]);
+      invalidateVisibleEntries();
+    },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
@@ -1039,7 +1097,8 @@ export default function Timesheets() {
       const ids = data.entries.map(e => e.id);
       await apiRequest("POST", "/api/steepin/entries/delete-batch", { ids });
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      removeEntriesFromCaches(variables.entries.map(e => e.id));
       invalidateVisibleEntries();
       toast({ title: "Success", description: "Timesheet deleted successfully" });
       setSelectedWorkday(null);
@@ -1099,7 +1158,11 @@ export default function Timesheets() {
     if (!selectedWorkday) return null;
     const dateToUse = viewingDate || selectedDay;
     const dayWorkdays = buildWorkdaysForIndexedDateWithMap(indexedEntries, employeeMap, dateToUse, selectedRole, employeeSearchLower, paidBreakMinutes);
-    return dayWorkdays.find(w => 
+    const selectedEntryIds = new Set(selectedWorkday.entries.map(e => e.id));
+    return dayWorkdays.find(w =>
+      w.employee.id === selectedWorkday.employee.id &&
+      w.entries.some(e => selectedEntryIds.has(e.id))
+    ) || dayWorkdays.find(w =>
       w.employee.id === selectedWorkday.employee.id && 
       w.clockIn?.getTime() === selectedWorkday.clockIn?.getTime()
     ) || null;
@@ -1169,7 +1232,7 @@ export default function Timesheets() {
   const handleSaveNote = () => {
     if (!noteEditor) return;
     updateEntryMutation.mutate(
-      { id: noteEditor.entry.id, notes: noteEditor.value },
+      { id: noteEditor.entry.id, notes: noteEditor.value.trim() },
       {
         onSuccess: () => {
           toast({ title: "Note saved", description: "Timesheet note updated." });
@@ -1935,7 +1998,7 @@ export default function Timesheets() {
         </div>
       </div>
 
-      <div className="p-4 space-y-4 flex-1 overflow-auto">
+      <div className="p-4 space-y-4 flex-1 overflow-y-scroll custom-scrollbar scrollbar-gutter-stable">
         {isTimesheetUpdating && (
           <div className="text-[11px] text-muted-foreground">
             Updating timesheets...
@@ -2346,7 +2409,7 @@ export default function Timesheets() {
                                 <button
                                   className={`text-[10px] px-1.5 py-0.5 rounded font-medium border transition-colors ${bp.start.isUnpaid ? "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800" : "bg-muted text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 hover:border-red-200"}`}
                                   title={bp.start.isUnpaid ? "Marked as unpaid — click to toggle" : "Mark as unpaid break"}
-                                  onClick={() => apiRequest("PATCH", `/api/steepin/entries/${bp.start.id}`, { isUnpaid: !bp.start.isUnpaid }).then(() => invalidateVisibleEntries())}
+                                  onClick={() => updateEntryMutation.mutate({ id: bp.start.id, isUnpaid: !bp.start.isUnpaid })}
                                   data-testid={`button-toggle-unpaid-${idx}`}
                                 >
                                   {bp.start.isUnpaid ? "Unpaid" : "Paid"}

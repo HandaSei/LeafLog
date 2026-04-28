@@ -96,7 +96,7 @@ export interface IStorage {
   getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]>;
   getOpenSessionDate(employeeId: number): Promise<string | null>;
   getOpenSessionEntries(ownerAccountId: number): Promise<TimeEntry[]>;
-  updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
+  updateTimeEntry(id: number, data: Partial<TimeEntry>, ownerAccountId?: number): Promise<TimeEntry | undefined>;
   deleteTimeEntry(id: number): Promise<void>;
   deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void>;
   batchDeleteTimeEntriesByIds(ids: number[], ownerAccountId: number): Promise<void>;
@@ -576,9 +576,43 @@ export class DatabaseStorage implements IStorage {
     return result.rows.map(mapTimeEntryRow);
   }
 
-  async updateTimeEntry(id: number, data: Partial<TimeEntry>): Promise<TimeEntry | undefined> {
-    const [entry] = await db.update(timeEntries).set(data).where(eq(timeEntries.id, id)).returning();
-    return entry;
+  async updateTimeEntry(id: number, data: Partial<TimeEntry>, ownerAccountId?: number): Promise<TimeEntry | undefined> {
+    const columnMap: Partial<Record<keyof TimeEntry, string>> = {
+      type: "type",
+      timestamp: "timestamp",
+      role: "role",
+      notes: "notes",
+      isUnpaid: "is_unpaid",
+      source: "source",
+    };
+    const sets: string[] = [];
+    const params: any[] = [];
+
+    (Object.keys(columnMap) as Array<keyof TimeEntry>).forEach((key) => {
+      if (data[key] !== undefined) {
+        params.push(data[key]);
+        sets.push(`${columnMap[key]} = $${params.length}`);
+      }
+    });
+
+    if (sets.length === 0) return undefined;
+
+    params.push(id);
+    const idParam = params.length;
+    let ownerClause = "";
+    if (ownerAccountId) {
+      params.push(ownerAccountId);
+      ownerClause = ` AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $${params.length})`;
+    }
+
+    const result = await pool.query(
+      `UPDATE time_entries
+       SET ${sets.join(", ")}
+       WHERE id = $${idParam}${ownerClause}
+       RETURNING id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source`,
+      params
+    );
+    return result.rows[0] ? mapTimeEntryRow(result.rows[0]) : undefined;
   }
 
   async deleteTimeEntry(id: number): Promise<void> {
