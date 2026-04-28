@@ -43,6 +43,7 @@ import { ChevronLeft, ChevronRight, Plus, CalendarDays, MoreHorizontal, Pencil, 
 import { ShiftFormDialog } from "@/components/shift-form-dialog";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { formatTime, getDaysBetween } from "@/lib/constants";
+import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import { calculateDayPay, formatCurrency, hasPayConfig } from "@/lib/pay-utils";
 
 export default function Schedule() {
@@ -111,21 +112,31 @@ export default function Schedule() {
     },
   });
 
+  const visibleEmployees = useMemo(
+    () => employees.filter(isActiveUnarchivedEmployee),
+    [employees]
+  );
+
   const employeeMap = useMemo(() => {
     const map = new Map<number, Employee>();
-    employees.forEach((e) => map.set(e.id, e));
+    visibleEmployees.forEach((e) => map.set(e.id, e));
     return map;
-  }, [employees]);
+  }, [visibleEmployees]);
+
+  const visibleShifts = useMemo(
+    () => shifts.filter((s) => employeeMap.has(s.employeeId)),
+    [shifts, employeeMap]
+  );
 
   const shiftsByDate = useMemo(() => {
     const map = new Map<string, Shift[]>();
-    shifts.forEach((s) => {
+    visibleShifts.forEach((s) => {
       const key = s.date;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(s);
     });
     return map;
-  }, [shifts]);
+  }, [visibleShifts]);
 
   const navigate = (direction: number) => {
     setCurrentDate(direction > 0 ? addWeeks(currentDate, 1) : subWeeks(currentDate, 1));
@@ -259,8 +270,8 @@ export default function Schedule() {
       <SchedulePdfDialog
         open={pdfDialogOpen}
         onOpenChange={setPdfDialogOpen}
-        shifts={shifts}
-        employees={employees}
+        shifts={visibleShifts}
+        employees={visibleEmployees}
         defaultStart={dateRange.start}
         defaultEnd={dateRange.end}
       />
@@ -608,7 +619,7 @@ function SchedulePdfDialog({ open, onOpenChange, shifts, employees, defaultStart
   }, [open, defaultStart, defaultEnd]);
 
   const activeEmployees = useMemo(() =>
-    employees.filter(e => e.status === "active").sort((a, b) => a.name.localeCompare(b.name)),
+    employees.filter(isActiveUnarchivedEmployee).sort((a, b) => a.name.localeCompare(b.name)),
     [employees]
   );
 

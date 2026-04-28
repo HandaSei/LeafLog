@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { TimeInput, TimeRangeInput, ClockPickerDialog } from "@/components/time-input";
@@ -1168,7 +1169,11 @@ export default function Timesheets() {
 
   const normalizedEntries = useMemo(() => normalizeEntryDates(entries), [entries]);
   const indexedEntries = useMemo(() => buildEntryIndexByDate(normalizedEntries), [normalizedEntries]);
-  const employeeMap = useMemo(() => buildEmployeeMap(employees), [employees]);
+  const visibleEmployees = useMemo(
+    () => employees.filter(isActiveUnarchivedEmployee),
+    [employees]
+  );
+  const employeeMap = useMemo(() => buildEmployeeMap(visibleEmployees), [visibleEmployees]);
   const employeeSearchLower = useMemo(() => employeeSearch.trim().toLowerCase(), [employeeSearch]);
   const employeeEntriesById = useMemo(() => buildEntryIndexByEmployee(normalizedEntries), [normalizedEntries]);
   const rawEmployeeEntriesById = useMemo(() => buildEntryIndexByEmployee(entries), [entries]);
@@ -1230,7 +1235,7 @@ export default function Timesheets() {
   }, [viewMode, workdays, monthWorkdayGroups]);
 
   const totalPay = useMemo(() => {
-    const anyHasPay = employees.some(e => hasPayConfig(e));
+    const anyHasPay = visibleEmployees.some(e => hasPayConfig(e));
     if (!anyHasPay) return null;
 
     const source = viewMode === "week" ? weekWorkdaysByDay : monthWorkdays;
@@ -1256,7 +1261,7 @@ export default function Timesheets() {
       });
     });
     return total;
-  }, [viewMode, weekWorkdaysByDay, monthWorkdays, employees]);
+  }, [viewMode, weekWorkdaysByDay, monthWorkdays, visibleEmployees]);
 
   const isInitialTimesheetLoading = empsLoading || entriesLoading;
   const isTimesheetUpdating = !isInitialTimesheetLoading && (empsFetching || entriesFetching);
@@ -1906,7 +1911,7 @@ export default function Timesheets() {
         shiftsData = await res.json();
       }
 
-      await exportPDF(start, end, rangeLabel, exportEntries, employees, exportSelectedEmployeeIds, paidBreakMinutes, {
+      await exportPDF(start, end, rangeLabel, exportEntries, visibleEmployees, exportSelectedEmployeeIds, paidBreakMinutes, {
         showScheduledComparison: exportShowScheduled,
         shifts: shiftsData,
       });
@@ -2115,8 +2120,7 @@ export default function Timesheets() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Employees</SelectItem>
-                  {employees
-                    .filter(e => e.status === "active")
+                  {[...visibleEmployees]
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .map(emp => (
                       <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
@@ -2246,18 +2250,17 @@ export default function Timesheets() {
                   size="sm"
                   className="h-auto min-h-0 p-0 text-[11px] text-primary hover:bg-transparent hover:underline"
                   onClick={() => setExportSelectedEmployeeIds(
-                    exportSelectedEmployeeIds.length === employees.filter(e => e.status === "active").length
+                    exportSelectedEmployeeIds.length === visibleEmployees.length
                       ? []
-                      : employees.filter(e => e.status === "active").map(e => e.id)
+                      : visibleEmployees.map(e => e.id)
                   )}
                   data-testid="button-export-select-all"
                 >
-                  {exportSelectedEmployeeIds.length === employees.filter(e => e.status === "active").length ? "Deselect All" : "Select All"}
+                  {exportSelectedEmployeeIds.length === visibleEmployees.length ? "Deselect All" : "Select All"}
                 </Button>
               </div>
               <div className="max-h-44 overflow-auto border rounded-md p-2 space-y-0.5">
-                {employees
-                  .filter(e => e.status === "active")
+                {[...visibleEmployees]
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(emp => (
                     <div 
@@ -3064,12 +3067,16 @@ export default function Timesheets() {
       >
         <DialogContent>
           <DialogHeader><DialogTitle>Add Missing Timesheet</DialogTitle></DialogHeader>
-          {employees.filter(e => e.status === "active").length === 0 ? (
+          {visibleEmployees.length === 0 ? (
             <div className="py-6 flex flex-col items-center text-center">
               <AlertCircle className="w-12 h-12 text-amber-500 mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No employees found</h3>
+              <h3 className="text-lg font-semibold mb-2">
+                {employees.length === 0 ? "No employees found" : "No active employees available"}
+              </h3>
               <p className="text-sm text-muted-foreground mb-6 max-w-[300px]">
-                You need to add at least one employee before you can create a timesheet.
+                {employees.length === 0
+                  ? "You need to add at least one employee before you can create a timesheet."
+                  : "Unarchive an employee before creating a new timesheet for them."}
               </p>
               <Button 
                 onClick={() => {
@@ -3077,7 +3084,7 @@ export default function Timesheets() {
                   setLocation("/employees");
                 }}
               >
-                Go to Employees
+                {employees.length === 0 ? "Go to Employees" : "Manage Employees"}
               </Button>
             </div>
           ) : (
@@ -3090,7 +3097,7 @@ export default function Timesheets() {
                     value={newTimesheetEmployeeId}
                     onValueChange={(val) => {
                       setNewTimesheetEmployeeId(val);
-                      const emp = employees.find(e => String(e.id) === val);
+                      const emp = visibleEmployees.find(e => String(e.id) === val);
                       if (emp?.role) setNewTimesheetRole(emp.role);
                     }}
                   >
@@ -3098,7 +3105,7 @@ export default function Timesheets() {
                       <SelectValue placeholder="Select employee" />
                     </SelectTrigger>
                     <SelectContent>
-                      {employees.filter(e => e.status === "active").sort((a, b) => a.name.localeCompare(b.name)).map(emp => (
+                      {[...visibleEmployees].sort((a, b) => a.name.localeCompare(b.name)).map(emp => (
                         <SelectItem key={emp.id} value={String(emp.id)}>
                           <span className="flex items-center gap-2">
                             {emp.role && customRoles.find(r => r.name === emp.role) && (

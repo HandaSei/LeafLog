@@ -429,6 +429,9 @@ export async function registerRoutes(
 
     const emp = await storage.getEmployee(Number(employeeId));
     if (!emp) return res.status(404).json({ message: "Employee not found" });
+    if (emp.status !== "active" || emp.hiddenFromSteepin) {
+      return res.status(403).json({ message: "Employee is archived" });
+    }
 
     if (emp.accessCode !== passcode) {
       return res.status(401).json({ message: "Invalid passcode" });

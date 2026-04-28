@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar, ArrowRight, CalendarDays, CheckCircle2, Clock, AlertTriangle, XCircle, Coffee, AlertCircle, Plus } from "lucide-react";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { formatTime } from "@/lib/constants";
+import { isActiveUnarchivedEmployee } from "@/lib/employees";
 
 interface TimeEntry {
   id: number;
@@ -477,11 +478,16 @@ export default function Dashboard() {
 
   const isLoading = shiftsLoading || employeesLoading || entriesLoading;
 
+  const visibleEmployees = useMemo(
+    () => employees.filter(isActiveUnarchivedEmployee),
+    [employees]
+  );
+
   const employeeMap = useMemo(() => {
     const map = new Map<number, Employee>();
-    employees.forEach((e) => map.set(e.id, e));
+    visibleEmployees.forEach((e) => map.set(e.id, e));
     return map;
-  }, [employees]);
+  }, [visibleEmployees]);
 
   const entriesByEmployee = useMemo(() => {
     const map = new Map<number, TimeEntry[]>();
@@ -527,6 +533,7 @@ export default function Dashboard() {
   const todayShifts = useMemo(() => {
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
     return shifts.filter((s) => {
+      if (!employeeMap.has(s.employeeId)) return false;
       if (s.date === todayStr) return true;
       if (s.date !== yesterdayStr) return false;
       // Include yesterday's overnight shifts only while they are still in their after-midnight window.
@@ -535,7 +542,7 @@ export default function Dashboard() {
       const isOvernight = endMinutes <= startMinutes;
       return isOvernight && nowMinutes < endMinutes;
     });
-  }, [shifts, todayStr, yesterdayStr, now]);
+  }, [shifts, employeeMap, todayStr, yesterdayStr, now]);
 
   const flowRows: FlowRow[] = useMemo(() => {
     const rows: FlowRow[] = [];
@@ -606,7 +613,7 @@ export default function Dashboard() {
     entriesByEmployee.forEach((entries, employeeId) => {
       if (processedEmployeeIds.has(employeeId)) return;
       const emp = employeeMap.get(employeeId);
-      if (!emp || emp.status !== "active") return;
+      if (!emp) return;
       const empPaidBreak = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : accountPaidBreakMinutes;
       const statuses = getClockStatusForUnscheduled(entries, now, empPaidBreak);
       if (statuses.length > 0) {
@@ -655,12 +662,12 @@ export default function Dashboard() {
   const inFlowIds = useMemo(() => {
     const ids = new Set<number>();
     todayShifts.forEach((s) => ids.add(s.employeeId));
-    todayEntries.filter((e) => e.type === "clock-in").forEach((e) => ids.add(e.employeeId));
+    todayEntries.filter((e) => e.type === "clock-in" && employeeMap.has(e.employeeId)).forEach((e) => ids.add(e.employeeId));
     return ids;
-  }, [todayShifts, todayEntries]);
+  }, [todayShifts, todayEntries, employeeMap]);
 
-  const unscheduledEmployees = employees.filter(
-    (e) => e.status === "active" && !inFlowIds.has(e.id)
+  const unscheduledEmployees = visibleEmployees.filter(
+    (e) => !inFlowIds.has(e.id)
   );
 
   return (
@@ -690,17 +697,21 @@ export default function Dashboard() {
             <div className="py-10 text-center text-sm text-muted-foreground">
               Loading today's flow...
             </div>
-          ) : employees.length === 0 ? (
+          ) : visibleEmployees.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center border-2 border-dashed rounded-lg bg-primary/5 border-primary/20">
               <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                 <Plus className="w-6 h-6 text-primary" />
               </div>
-              <h3 className="text-base font-semibold mb-1">Add your first employee</h3>
+              <h3 className="text-base font-semibold mb-1">
+                {employees.length === 0 ? "Add your first employee" : "No active employees visible"}
+              </h3>
               <p className="text-sm text-muted-foreground max-w-[240px] mb-6">
-                Start by adding employees to manage their shifts and track their time.
+                {employees.length === 0
+                  ? "Start by adding employees to manage their shifts and track their time."
+                  : "Unarchive an employee to show them in today's flow again."}
               </p>
               <Button onClick={() => setLocation("/employees")} data-testid="button-add-first-employee">
-                Add Employee
+                {employees.length === 0 ? "Add Employee" : "Manage Employees"}
               </Button>
             </div>
           ) : flowRowsToDisplay.length === 0 ? (

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
+import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import type { Employee, AccessCode } from "@shared/schema";
@@ -61,7 +62,7 @@ export function AccessCodeDialog({ open, onOpenChange }: AccessCodeDialogProps) 
     toast({ title: "Copied", description: "Access code copied to clipboard." });
   };
 
-  const selectedEmp = employees.find((e) => e.id.toString() === selectedEmployeeId);
+  const visibleEmployees = employees.filter(isActiveUnarchivedEmployee);
   const activeCode = codes.find((c) => !c.used && new Date(c.expiresAt) > new Date());
 
   return (
@@ -82,7 +83,7 @@ export function AccessCodeDialog({ open, onOpenChange }: AccessCodeDialogProps) 
                 <SelectValue placeholder="Choose an employee" />
               </SelectTrigger>
               <SelectContent>
-                {employees.map((emp) => (
+                {visibleEmployees.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id.toString()}>
                     <div className="flex items-center gap-2">
                       <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />

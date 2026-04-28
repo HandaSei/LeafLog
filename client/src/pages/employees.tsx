@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { isEmployeeArchived } from "@/lib/employees";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee } from "@shared/schema";
 import { Card } from "@/components/ui/card";
@@ -64,18 +65,19 @@ export default function Employees() {
     },
   });
 
-  const toggleSteepinMutation = useMutation({
-    mutationFn: async ({ id, hidden }: { id: number; hidden: boolean }) => {
-      return apiRequest("PATCH", `/api/employees/${id}`, { hiddenFromSteepin: hidden });
+  const archiveEmployeeMutation = useMutation({
+    mutationFn: async ({ id, archived }: { id: number; archived: boolean }) => {
+      return apiRequest("PATCH", `/api/employees/${id}`, { hiddenFromSteepin: archived });
     },
-    onSuccess: (_data, { hidden }) => {
+    onSuccess: (_data, { archived }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       toast({
-        title: hidden ? "Hidden from SteepIn" : "Visible in SteepIn",
-        description: hidden
-          ? "This employee won't appear on the kiosk."
-          : "This employee will appear on the kiosk again.",
+        title: archived ? "Employee archived" : "Employee unarchived",
+        description: archived
+          ? "This employee is hidden from live scheduling, timesheets, exports, and SteepIn."
+          : "This employee is visible across the app again.",
       });
     },
     onError: (error: Error) => {
@@ -198,12 +200,12 @@ export default function Employees() {
                         <DollarSign className="w-3.5 h-3.5 mr-2" /> Pay Settings
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => toggleSteepinMutation.mutate({ id: emp.id, hidden: !emp.hiddenFromSteepin })}
+                        onClick={() => archiveEmployeeMutation.mutate({ id: emp.id, archived: !isEmployeeArchived(emp) })}
                         data-testid={`button-toggle-steepin-${emp.id}`}
                       >
-                        {emp.hiddenFromSteepin
-                          ? <><Eye className="w-3.5 h-3.5 mr-2" /> Show in SteepIn</>
-                          : <><EyeOff className="w-3.5 h-3.5 mr-2" /> Hide from SteepIn</>
+                        {isEmployeeArchived(emp)
+                          ? <><Eye className="w-3.5 h-3.5 mr-2" /> Unarchive Employee</>
+                          : <><EyeOff className="w-3.5 h-3.5 mr-2" /> Archive Employee</>
                         }
                       </DropdownMenuItem>
                       <DropdownMenuItem
@@ -244,14 +246,14 @@ export default function Employees() {
                       {emp.hourlyRate}/h
                     </Badge>
                   )}
-                  {emp.hiddenFromSteepin && (
+                  {isEmployeeArchived(emp) && (
                     <Badge
                       variant="outline"
                       className="text-[10px] gap-0.5 border-amber-400 text-amber-600 dark:text-amber-400"
                       data-testid={`badge-steepin-off-${emp.id}`}
                     >
                       <EyeOff className="w-2.5 h-2.5" />
-                      SteepIn Off
+                      Archived
                     </Badge>
                   )}
                 </div>

@@ -1,6 +1,7 @@
 import { createContext, useContext, useCallback, useState, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, onAuthError } from "@/lib/queryClient";
+import { isActiveUnarchivedEmployee } from "@/lib/employees";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||
   (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.() ? 'https://leaflog.org' : '');
@@ -102,7 +103,7 @@ async function fetchBootstrapWithTimeout(retryCount = 0, timeoutMs = BOOTSTRAP_T
 
     if (data.employees !== undefined) {
       queryClient.setQueryData(["/api/employees"], data.employees);
-      const activeEmps = data.employees.filter((e: any) => e.status === "active");
+      const activeEmps = data.employees.filter(isActiveUnarchivedEmployee);
       queryClient.setQueryData(["/api/steepin/employees"], activeEmps);
     }
     if (data.roles !== undefined) {

@@ -8,6 +8,7 @@ import { useLocation } from "wouter";
 import { format } from "date-fns";
 import type { Employee, TimeEntry } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
+import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import {
   addToQueue,
   shouldQueueAction,
@@ -999,11 +1000,14 @@ export default function SteepInPage() {
 
   const filteredEmployees = useMemo(() => {
     if (!employees || !Array.isArray(employees)) return [];
-    return employees.filter(
-      (e) =>
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (e.role && e.role.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
+    const query = searchQuery.toLowerCase();
+    return employees.filter((e) => {
+      if (!isActiveUnarchivedEmployee(e)) return false;
+      return (
+        e.name.toLowerCase().includes(query) ||
+        (e.role && e.role.toLowerCase().includes(query))
+      );
+    });
   }, [employees, searchQuery]);
 
   const handleSelectEmployee = useCallback((emp: Employee) => {

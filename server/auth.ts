@@ -556,6 +556,9 @@ export function registerAuthRoutes(router: Router) {
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
     }
+    if (employee.status !== "active" || employee.hiddenFromSteepin) {
+      return res.status(403).json({ message: "Cannot generate access codes for archived employees" });
+    }
 
     const manager = await storage.getAccount(req.session.userId!);
     const agencyName = manager?.agencyName || "agency";
@@ -578,7 +581,7 @@ export function registerAuthRoutes(router: Router) {
     const ownerAccountId = req.session?.userId;
     const emps = await storage.getEmployees(ownerAccountId);
     const safe = emps
-      .filter((e) => e.status === "active")
+      .filter((e) => e.status === "active" && !e.hiddenFromSteepin)
       .map(({ id, name, role, color }) => ({ id, name, role, color }));
     res.json(safe);
   });
@@ -595,6 +598,9 @@ export function registerAuthRoutes(router: Router) {
     const employee = await storage.getEmployee(Number(employeeId));
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
+    }
+    if (employee.status !== "active" || employee.hiddenFromSteepin) {
+      return res.status(403).json({ message: "Employee is archived" });
     }
 
     if (employee.accessCode !== req.body.passcode) {

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee, Shift, CustomRole } from "@shared/schema";
 import {
@@ -143,7 +144,7 @@ export function ShiftFormDialog({
     /^\d{2}:\d{2}$/.test(watchedEndTime) &&
     watchedEndTime < watchedStartTime;
 
-  const activeEmployees = employees.filter(e => e.status === "active");
+  const activeEmployees = employees.filter(isActiveUnarchivedEmployee);
 
   useEffect(() => {
     if (!open || isEditing) return;
