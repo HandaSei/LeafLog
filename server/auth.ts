@@ -70,11 +70,20 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function requireRole(...roles: string[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-    if (!roles.includes(req.session.role!)) {
+
+    const account = await storage.getAccount(req.session.userId);
+    if (!account) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    req.session.role = account.role;
+    req.session.employeeId = account.employeeId ?? null;
+
+    if (!roles.includes(account.role)) {
       return res.status(403).json({ message: "Insufficient permissions" });
     }
     next();

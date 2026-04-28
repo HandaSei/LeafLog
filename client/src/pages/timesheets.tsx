@@ -43,6 +43,24 @@ interface EmployeeWorkday {
   status: "working" | "on-break" | "completed" | "incomplete";
 }
 
+type EntryCreateInput = {
+  employeeId: number;
+  type: string;
+  date: string;
+  timestamp: string;
+  role?: string;
+  notes?: string | null;
+  isUnpaid?: boolean;
+};
+
+type EntryUpdateInput = {
+  id: number;
+  timestamp?: string;
+  role?: string;
+  notes?: string | null;
+  isUnpaid?: boolean;
+};
+
 function getBreakPairs(entries: TimeEntry[], clockIn?: Date | null, clockOut?: Date | null): { start: TimeEntry; end: TimeEntry | null }[] {
   let filtered = [...entries]
     .filter(e => e.type === "break-start" || e.type === "break-end")
@@ -1005,6 +1023,31 @@ export default function Timesheets() {
     queryClient.setQueryData<TimeEntry[]>(["/api/steepin/open-sessions"], remove);
   };
 
+  const createEntryRequest = async (data: EntryCreateInput): Promise<TimeEntry> => {
+    const res = await apiRequest("POST", "/api/steepin/entries", data);
+    return res.json();
+  };
+
+  const updateEntryRequest = async (data: EntryUpdateInput): Promise<TimeEntry> => {
+    const body: any = {};
+    if (data.timestamp !== undefined) body.timestamp = data.timestamp;
+    if (data.role !== undefined) body.role = data.role;
+    if (data.notes !== undefined) body.notes = data.notes;
+    if (data.isUnpaid !== undefined) body.isUnpaid = data.isUnpaid;
+    const res = await apiRequest("PATCH", `/api/steepin/entries/${data.id}`, body);
+    return res.json();
+  };
+
+  const deleteEntryRequest = async (id: number): Promise<number> => {
+    await apiRequest("DELETE", `/api/steepin/entries/${id}`);
+    return id;
+  };
+
+  const deleteEntriesBatchRequest = async (ids: number[]): Promise<number[]> => {
+    await apiRequest("POST", "/api/steepin/entries/delete-batch", { ids });
+    return ids;
+  };
+
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
   const { data: employees = [], isLoading: empsLoading, isFetching: empsFetching } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
   const { data: entries = [], isLoading: entriesLoading, isFetching: entriesFetching } = useQuery<TimeEntry[]>({
@@ -1032,15 +1075,7 @@ export default function Timesheets() {
   });
 
   const updateEntryMutation = useMutation({
-    mutationFn: async (data: { id: number; timestamp?: string; role?: string; notes?: string | null; isUnpaid?: boolean }) => {
-      const body: any = {};
-      if (data.timestamp !== undefined) body.timestamp = data.timestamp;
-      if (data.role !== undefined) body.role = data.role;
-      if (data.notes !== undefined) body.notes = data.notes;
-      if (data.isUnpaid !== undefined) body.isUnpaid = data.isUnpaid;
-      const res = await apiRequest("PATCH", `/api/steepin/entries/${data.id}`, body);
-      return res.json();
-    },
+    mutationFn: updateEntryRequest,
     onSuccess: (entry: TimeEntry) => {
       replaceEntryInCaches(entry);
       invalidateVisibleEntries();
@@ -1049,10 +1084,7 @@ export default function Timesheets() {
   });
 
   const addEntryMutation = useMutation({
-    mutationFn: async (data: { employeeId: number; type: string; date: string; timestamp: string; role?: string }) => {
-      const res = await apiRequest("POST", "/api/steepin/entries", data);
-      return res.json();
-    },
+    mutationFn: createEntryRequest,
     onSuccess: (entry: TimeEntry) => {
       upsertEntryInVisibleCaches(entry);
       invalidateVisibleEntries();
@@ -1061,11 +1093,18 @@ export default function Timesheets() {
   });
 
   const deleteEntryMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/steepin/entries/${id}`);
-    },
+    mutationFn: deleteEntryRequest,
     onSuccess: (_data, id) => {
       removeEntriesFromCaches([id]);
+      invalidateVisibleEntries();
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteEntriesBatchMutation = useMutation({
+    mutationFn: deleteEntriesBatchRequest,
+    onSuccess: (ids) => {
+      removeEntriesFromCaches(ids);
       invalidateVisibleEntries();
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -1075,16 +1114,21 @@ export default function Timesheets() {
     mutationFn: async ({ clockOutEntryId, employeeId, clockOutDate, clockOutTimestamp, gapOption }: {
       clockOutEntryId: number; employeeId: number; clockOutDate: string; clockOutTimestamp: string; gapOption: "break" | "unpaid-break" | "worked" | "none";
     }) => {
+      const createdEntries: TimeEntry[] = [];
+      const deletedEntryIds: number[] = [];
       if (gapOption === "break" || gapOption === "unpaid-break") {
         const isUnpaid = gapOption === "unpaid-break";
-        await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-start", date: clockOutDate, timestamp: clockOutTimestamp, isUnpaid });
+        createdEntries.push(await createEntryRequest({ employeeId, type: "break-start", date: clockOutDate, timestamp: clockOutTimestamp, isUnpaid }));
         const nowIso = new Date().toISOString();
-        await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "break-end", date: clockOutDate, timestamp: nowIso });
+        createdEntries.push(await createEntryRequest({ employeeId, type: "break-end", date: clockOutDate, timestamp: nowIso }));
       }
-      await apiRequest("DELETE", `/api/steepin/entries/${clockOutEntryId}`);
-      await apiRequest("POST", "/api/steepin/entries", { employeeId, type: "shift-reopened", date: clockOutDate, timestamp: new Date().toISOString() });
+      deletedEntryIds.push(await deleteEntryRequest(clockOutEntryId));
+      createdEntries.push(await createEntryRequest({ employeeId, type: "shift-reopened", date: clockOutDate, timestamp: new Date().toISOString() }));
+      return { createdEntries, deletedEntryIds };
     },
-    onSuccess: () => {
+    onSuccess: ({ createdEntries, deletedEntryIds }) => {
+      removeEntriesFromCaches(deletedEntryIds);
+      createdEntries.forEach(upsertEntryInVisibleCaches);
       invalidateVisibleEntries();
       setReopenGapDialog(null);
       toast({ title: "Shift reopened", description: "The clock-out has been removed and the shift is now in progress." });
@@ -1095,10 +1139,10 @@ export default function Timesheets() {
   const deleteTimesheetMutation = useMutation({
     mutationFn: async (data: { employeeId: number; date: string; entries: TimeEntry[] }) => {
       const ids = data.entries.map(e => e.id);
-      await apiRequest("POST", "/api/steepin/entries/delete-batch", { ids });
+      return deleteEntriesBatchRequest(ids);
     },
-    onSuccess: (_data, variables) => {
-      removeEntriesFromCaches(variables.entries.map(e => e.id));
+    onSuccess: (ids) => {
+      removeEntriesFromCaches(ids);
       invalidateVisibleEntries();
       toast({ title: "Success", description: "Timesheet deleted successfully" });
       setSelectedWorkday(null);
@@ -1419,14 +1463,14 @@ export default function Timesheets() {
     const conflictClockOutEntry = mergeDialog.conflictSession.entries.find(e => e.type === "clock-out");
     const finalizeMerge = () => {
       const idsToDelete = editingShift.entries.map(e => e.id);
-      apiRequest("POST", "/api/steepin/entries/delete-batch", { ids: idsToDelete })
-        .then(() => {
+      deleteEntriesBatchMutation.mutate(idsToDelete, {
+        onSuccess: () => {
           invalidateVisibleEntries();
           setMergeDialog(null);
           setEditingShift(null);
           toast({ title: "Shifts combined", description: "The overlapping shifts have been merged into one." });
-        })
-        .catch((err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }));
+        },
+      });
     };
     if (conflictClockOutEntry) {
       updateEntryMutation.mutate(
@@ -1532,7 +1576,7 @@ export default function Timesheets() {
   const [newBreakStartTime, setNewBreakStartTime] = useState<string>("");
   const [newBreakEndTime, setNewBreakEndTime] = useState<string>("");
 
-  const handleAddNewBreak = () => {
+  const handleAddNewBreak = async () => {
     if (!addingNewBreak || !newBreakStartTime || !newBreakEndTime) return;
     if (!/^\d{2}:\d{2}$/.test(newBreakStartTime) || !/^\d{2}:\d{2}$/.test(newBreakEndTime)) return;
     if (newBreakEndTime <= newBreakStartTime) {
@@ -1576,15 +1620,13 @@ export default function Timesheets() {
     setAddingNewBreak(null);
     setNewBreakStartTime("");
     setNewBreakEndTime("");
-    Promise.all([
-      apiRequest("POST", "/api/steepin/entries", { employeeId: empId, type: "break-start", date: dateStr, timestamp: startTs }),
-      apiRequest("POST", "/api/steepin/entries", { employeeId: empId, type: "break-end", date: dateStr, timestamp: endTs }),
-    ])
-      .then(() => {
-        invalidateVisibleEntries();
-        toast({ title: "Break added", description: "The break has been recorded." });
-      })
-      .catch((err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }));
+    try {
+      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-start", date: dateStr, timestamp: startTs });
+      await addEntryMutation.mutateAsync({ employeeId: empId, type: "break-end", date: dateStr, timestamp: endTs });
+      toast({ title: "Break added", description: "The break has been recorded." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
   };
 
   const handleAddClockOut = () => {

@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { storage, pool } from "./storage";
-import { insertEmployeeSchema, insertShiftSchema, breakPolicySchema, notificationSettingsSchema } from "@shared/schema";
+import { insertEmployeeSchema, insertShiftSchema, breakPolicySchema, notificationSettingsSchema, type TimeEntry } from "@shared/schema";
 import { setupSession, registerAuthRoutes, requireAuth, requireRole } from "./auth";
 import { format, subDays, addDays, parseISO, differenceInMinutes } from "date-fns";
 import { addSSEClient, removeSSEClient, broadcastEntryUpdate } from "./sse";
@@ -763,11 +763,25 @@ export async function registerRoutes(
     res.status(201).json({ ...entry, entries: updatedEntries });
   });
 
+  const broadcastEntriesChanged = (entries: TimeEntry[], type: string = "delete") => {
+    const employeeIds = new Set(entries.map(entry => entry.employeeId));
+    for (const employeeId of employeeIds) {
+      broadcastEntryUpdate(employeeId, { type, timestamp: new Date().toISOString(), source: "manager" });
+    }
+  };
+
   router.patch("/api/steepin/entries/:id", requireRole("admin", "manager"), async (req, res) => {
     const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ message: "Invalid entry ID" });
+    }
     const updateData: any = { source: "manager" };
     if (req.body.timestamp) {
-      updateData.timestamp = new Date(req.body.timestamp);
+      const timestamp = new Date(req.body.timestamp);
+      if (Number.isNaN(timestamp.getTime())) {
+        return res.status(400).json({ message: "Invalid timestamp" });
+      }
+      updateData.timestamp = timestamp;
     }
     if (req.body.type) {
       updateData.type = req.body.type;
@@ -793,12 +807,27 @@ export async function registerRoutes(
   });
 
   router.post("/api/steepin/entries", requireRole("admin", "manager"), async (req, res) => {
-    const { employeeId, type, date, timestamp, role, isUnpaid } = req.body;
-    if (!employeeId || !type || !date) {
+    const { employeeId, type, date, timestamp, role, notes, isUnpaid } = req.body;
+    const employeeIdNum = Number(employeeId);
+    if (!Number.isFinite(employeeIdNum) || !type || typeof date !== "string" || !DATE_ONLY_RE.test(date)) {
       return res.status(400).json({ message: "Employee ID, type, and date are required" });
     }
-    const entry = await storage.createTimeEntryManual(Number(employeeId), type, date, timestamp ? new Date(timestamp) : new Date(), role || null, null, isUnpaid === true);
-    broadcastEntryUpdate(Number(employeeId), {
+    const entryTimestamp = timestamp ? new Date(timestamp) : new Date();
+    if (Number.isNaN(entryTimestamp.getTime())) {
+      return res.status(400).json({ message: "Invalid timestamp" });
+    }
+    const entry = await storage.createTimeEntryManualForOwner(
+      req.session.userId!,
+      employeeIdNum,
+      type,
+      date,
+      entryTimestamp,
+      role || null,
+      typeof notes === "string" && notes.trim() ? notes.trim() : null,
+      isUnpaid === true
+    );
+    if (!entry) return res.status(404).json({ message: "Employee not found" });
+    broadcastEntryUpdate(employeeIdNum, {
       type: entry.type,
       timestamp: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : String(entry.timestamp),
       source: "manager",
@@ -809,54 +838,57 @@ export async function registerRoutes(
   router.delete("/api/steepin/entries", requireRole("admin", "manager"), async (req, res) => {
     const employeeId = Number(req.query.employeeId);
     const date = req.query.date as string;
-    if (!employeeId || !date) {
+    if (!Number.isFinite(employeeId) || typeof date !== "string" || !DATE_ONLY_RE.test(date)) {
       return res.status(400).json({ message: "Employee ID and date are required" });
     }
     const emp = await storage.getEmployee(employeeId);
     if (!emp || emp.ownerAccountId !== req.session.userId) {
       return res.status(403).json({ message: "Access denied" });
     }
-    await storage.deleteTimeEntriesByEmployeeAndDate(employeeId, date);
-    broadcastEntryUpdate(employeeId, { type: "delete", timestamp: new Date().toISOString(), source: "manager" });
+    const deletedEntries = await storage.deleteTimeEntriesByEmployeeAndDateForOwner(employeeId, date, req.session.userId!);
+    broadcastEntriesChanged(deletedEntries);
     res.status(204).send();
   });
 
   router.delete("/api/steepin/entries/:id", requireRole("admin", "manager"), async (req, res) => {
     const entryId = Number(req.params.id);
-    const employeeIdParam = req.query.employeeId ? Number(req.query.employeeId) : null;
-    await storage.deleteTimeEntry(entryId);
-    if (employeeIdParam) {
-      broadcastEntryUpdate(employeeIdParam, { type: "delete", timestamp: new Date().toISOString(), source: "manager" });
+    if (!Number.isFinite(entryId)) {
+      return res.status(400).json({ message: "Invalid entry ID" });
     }
+    const deletedEntry = await storage.deleteTimeEntryForOwner(entryId, req.session.userId!);
+    if (!deletedEntry) return res.status(404).json({ message: "Entry not found" });
+    broadcastEntriesChanged([deletedEntry]);
     res.status(204).send();
   });
 
   router.post("/api/steepin/entries/delete-batch", requireRole("admin", "manager"), async (req, res) => {
     const { ids, employeeId, date } = req.body;
-    if (employeeId && date) {
+    if (employeeId !== undefined && date !== undefined) {
+      const employeeIdNum = Number(employeeId);
+      const dateStr = String(date);
+      if (!Number.isFinite(employeeIdNum) || !DATE_ONLY_RE.test(dateStr)) {
+        return res.status(400).json({ message: "Employee ID and date are required" });
+      }
       const ownerAccountId = req.session.userId!;
       const empIds = await storage.getEmployeeIdsByOwner(ownerAccountId);
-      if (!empIds.includes(Number(employeeId))) {
+      if (!empIds.includes(employeeIdNum)) {
         return res.status(403).json({ message: "Not authorized" });
       }
-      await storage.deleteTimeEntriesByEmployeeAndDate(Number(employeeId), String(date));
-      broadcastEntryUpdate(Number(employeeId), { type: "delete", timestamp: new Date().toISOString(), source: "manager" });
+      const deletedEntries = await storage.deleteTimeEntriesByEmployeeAndDateForOwner(employeeIdNum, dateStr, ownerAccountId);
+      broadcastEntriesChanged(deletedEntries);
       return res.status(204).send();
     }
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ message: "No IDs provided" });
     }
     const numericIds = ids.map(Number);
-    const ownerAccountId = req.session.userId!;
-    const affectedRows = await pool.query<{ employee_id: number }>(
-      "SELECT DISTINCT employee_id FROM time_entries WHERE id = ANY($1) AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $2)",
-      [numericIds, ownerAccountId]
-    );
-    const affectedEmployeeIds = affectedRows.rows.map(r => r.employee_id);
-    await storage.batchDeleteTimeEntriesByIds(numericIds, ownerAccountId);
-    for (const empId of affectedEmployeeIds) {
-      broadcastEntryUpdate(empId, { type: "delete", timestamp: new Date().toISOString(), source: "manager" });
+    if (!numericIds.every(Number.isFinite)) {
+      return res.status(400).json({ message: "Invalid entry IDs" });
     }
+    const ownerAccountId = req.session.userId!;
+    const deletedEntries = await storage.batchDeleteTimeEntriesByIds(numericIds, ownerAccountId);
+    if (deletedEntries.length === 0) return res.status(404).json({ message: "Entries not found" });
+    broadcastEntriesChanged(deletedEntries);
     res.status(204).send();
   });
 

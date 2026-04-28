@@ -90,6 +90,7 @@ export interface IStorage {
 
   createTimeEntry(employeeId: number, type: string, date: string, notes?: string | null): Promise<TimeEntry>;
   createTimeEntryManual(employeeId: number, type: string, date: string, timestamp: Date, role?: string | null, notes?: string | null, isUnpaid?: boolean, source?: string): Promise<TimeEntry>;
+  createTimeEntryManualForOwner(ownerAccountId: number, employeeId: number, type: string, date: string, timestamp: Date, role?: string | null, notes?: string | null, isUnpaid?: boolean): Promise<TimeEntry | undefined>;
   getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]>;
   getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]>;
   getTimeEntriesByDateRange(ownerAccountId: number | undefined, from: string, to: string, employeeId?: number): Promise<TimeEntry[]>;
@@ -98,8 +99,10 @@ export interface IStorage {
   getOpenSessionEntries(ownerAccountId: number): Promise<TimeEntry[]>;
   updateTimeEntry(id: number, data: Partial<TimeEntry>, ownerAccountId?: number): Promise<TimeEntry | undefined>;
   deleteTimeEntry(id: number): Promise<void>;
+  deleteTimeEntryForOwner(id: number, ownerAccountId: number): Promise<TimeEntry | undefined>;
   deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void>;
-  batchDeleteTimeEntriesByIds(ids: number[], ownerAccountId: number): Promise<void>;
+  deleteTimeEntriesByEmployeeAndDateForOwner(employeeId: number, date: string, ownerAccountId: number): Promise<TimeEntry[]>;
+  batchDeleteTimeEntriesByIds(ids: number[], ownerAccountId: number): Promise<TimeEntry[]>;
   batchCreateTimeEntries(entries: Array<{ employeeId: number; type: string; date: string; timestamp: Date; role?: string | null; notes?: string | null; isUnpaid?: boolean }>): Promise<void>;
   getEmployeeIdsByOwner(ownerAccountId: number): Promise<number[]>;
 
@@ -393,6 +396,19 @@ export class DatabaseStorage implements IStorage {
     return entry;
   }
 
+  async createTimeEntryManualForOwner(ownerAccountId: number, employeeId: number, type: string, date: string, timestamp: Date, role?: string | null, notes?: string | null, isUnpaid?: boolean): Promise<TimeEntry | undefined> {
+    const result = await pool.query(
+      `INSERT INTO time_entries (employee_id, type, timestamp, entry_date, role, notes, is_unpaid, source)
+       SELECT $1, $2, $3, $4, $5, $6, $7, 'manager'
+       WHERE EXISTS (
+         SELECT 1 FROM employees WHERE id = $1 AND owner_account_id = $8
+       )
+       RETURNING id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source`,
+      [employeeId, type, timestamp, date, role ?? null, notes ?? null, isUnpaid ?? false, ownerAccountId]
+    );
+    return result.rows[0] ? mapTimeEntryRow(result.rows[0]) : undefined;
+  }
+
   async getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]> {
     const result = await pool.query(
       "SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
@@ -619,6 +635,17 @@ export class DatabaseStorage implements IStorage {
     await db.delete(timeEntries).where(eq(timeEntries.id, id));
   }
 
+  async deleteTimeEntryForOwner(id: number, ownerAccountId: number): Promise<TimeEntry | undefined> {
+    const result = await pool.query(
+      `DELETE FROM time_entries
+       WHERE id = $1
+         AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $2)
+       RETURNING id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source`,
+      [id, ownerAccountId]
+    );
+    return result.rows[0] ? mapTimeEntryRow(result.rows[0]) : undefined;
+  }
+
   async deleteTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<void> {
     await pool.query(
       "DELETE FROM time_entries WHERE employee_id = $1 AND entry_date = $2",
@@ -626,12 +653,28 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async batchDeleteTimeEntriesByIds(ids: number[], ownerAccountId: number): Promise<void> {
-    if (ids.length === 0) return;
-    await pool.query(
-      "DELETE FROM time_entries WHERE id = ANY($1) AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $2)",
+  async deleteTimeEntriesByEmployeeAndDateForOwner(employeeId: number, date: string, ownerAccountId: number): Promise<TimeEntry[]> {
+    const result = await pool.query(
+      `DELETE FROM time_entries
+       WHERE employee_id = $1
+         AND entry_date = $2
+         AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $3)
+       RETURNING id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source`,
+      [employeeId, date, ownerAccountId]
+    );
+    return result.rows.map(mapTimeEntryRow);
+  }
+
+  async batchDeleteTimeEntriesByIds(ids: number[], ownerAccountId: number): Promise<TimeEntry[]> {
+    if (ids.length === 0) return [];
+    const result = await pool.query(
+      `DELETE FROM time_entries
+       WHERE id = ANY($1)
+         AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $2)
+       RETURNING id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source`,
       [ids, ownerAccountId]
     );
+    return result.rows.map(mapTimeEntryRow);
   }
 
   async batchCreateTimeEntries(entries: Array<{ employeeId: number; type: string; date: string; timestamp: Date; role?: string | null; notes?: string | null; isUnpaid?: boolean }>): Promise<void> {
