@@ -1298,7 +1298,15 @@ export default function Timesheets() {
   const handleSaveEdit = () => {
     if (!editingEntry || !editTime || !/^\d{2}:\d{2}$/.test(editTime)) return;
     const entryDate = editingEntry.date;
-    const newTimestamp = new Date(`${entryDate}T${editTime}:00`);
+    // Overnight-aware: for non-clock-in entries, if the resulting time-of-day is earlier
+    // than the workday's clock-in, the entry actually belongs to the next calendar day.
+    // Without this, editing a clock-out or break on an overnight shift produces a
+    // timestamp BEFORE the clock-in, which splits the workday into two cards.
+    const naive = new Date(`${entryDate}T${editTime}:00`);
+    const isClockInEdit = editingEntry.type === "clock-in";
+    const newTimestamp = (!isClockInEdit && viewingWorkday?.clockIn && naive.getTime() < viewingWorkday.clockIn.getTime())
+      ? new Date(naive.getTime() + 24 * 60 * 60 * 1000)
+      : naive;
 
     // Validation: Check for chronological order within the session
     if (viewingWorkday) {
@@ -1491,46 +1499,59 @@ export default function Timesheets() {
   const handleSaveBreakEdit = () => {
     if (!editingBreak) return;
 
-    // Validation: Break end must be after break start
-    if (editBreakStart && editBreakEnd) {
-      if (editBreakEnd <= editBreakStart) {
-        toast({ title: "Invalid Time", description: "Break end must be after break start.", variant: "destructive" });
-        return;
+    // Build overnight-aware Date objects for the new break-start/end times.
+    // Anchor to the entry's own date column (already normalized to clock-in date),
+    // then push forward 24h if the resulting time would land before clock-in.
+    const toBreakEditTs = (timeStr: string, anchorDateStr: string): Date => {
+      const naive = new Date(`${anchorDateStr}T${timeStr}:00`);
+      if (viewingWorkday?.clockIn && naive.getTime() < viewingWorkday.clockIn.getTime()) {
+        return new Date(naive.getTime() + 24 * 60 * 60 * 1000);
       }
+      return naive;
+    };
+
+    const hasStart = !!(editingBreak.start && /^\d{2}:\d{2}$/.test(editBreakStart));
+    const hasEnd = !!(editingBreak.end && /^\d{2}:\d{2}$/.test(editBreakEnd));
+
+    const newStartTs = hasStart
+      ? toBreakEditTs(editBreakStart, editingBreak.start!.date)
+      : (editingBreak.start ? new Date(editingBreak.start.timestamp) : null);
+    const newEndTs = hasEnd
+      ? toBreakEditTs(editBreakEnd, editingBreak.end!.date)
+      : (editingBreak.end ? new Date(editingBreak.end.timestamp) : null);
+
+    // Validation: Break end must be after break start
+    if (newStartTs && newEndTs && newEndTs.getTime() <= newStartTs.getTime()) {
+      toast({ title: "Invalid Time", description: "Break end must be after break start.", variant: "destructive" });
+      return;
     }
 
-    // Validation: Break must be within clock-in / clock-out with 1-minute buffer
+    // Validation: Break must be within clock-in / clock-out with 1-minute buffer (Date math, not HH:mm)
     if (viewingWorkday) {
-      const clockInStr = viewingWorkday.clockIn ? format(viewingWorkday.clockIn, "HH:mm") : null;
-      const clockOutStr = viewingWorkday.clockOut ? format(viewingWorkday.clockOut, "HH:mm") : null;
-      if (clockInStr && editBreakStart && editBreakStart <= clockInStr) {
+      if (viewingWorkday.clockIn && newStartTs && newStartTs.getTime() <= viewingWorkday.clockIn.getTime()) {
         toast({ title: "Invalid Time", description: "Break must start at least 1 minute after clock-in.", variant: "destructive" });
         return;
       }
-      if (clockOutStr && editBreakEnd && editBreakEnd >= clockOutStr) {
+      if (viewingWorkday.clockOut && newEndTs && newEndTs.getTime() >= viewingWorkday.clockOut.getTime()) {
         toast({ title: "Invalid Time", description: "Break must end at least 1 minute before clock-out.", variant: "destructive" });
         return;
       }
-      if (clockOutStr && editBreakStart && editBreakStart >= clockOutStr) {
+      if (viewingWorkday.clockOut && newStartTs && newStartTs.getTime() >= viewingWorkday.clockOut.getTime()) {
         toast({ title: "Invalid Time", description: "Break start cannot be at or after clock-out.", variant: "destructive" });
         return;
       }
     }
 
-    // Validation: Must not overlap or touch other existing breaks
-    if (viewingWorkday) {
+    // Validation: Must not overlap with other existing breaks (Date math, not HH:mm)
+    if (viewingWorkday && newStartTs && newEndTs) {
       const otherBreaks = getBreakPairs(viewingWorkday.entries, viewingWorkday.clockIn, viewingWorkday.clockOut)
         .filter(p => p.start.id !== editingBreak.start?.id);
       for (const other of otherBreaks) {
-        const otherStart = format(new Date(other.start.timestamp), "HH:mm");
-        const otherEnd = other.end ? format(new Date(other.end.timestamp), "HH:mm") : null;
-        if (otherEnd) {
-          const newStart = editBreakStart || format(new Date(editingBreak.start!.timestamp), "HH:mm");
-          const newEnd = editBreakEnd || (editingBreak.end ? format(new Date(editingBreak.end.timestamp), "HH:mm") : null);
-          if (newEnd && newStart <= otherEnd && newEnd >= otherStart) {
-            toast({ title: "Invalid Time", description: "This break overlaps with another break in the same shift.", variant: "destructive" });
-            return;
-          }
+        const otherStartMs = new Date(other.start.timestamp).getTime();
+        const otherEndMs = other.end ? new Date(other.end.timestamp).getTime() : null;
+        if (otherEndMs !== null && newStartTs.getTime() <= otherEndMs && newEndTs.getTime() >= otherStartMs) {
+          toast({ title: "Invalid Time", description: "This break overlaps with another break in the same shift.", variant: "destructive" });
+          return;
         }
       }
     }
@@ -1540,33 +1561,26 @@ export default function Timesheets() {
       toast({ title: "Success", description: "Break time updated" });
     };
 
-    const hasStart = editingBreak.start && /^\d{2}:\d{2}$/.test(editBreakStart);
-    const hasEnd = editingBreak.end && /^\d{2}:\d{2}$/.test(editBreakEnd);
-
     if (hasStart && hasEnd) {
-      const startDateStr = editingBreak.start!.date;
-      const endDateStr = editingBreak.end!.date;
       updateEntryMutation.mutate(
-        { id: editingBreak.start!.id, timestamp: new Date(`${startDateStr}T${editBreakStart}:00`).toISOString() },
+        { id: editingBreak.start!.id, timestamp: newStartTs!.toISOString() },
         {
           onSuccess: () => {
             updateEntryMutation.mutate(
-              { id: editingBreak.end!.id, timestamp: new Date(`${endDateStr}T${editBreakEnd}:00`).toISOString() },
+              { id: editingBreak.end!.id, timestamp: newEndTs!.toISOString() },
               { onSuccess: closeAndToast }
             );
           }
         }
       );
     } else if (hasStart) {
-      const dateStr = editingBreak.start!.date;
       updateEntryMutation.mutate(
-        { id: editingBreak.start!.id, timestamp: new Date(`${dateStr}T${editBreakStart}:00`).toISOString() },
+        { id: editingBreak.start!.id, timestamp: newStartTs!.toISOString() },
         { onSuccess: closeAndToast }
       );
     } else if (hasEnd) {
-      const dateStr = editingBreak.end!.date;
       updateEntryMutation.mutate(
-        { id: editingBreak.end!.id, timestamp: new Date(`${dateStr}T${editBreakEnd}:00`).toISOString() },
+        { id: editingBreak.end!.id, timestamp: newEndTs!.toISOString() },
         { onSuccess: closeAndToast }
       );
     }
