@@ -19,9 +19,9 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeAvatar } from "@/components/employee-avatar";
+import { WorkdayCard } from "@/components/timesheets/workday-card";
 import { TimeInput, TimeRangeInput, ClockPickerDialog } from "@/components/time-input";
 import { DateInput } from "@/components/date-input";
 import CsvImporter from "@/components/csv-importer";
@@ -29,44 +29,27 @@ import { exportTimesheetPDF } from "@/lib/reports/timesheet-pdf";
 import type { Employee, TimeEntry, CustomRole, ApprovalRequest, Shift } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { calculateDayPay, formatCurrency, hasPayConfig } from "@/lib/pay-utils";
+import { formatCurrency } from "@/lib/pay-utils";
 import {
-  buildEmployeeMap,
-  buildEntryIndexByDate,
-  buildEntryIndexByEmployee,
-  buildWorkdaysForIndexedDateWithMap,
-  buildWorkdaysForIndexedRangeWithMap,
+  createEntryRequest,
+  deleteEntriesBatchRequest,
+  deleteEntryRequest,
+  updateEntryRequest,
+} from "@/lib/timesheets/entry-api";
+import { createTimesheetEntryCache } from "@/lib/timesheets/entry-cache";
+import { useTimesheetViewModel } from "@/lib/timesheets/use-timesheet-view-model";
+import {
   formatHoursDecimal,
   formatMinutes,
   getBreakPairs,
   getRelevantSessions,
-  groupWorkdaysByEmployee,
   normalizeEntryDates,
   processEntriesForEmployee,
   STALE_OPEN_SESSION_MINUTES,
   toEntryDateString,
   toEntryTimestampIso,
-  type DayWorkdayGroup,
   type EmployeeWorkday,
 } from "@/lib/timesheets/session-engine";
-
-type EntryCreateInput = {
-  employeeId: number;
-  type: string;
-  date: string;
-  timestamp: string;
-  role?: string;
-  notes?: string | null;
-  isUnpaid?: boolean;
-};
-
-type EntryUpdateInput = {
-  id: number;
-  timestamp?: string;
-  role?: string;
-  notes?: string | null;
-  isUnpaid?: boolean;
-};
 
 export default function Timesheets() {
   const [, setLocation] = useLocation();
@@ -147,96 +130,12 @@ export default function Timesheets() {
   const monthEnd = useMemo(() => endOfMonth(selectedMonth), [selectedMonth]);
   const entriesFrom = format(addDays(viewMode === "week" ? selectedWeek : selectedMonth, -1), "yyyy-MM-dd");
   const entriesTo = format(addDays(viewMode === "week" ? weekEnd : monthEnd, 1), "yyyy-MM-dd");
-
-  const invalidateVisibleEntries = () => {
-    queryClient.invalidateQueries({
-      queryKey: ["/api/steepin/entries", "range", entriesFrom, entriesTo],
-      exact: true,
-    });
-    queryClient.invalidateQueries({
-      queryKey: ["/api/steepin/entries", "date", format(new Date(), "yyyy-MM-dd")],
-      exact: true,
-    });
-    queryClient.invalidateQueries({
-      queryKey: ["/api/steepin/open-sessions"],
-      exact: true,
-    });
-  };
-
-  const normalizeEntryForCache = (entry: TimeEntry): TimeEntry => ({
-    ...entry,
-    date: toEntryDateString(entry.date) as unknown as TimeEntry["date"],
-    timestamp: toEntryTimestampIso(entry.timestamp) as unknown as TimeEntry["timestamp"],
-  });
-
-  const sortEntriesForCache = (list: TimeEntry[]) =>
-    [...list].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-  const replaceEntryInCaches = (entry: TimeEntry) => {
-    const normalized = normalizeEntryForCache(entry);
-    const replace = (old: TimeEntry[] | undefined) => {
-      if (!Array.isArray(old) || !old.some(e => e.id === normalized.id)) return old;
-      return sortEntriesForCache(old.map(e => e.id === normalized.id ? { ...e, ...normalized } : e));
-    };
-
-    queryClient.setQueriesData<TimeEntry[]>({ queryKey: ["/api/steepin/entries"] }, replace);
-    queryClient.setQueryData<TimeEntry[]>(["/api/steepin/open-sessions"], replace);
-  };
-
-  const upsertEntryInVisibleCaches = (entry: TimeEntry) => {
-    const normalized = normalizeEntryForCache(entry);
-    const entryDate = toEntryDateString(normalized.date);
-    const upsert = (old: TimeEntry[] | undefined) => {
-      if (!Array.isArray(old)) return old;
-      const exists = old.some(e => e.id === normalized.id);
-      const next = exists
-        ? old.map(e => e.id === normalized.id ? { ...e, ...normalized } : e)
-        : [...old, normalized];
-      return sortEntriesForCache(next);
-    };
-
-    if (entryDate >= entriesFrom && entryDate <= entriesTo) {
-      queryClient.setQueryData<TimeEntry[]>(["/api/steepin/entries", "range", entriesFrom, entriesTo], upsert);
-    }
-    queryClient.setQueryData<TimeEntry[]>(["/api/steepin/entries", "date", entryDate], upsert);
-  };
-
-  const removeEntriesFromCaches = (ids: number[]) => {
-    if (ids.length === 0) return;
-    const idSet = new Set(ids);
-    const remove = (old: TimeEntry[] | undefined) => {
-      if (!Array.isArray(old) || !old.some(e => idSet.has(e.id))) return old;
-      return old.filter(e => !idSet.has(e.id));
-    };
-
-    queryClient.setQueriesData<TimeEntry[]>({ queryKey: ["/api/steepin/entries"] }, remove);
-    queryClient.setQueryData<TimeEntry[]>(["/api/steepin/open-sessions"], remove);
-  };
-
-  const createEntryRequest = async (data: EntryCreateInput): Promise<TimeEntry> => {
-    const res = await apiRequest("POST", "/api/steepin/entries", data);
-    return res.json();
-  };
-
-  const updateEntryRequest = async (data: EntryUpdateInput): Promise<TimeEntry> => {
-    const body: any = {};
-    if (data.timestamp !== undefined) body.timestamp = data.timestamp;
-    if (data.role !== undefined) body.role = data.role;
-    if (data.notes !== undefined) body.notes = data.notes;
-    if (data.isUnpaid !== undefined) body.isUnpaid = data.isUnpaid;
-    const res = await apiRequest("PATCH", `/api/steepin/entries/${data.id}`, body);
-    return res.json();
-  };
-
-  const deleteEntryRequest = async (id: number): Promise<number> => {
-    await apiRequest("DELETE", `/api/steepin/entries/${id}`);
-    return id;
-  };
-
-  const deleteEntriesBatchRequest = async (ids: number[]): Promise<number[]> => {
-    await apiRequest("POST", "/api/steepin/entries/delete-batch", { ids });
-    return ids;
-  };
+  const {
+    invalidateVisibleEntries,
+    replaceEntryInCaches,
+    upsertEntryInVisibleCaches,
+    removeEntriesFromCaches,
+  } = useMemo(() => createTimesheetEntryCache(entriesFrom, entriesTo), [entriesFrom, entriesTo]);
 
   const { data: customRoles = [] } = useQuery<CustomRole[]>({ queryKey: ["/api/roles"] });
   const { data: employees = [], isLoading: empsLoading, isFetching: empsFetching } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
@@ -378,101 +277,40 @@ export default function Timesheets() {
     setSelectedMonth(startOfMonth(next));
   };
 
-  const normalizedEntries = useMemo(() => normalizeEntryDates(entries), [entries]);
-  const indexedEntries = useMemo(() => buildEntryIndexByDate(normalizedEntries), [normalizedEntries]);
-  const visibleEmployees = useMemo(
-    () => employees.filter(isActiveUnarchivedEmployee),
-    [employees]
-  );
-  const employeeMap = useMemo(() => buildEmployeeMap(visibleEmployees), [visibleEmployees]);
-  const employeeSearchLower = useMemo(() => employeeSearch.trim().toLowerCase(), [employeeSearch]);
-  const employeeEntriesById = useMemo(() => buildEntryIndexByEmployee(normalizedEntries), [normalizedEntries]);
-  const rawEmployeeEntriesById = useMemo(() => buildEntryIndexByEmployee(entries), [entries]);
-
-  const weekWorkdaysByDay = useMemo(() => {
-    if (viewMode !== "week") return [];
-    return weekDays.map(day => ({
-      date: day,
-      workdays: buildWorkdaysForIndexedDateWithMap(indexedEntries, employeeMap, day, selectedRole, employeeSearchLower, paidBreakMinutes),
-    }));
-  }, [viewMode, weekDays, indexedEntries, employeeMap, selectedRole, employeeSearchLower, paidBreakMinutes]);
-
-  const workdays = useMemo(() => {
-    if (viewMode !== "week") return [];
-    return weekWorkdaysByDay.find(day => isSameDay(day.date, selectedDay))?.workdays || [];
-  }, [viewMode, weekWorkdaysByDay, selectedDay]);
-
-  const monthWorkdays = useMemo(() => {
-    if (viewMode !== "month") return [];
-    return buildWorkdaysForIndexedRangeWithMap(indexedEntries, employeeMap, selectedMonth, monthEnd, selectedRole, employeeSearchLower, null, paidBreakMinutes);
-  }, [viewMode, indexedEntries, employeeMap, selectedMonth, monthEnd, selectedRole, employeeSearchLower, paidBreakMinutes]);
-
   const [selectedWorkday, setSelectedWorkday] = useState<EmployeeWorkday | null>(null);
+  const {
+    employeeEntriesById,
+    rawEmployeeEntriesById,
+    visibleEmployees,
+    workdays,
+    monthWorkdays,
+    viewingWorkday,
+    weekWorkdayGroups,
+    monthWorkdayGroups,
+    hasVisibleWorkdays,
+    totalHours,
+    totalPay,
+  } = useTimesheetViewModel({
+    entries,
+    employees,
+    viewMode,
+    weekDays,
+    selectedDay,
+    selectedMonth,
+    monthEnd,
+    selectedRole,
+    employeeSearch,
+    paidBreakMinutes,
+    selectedWorkday,
+    viewingDate,
+  });
 
   const setViewingWorkdayManual = (wd: EmployeeWorkday, date: Date) => {
     setSelectedWorkday(wd);
     setViewingDate(date);
   };
 
-  const viewingWorkday = useMemo(() => {
-    if (!selectedWorkday) return null;
-    const dateToUse = viewingDate || selectedDay;
-    const dayWorkdays = buildWorkdaysForIndexedDateWithMap(indexedEntries, employeeMap, dateToUse, selectedRole, employeeSearchLower, paidBreakMinutes);
-    const selectedEntryIds = new Set(selectedWorkday.entries.map(e => e.id));
-    return dayWorkdays.find(w =>
-      w.employee.id === selectedWorkday.employee.id &&
-      w.entries.some(e => selectedEntryIds.has(e.id))
-    ) || dayWorkdays.find(w =>
-      w.employee.id === selectedWorkday.employee.id && 
-      w.clockIn?.getTime() === selectedWorkday.clockIn?.getTime()
-    ) || null;
-  }, [selectedWorkday, viewingDate, indexedEntries, employeeMap, selectedDay, selectedRole, employeeSearchLower, paidBreakMinutes]);
-
   const activeDay = viewingDate || selectedDay;
-  const weekWorkdayGroups = useMemo(() => groupWorkdaysByEmployee(workdays), [workdays]);
-  const monthWorkdayGroups = useMemo<DayWorkdayGroup[]>(() => {
-    if (viewMode !== "month") return [];
-    return monthWorkdays.map(({ date, workdays: dayWorkdays }) => ({
-      date,
-      groups: groupWorkdaysByEmployee(dayWorkdays),
-      totalMinutes: dayWorkdays.reduce((sum, workday) => sum + workday.netWorkedMinutes, 0),
-    }));
-  }, [viewMode, monthWorkdays]);
-  const hasVisibleWorkdays = viewMode === "week" ? workdays.length > 0 : monthWorkdays.length > 0;
-
-  const totalHours = useMemo(() => {
-    if (viewMode === "week") return workdays.reduce((s, w) => s + w.netWorkedMinutes, 0);
-    return monthWorkdayGroups.reduce((s, d) => s + d.totalMinutes, 0);
-  }, [viewMode, workdays, monthWorkdayGroups]);
-
-  const totalPay = useMemo(() => {
-    const anyHasPay = visibleEmployees.some(e => hasPayConfig(e));
-    if (!anyHasPay) return null;
-
-    const source = viewMode === "week" ? weekWorkdaysByDay : monthWorkdays;
-
-    const weekKeyForDate = (d: Date) => {
-      const ws = startOfWeek(d, { weekStartsOn: 1 });
-      return format(ws, "yyyy-MM-dd");
-    };
-
-    const weeklyHoursMap = new Map<string, number>();
-    let total = 0;
-    source.forEach(({ date, workdays: dayWds }) => {
-      const dateStr = format(date, "yyyy-MM-dd");
-      const weekKey = weekKeyForDate(date);
-      dayWds.forEach(wd => {
-        if (!hasPayConfig(wd.employee)) return;
-        const empWeekKey = `${wd.employee.id}:${weekKey}`;
-        const weekHrs = weeklyHoursMap.get(empWeekKey) || 0;
-        const dayHrs = wd.netWorkedMinutes / 60;
-        const pay = calculateDayPay(wd.employee, dateStr, dayHrs, weekHrs);
-        total += pay;
-        weeklyHoursMap.set(empWeekKey, weekHrs + dayHrs);
-      });
-    });
-    return total;
-  }, [viewMode, weekWorkdaysByDay, monthWorkdays, visibleEmployees]);
 
   const isInitialTimesheetLoading = empsLoading || entriesLoading;
   const isTimesheetUpdating = !isInitialTimesheetLoading && (empsFetching || entriesFetching);
@@ -650,7 +488,7 @@ export default function Timesheets() {
         return;
       }
       const conflictLabel = conflictSession.clockOut
-        ? `${format(conflictSession.clockIn!, "HH:mm")} – ${format(conflictSession.clockOut, "HH:mm")}`
+        ? `${format(conflictSession.clockIn!, "HH:mm")} â€“ ${format(conflictSession.clockOut, "HH:mm")}`
         : `${format(conflictSession.clockIn!, "HH:mm")} (still open)`;
       toast({
         title: "Conflicting Timesheet",
@@ -923,7 +761,7 @@ export default function Timesheets() {
 
     if (conflictSession) {
       const conflictLabel = conflictSession.clockOut
-        ? `${format(conflictSession.clockIn!, "HH:mm")} – ${format(conflictSession.clockOut, "HH:mm")}`
+        ? `${format(conflictSession.clockIn!, "HH:mm")} â€“ ${format(conflictSession.clockOut, "HH:mm")}`
         : `${format(conflictSession.clockIn!, "HH:mm")} (still open)`;
       toast({
         title: "Conflicting Timesheet",
@@ -998,7 +836,7 @@ export default function Timesheets() {
       });
       if (insideExistingShift) {
         const conflictLabel = insideExistingShift.clockOut
-          ? `${format(insideExistingShift.clockIn!, "HH:mm")} – ${format(insideExistingShift.clockOut, "HH:mm")}`
+          ? `${format(insideExistingShift.clockIn!, "HH:mm")} â€“ ${format(insideExistingShift.clockOut, "HH:mm")}`
           : `${format(insideExistingShift.clockIn!, "HH:mm")} (still open)`;
         toast({
           title: "Conflicting Timesheet",
@@ -1073,7 +911,7 @@ export default function Timesheets() {
 
     if (conflictSession) {
       const conflictLabel = conflictSession.clockOut
-        ? `${format(conflictSession.clockIn!, "HH:mm")} – ${format(conflictSession.clockOut, "HH:mm")}`
+        ? `${format(conflictSession.clockIn!, "HH:mm")} â€“ ${format(conflictSession.clockOut, "HH:mm")}`
         : `${format(conflictSession.clockIn!, "HH:mm")} (still open)`;
       toast({
         title: "Conflicting Timesheet",
@@ -1111,7 +949,7 @@ export default function Timesheets() {
       const endStr = format(end, "yyyy-MM-dd");
       const queryStartStr = format(addDays(start, -1), "yyyy-MM-dd");
       const queryEndStr = format(addDays(end, 1), "yyyy-MM-dd");
-      const rangeLabel = `Period: ${format(start, "MMM d, yyyy")} – ${format(end, "MMM d, yyyy")}`;
+      const rangeLabel = `Period: ${format(start, "MMM d, yyyy")} â€“ ${format(end, "MMM d, yyyy")}`;
 
       const entriesRes = await apiRequest("GET", `/api/steepin/entries?from=${queryStartStr}&to=${queryEndStr}`);
       const exportEntries = normalizeEntryDates(await entriesRes.json());
@@ -1137,78 +975,6 @@ export default function Timesheets() {
   const toggleExportEmployee = (id: number) => {
     setExportSelectedEmployeeIds(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
-
-  const WorkdayCard = ({ sessions, date }: { sessions: EmployeeWorkday[]; date: Date }) => {
-    const emp = sessions[0].employee;
-    const totalNet = sessions.reduce((s, w) => s + w.netWorkedMinutes, 0);
-    const isSingle = sessions.length === 1;
-
-    return (
-      <div
-        className="w-full flex items-center gap-3 p-3 rounded-md border bg-card hover-elevate text-left"
-        data-testid={`timesheet-card-${emp.id}`}
-      >
-        <EmployeeAvatar name={emp.name} color={emp.color} size="sm" />
-        <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-4">
-            <div className="flex-shrink-0 border-r pr-3 min-w-[80px]">
-              <span className="text-xs font-semibold truncate block">{emp.name}</span>
-              <span className="text-[10px] text-muted-foreground">{emp.role || "No Role"}</span>
-            </div>
-            <div className="flex items-center gap-4 flex-nowrap">
-              {sessions.map((wd, idx) => {
-                const sc = statusConfig[wd.status];
-                return (
-                  <button
-                    key={`${wd.employee.id}-${wd.clockIn?.getTime()}-${idx}`}
-                    onClick={() => { setViewingWorkdayManual(wd, date); }}
-                    className={`flex items-center gap-3 flex-shrink-0 cursor-pointer hover:bg-muted/50 rounded px-2 py-1 transition-colors ${!isSingle && idx > 0 ? "border-l pl-4" : ""}`}
-                  >
-                    <div className="flex flex-col items-center">
-                      <div className="w-1.5 h-1.5 rounded-full mb-1" style={{ backgroundColor: sc.color }} />
-                      <div className="flex flex-col items-center">
-                        <span className="text-xs font-bold whitespace-nowrap">
-                          {wd.clockIn ? format(wd.clockIn, "HH:mm") : "--:--"} - {wd.clockOut ? format(wd.clockOut, "HH:mm") : "—"}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-medium text-muted-foreground">{wd.status === "incomplete" ? "—" : `${formatHoursDecimal(wd.netWorkedMinutes)}h`}</span>
-                          {wd.hasUnfinishedBreak && (
-                            <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">Unfinished break</span>
-                          )}
-                          {!wd.hasUnfinishedBreak && wd.status === "completed" && wd.totalBreakMinutes === 0 && wd.netWorkedMinutes >= 375 && (
-                            <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-1 rounded">No break</span>
-                          )}
-                          {!wd.hasUnfinishedBreak && wd.totalBreakMinutes > 0 && (
-                            <span className="text-[10px] text-muted-foreground">
-                              (Break {formatMinutes(wd.totalBreakMinutes)}
-                              {wd.unpaidBreakMinutes > 0 && <span className="text-red-500 ml-0.5">-{formatMinutes(wd.unpaidBreakMinutes)}</span>})
-                            </span>
-                          )}
-                          {(() => {
-                            const entryDate = wd.entries.find(e => e.type === "clock-in")?.date;
-                            if (!entryDate) return null;
-                            const hasPending = approvalRequests.some(ar => ar.employeeId === wd.employee.id && ar.entryDate === entryDate && ar.status === "pending");
-                            const hasNotes = wd.entries.some(e => e.notes);
-                            return (
-                              <>
-                                {hasPending && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Pending approval" />}
-                                {hasNotes && <StickyNote className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            <span className="text-xs font-bold text-muted-foreground ml-auto flex-shrink-0 pl-2">{formatHoursDecimal(totalNet)} h</span>
-          </div>
-        </div>
-      </div>
     );
   };
 
@@ -1378,7 +1144,14 @@ export default function Timesheets() {
               </div>
             ) : (
               weekWorkdayGroups.map(({ employeeId, sessions }) => (
-                <WorkdayCard key={employeeId} sessions={sessions} date={selectedDay} />
+                <WorkdayCard
+                  key={employeeId}
+                  sessions={sessions}
+                  date={selectedDay}
+                  statusConfig={statusConfig}
+                  approvalRequests={approvalRequests}
+                  onViewWorkday={setViewingWorkdayManual}
+                />
               ))
             )
           ) : (
@@ -1400,7 +1173,14 @@ export default function Timesheets() {
                     </span>
                   </div>
                   {groups.map(({ employeeId, sessions }) => (
-                    <WorkdayCard key={employeeId} sessions={sessions} date={date} />
+                    <WorkdayCard
+                      key={employeeId}
+                      sessions={sessions}
+                      date={date}
+                      statusConfig={statusConfig}
+                      approvalRequests={approvalRequests}
+                      onViewWorkday={setViewingWorkdayManual}
+                    />
                   ))}
                 </div>
               ))
@@ -1495,7 +1275,7 @@ export default function Timesheets() {
                   ))}
               </div>
               {exportSelectedEmployeeIds.length === 0 && (
-                <p className="text-[11px] text-muted-foreground">No employees selected — select at least one.</p>
+                <p className="text-[11px] text-muted-foreground">No employees selected â€” select at least one.</p>
               )}
               {exportSelectedEmployeeIds.length > 1 && (
                 <p className="text-[11px] text-muted-foreground">Each employee will get their own page, followed by a summary.</p>
@@ -1530,7 +1310,7 @@ export default function Timesheets() {
               data-testid="button-export-pdf-download"
             >
               <FileDown className="w-4 h-4" />
-              {isExporting ? "Generating…" : "Download PDF"}
+              {isExporting ? "Generatingâ€¦" : "Download PDF"}
             </Button>
           </div>
         </DialogContent>
@@ -1619,7 +1399,7 @@ export default function Timesheets() {
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Worked</div>
                     {status === "incomplete" ? (
-                      <div className="font-medium text-muted-foreground">— (no clock-out)</div>
+                      <div className="font-medium text-muted-foreground">â€” (no clock-out)</div>
                     ) : (
                       <div className="font-medium">{formatMinutes(netWorkedMinutes)} ({formatHoursDecimal(netWorkedMinutes)} h)</div>
                     )}
@@ -1635,7 +1415,7 @@ export default function Timesheets() {
                             : totalBreakMinutes > 0
                               ? formatMinutes(totalBreakMinutes)
                               : noBreakWarning
-                                ? `No break · ${formatHoursDecimal(netWorkedMinutes)}h worked`
+                                ? `No break Â· ${formatHoursDecimal(netWorkedMinutes)}h worked`
                                 : "No break"}
                         </div>
                       );
@@ -1691,12 +1471,12 @@ export default function Timesheets() {
                       <div className="flex items-center gap-3">
                         <div>
                           <div className="text-xs text-muted-foreground mb-0.5">Clock In</div>
-                          <div className="font-medium font-mono">{clockIn ? format(clockIn, "HH:mm") : "—"}</div>
+                          <div className="font-medium font-mono">{clockIn ? format(clockIn, "HH:mm") : "â€”"}</div>
                         </div>
-                        <div className="text-muted-foreground mt-3">→</div>
+                        <div className="text-muted-foreground mt-3">â†’</div>
                         <div>
                           <div className="text-xs text-muted-foreground mb-0.5">Clock Out</div>
-                          <div className="font-medium font-mono">{clockOut ? format(clockOut, "HH:mm") : "—"}</div>
+                          <div className="font-medium font-mono">{clockOut ? format(clockOut, "HH:mm") : "â€”"}</div>
                         </div>
                       </div>
                     </div>
@@ -1719,7 +1499,7 @@ export default function Timesheets() {
                               ) : (
                                 <button
                                   className={`text-[10px] px-1.5 py-0.5 rounded font-medium border transition-colors ${bp.start.isUnpaid ? "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800" : "bg-muted text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 hover:border-red-200"}`}
-                                  title={bp.start.isUnpaid ? "Marked as unpaid — click to toggle" : "Mark as unpaid break"}
+                                  title={bp.start.isUnpaid ? "Marked as unpaid â€” click to toggle" : "Mark as unpaid break"}
                                   onClick={() => updateEntryMutation.mutate({ id: bp.start.id, isUnpaid: !bp.start.isUnpaid })}
                                   data-testid={`button-toggle-unpaid-${idx}`}
                                 >
@@ -1787,10 +1567,10 @@ export default function Timesheets() {
                               <div className="text-xs text-muted-foreground mb-0.5">Start</div>
                               <div className="font-medium font-mono">{format(new Date(bp.start.timestamp), "HH:mm")}</div>
                             </div>
-                            <div className="text-muted-foreground mt-3">→</div>
+                            <div className="text-muted-foreground mt-3">â†’</div>
                             <div>
                               <div className="text-xs text-muted-foreground mb-0.5">End</div>
-                              <div className="font-medium font-mono">{bp.end ? format(new Date(bp.end.timestamp), "HH:mm") : "—"}</div>
+                              <div className="font-medium font-mono">{bp.end ? format(new Date(bp.end.timestamp), "HH:mm") : "â€”"}</div>
                             </div>
                           </div>
                         </div>
@@ -1819,7 +1599,7 @@ export default function Timesheets() {
                         size="sm"
                         className="h-7 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
                         onClick={() => {
-                          // Always read the freshest entries at click time — avoids stale closure issues
+                          // Always read the freshest entries at click time â€” avoids stale closure issues
                           const freshEntries = (viewingWorkday?.entries ?? dayEntries);
                           const freshClockOut = [...freshEntries]
                             .filter(e => e.type === "clock-out")
@@ -2052,18 +1832,18 @@ export default function Timesheets() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Shift dialog — pencil edits both Clock In and Clock Out */}
+      {/* Edit Shift dialog â€” pencil edits both Clock In and Clock Out */}
       <Dialog open={!!editingShift} onOpenChange={() => setEditingShift(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Edit Shift Time</DialogTitle></DialogHeader>
           {editingShift && (
             <div className="space-y-4 py-2">
-              <div className="text-sm text-muted-foreground">{editingShift.employee.name} — {(() => { const d = editingShift.entries.find(e => e.type === "clock-in")?.date; return d ? format(new Date(d + "T00:00:00"), "EEE, MMM d, yyyy") : format(activeDay, "EEE, MMM d, yyyy"); })()}</div>
+              <div className="text-sm text-muted-foreground">{editingShift.employee.name} â€” {(() => { const d = editingShift.entries.find(e => e.type === "clock-in")?.date; return d ? format(new Date(d + "T00:00:00"), "EEE, MMM d, yyyy") : format(activeDay, "EEE, MMM d, yyyy"); })()}</div>
               <div className="space-y-2">
                 <Label>Clock In / Clock Out</Label>
                 <TimeRangeInput startValue={editShiftClockIn} endValue={editShiftClockOut} onStartChange={setEditShiftClockIn} onEndChange={setEditShiftClockOut} startTestId="input-edit-shift-clock-in" endTestId="input-edit-shift-clock-out" />
                 {/^\d{2}:\d{2}$/.test(editShiftClockOut) && editShiftClockOut < editShiftClockIn && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift — clock out will be saved as the next day.</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift â€” clock out will be saved as the next day.</p>
                 )}
               </div>
             </div>
@@ -2081,7 +1861,7 @@ export default function Timesheets() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Break dialog — pencil edits both Break Start and Break End */}
+      {/* Edit Break dialog â€” pencil edits both Break Start and Break End */}
       <Dialog open={!!editingBreak} onOpenChange={() => setEditingBreak(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Edit Break Time</DialogTitle></DialogHeader>
@@ -2141,7 +1921,7 @@ export default function Timesheets() {
               <span className="font-medium text-foreground">
                 {format(new Date(breakOverlapWarning.conflicting.start.timestamp), "HH:mm")}
                 {breakOverlapWarning.conflicting.end
-                  ? ` – ${format(new Date(breakOverlapWarning.conflicting.end.timestamp), "HH:mm")}`
+                  ? ` â€“ ${format(new Date(breakOverlapWarning.conflicting.end.timestamp), "HH:mm")}`
                   : ""}
               </span>
             )}
@@ -2252,7 +2032,7 @@ export default function Timesheets() {
             {deletingBreak && (
               <span className="font-medium text-foreground">
                 {format(new Date(deletingBreak.start.timestamp), "HH:mm")}
-                {deletingBreak.end ? ` – ${format(new Date(deletingBreak.end.timestamp), "HH:mm")}` : ""}
+                {deletingBreak.end ? ` â€“ ${format(new Date(deletingBreak.end.timestamp), "HH:mm")}` : ""}
               </span>
             )}
             {" "}This cannot be undone.
@@ -2322,7 +2102,7 @@ export default function Timesheets() {
                 The edited time overlaps with an existing shift from{" "}
                 <span className="font-medium text-foreground">
                   {format(mergeDialog.conflictSession.clockIn!, "HH:mm")}
-                  {mergeDialog.conflictSession.clockOut ? ` – ${format(mergeDialog.conflictSession.clockOut, "HH:mm")}` : " (open)"}
+                  {mergeDialog.conflictSession.clockOut ? ` â€“ ${format(mergeDialog.conflictSession.clockOut, "HH:mm")}` : " (open)"}
                 </span>
                 .
               </p>
@@ -2342,7 +2122,7 @@ export default function Timesheets() {
         </DialogContent>
       </Dialog>
 
-      {/* Direct Clock Picker — only for single-action adds (Add Clock Out, Add End Break, Add Break) */}
+      {/* Direct Clock Picker â€” only for single-action adds (Add Clock Out, Add End Break, Add Break) */}
       <ClockPickerDialog
         open={clockPicker.open}
         onOpenChange={(open) => setClockPicker(p => ({ ...p, open }))}
@@ -2450,7 +2230,7 @@ export default function Timesheets() {
                   <Label>Shift Time</Label>
                   <TimeRangeInput startValue={newTimesheetClockIn} endValue={newTimesheetClockOut} onStartChange={setNewTimesheetClockIn} onEndChange={setNewTimesheetClockOut} startTestId="input-timesheet-clock-in" endTestId="input-timesheet-clock-out" />
                   {/^\d{2}:\d{2}$/.test(newTimesheetClockOut) && newTimesheetClockOut < newTimesheetClockIn
-                    ? <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift — clock out will be saved as the next day.</p>
+                    ? <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift â€” clock out will be saved as the next day.</p>
                     : <p className="text-xs text-muted-foreground">Clock out is optional</p>
                   }
                 </div>
@@ -2480,7 +2260,7 @@ export default function Timesheets() {
         employees={employees}
       />
 
-      {/* Reopen Shift — Gap Time Dialog */}
+      {/* Reopen Shift â€” Gap Time Dialog */}
       <Dialog open={!!reopenGapDialog} onOpenChange={(open) => { if (!open) setReopenGapDialog(null); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -2496,7 +2276,7 @@ export default function Timesheets() {
             return (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  The shift closed at <span className="font-medium text-foreground">{clockOutTime}</span> and it is now <span className="font-medium text-foreground">{nowTime}</span> — a gap of <span className="font-medium text-foreground">{gapLabel}</span>.
+                  The shift closed at <span className="font-medium text-foreground">{clockOutTime}</span> and it is now <span className="font-medium text-foreground">{nowTime}</span> â€” a gap of <span className="font-medium text-foreground">{gapLabel}</span>.
                   How should this time be counted?
                 </p>
                 <div className="flex flex-col gap-2">

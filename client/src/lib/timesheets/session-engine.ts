@@ -1,5 +1,7 @@
 import { addDays, differenceInMinutes, eachDayOfInterval, format, parseISO } from "date-fns";
 import type { Employee, TimeEntry } from "@shared/schema";
+export { STALE_OPEN_SESSION_MINUTES } from "@shared/timekeeping";
+import { STALE_OPEN_SESSION_MINUTES } from "@shared/timekeeping";
 
 export type WorkdayStatus = "working" | "on-break" | "completed" | "incomplete";
 
@@ -24,8 +26,6 @@ type ProcessingWorkday = Omit<EmployeeWorkday, "unpaidBreakMinutes" | "netWorked
   currentBreakIsUnpaid: boolean;
   hasRealClockIn: boolean;
 };
-
-export const STALE_OPEN_SESSION_MINUTES = 24 * 60;
 
 export type EntriesByDate = Map<string, Map<number, TimeEntry[]>>;
 export type EntriesByEmployee = Map<number, TimeEntry[]>;

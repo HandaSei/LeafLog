@@ -1,4 +1,5 @@
 import { differenceInMinutes, format } from "date-fns";
+import { getAutoCloseLimitHours } from "@shared/timekeeping";
 import { storage } from "../storage";
 import { broadcastEntryUpdate } from "../sse";
 
@@ -25,12 +26,7 @@ export async function autoCloseStaleSession(employeeId: number): Promise<void> {
   const now = new Date();
   const hoursOpen = differenceInMinutes(now, lastClockInTime) / 60;
 
-  const breakAfter10h = entries.some(
-    (e) =>
-      e.type === "break-start" &&
-      new Date(e.timestamp).getTime() > lastClockInTime.getTime() + 10 * 60 * 60 * 1000
-  );
-  const limitHours = breakAfter10h ? 24 : 16;
+  const limitHours = getAutoCloseLimitHours(entries, lastClockInTime);
 
   if (hoursOpen > limitHours) {
     const closeTime = new Date(lastClockInTime.getTime() + limitHours * 60 * 60 * 1000);
