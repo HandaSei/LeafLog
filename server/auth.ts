@@ -19,8 +19,9 @@ declare module "express-session" {
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const SESSION_COOKIE_NAME = "connect.sid";
-const STANDARD_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const STEEPIN_SESSION_MAX_AGE_MS = 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+const LONG_LIVED_SESSION_MAX_AGE_MS = 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+const STANDARD_SESSION_MAX_AGE_MS = LONG_LIVED_SESSION_MAX_AGE_MS;
+const STEEPIN_SESSION_MAX_AGE_MS = LONG_LIVED_SESSION_MAX_AGE_MS;
 
 function getSessionCookieOptions() {
   return {

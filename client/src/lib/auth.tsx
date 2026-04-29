@@ -7,8 +7,9 @@ const AUTH_CACHE_KEY = "leaflog_auth_state";
 const BOOTSTRAP_TIMEOUT_MS = 5000; // 5 second timeout for bootstrap
 const VERIFICATION_TIMEOUT_MS = 2500; // 2.5s for background verification - faster initial render
 const AUTH_CACHE_VERSION = 1;
-const STANDARD_AUTH_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const STEEPIN_AUTH_CACHE_MAX_AGE_MS = 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+const LONG_LIVED_AUTH_CACHE_MAX_AGE_MS = 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+const STANDARD_AUTH_CACHE_MAX_AGE_MS = LONG_LIVED_AUTH_CACHE_MAX_AGE_MS;
+const STEEPIN_AUTH_CACHE_MAX_AGE_MS = LONG_LIVED_AUTH_CACHE_MAX_AGE_MS;
 
 interface CachedAuthEnvelope {
   version: number;
