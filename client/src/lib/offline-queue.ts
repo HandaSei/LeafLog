@@ -1,7 +1,5 @@
 import { queryClient } from "./queryClient";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||
-  (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.() ? 'https://leaflog.org' : '');
+import { API_BASE_URL } from "@/lib/api-base";
 
 const QUEUE_KEY = "leaflog_pending_actions";
 const ENTRIES_CACHE_KEY = "leaflog_steepin_entries_cache";

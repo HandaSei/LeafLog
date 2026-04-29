@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { isEmployeeArchived } from "@/lib/employees";
+import { createEmployeeArchivePatch, isEmployeeArchived } from "@/lib/employees";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee } from "@shared/schema";
 import { Card } from "@/components/ui/card";
@@ -67,7 +67,7 @@ export default function Employees() {
 
   const archiveEmployeeMutation = useMutation({
     mutationFn: async ({ id, archived }: { id: number; archived: boolean }) => {
-      return apiRequest("PATCH", `/api/employees/${id}`, { hiddenFromSteepin: archived });
+      return apiRequest("PATCH", `/api/employees/${id}`, createEmployeeArchivePatch(archived));
     },
     onSuccess: (_data, { archived }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });

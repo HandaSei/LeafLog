@@ -2,9 +2,7 @@ import { createContext, useContext, useCallback, useState, useEffect, useRef } f
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, onAuthError } from "@/lib/queryClient";
 import { isActiveUnarchivedEmployee } from "@/lib/employees";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||
-  (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.() ? 'https://leaflog.org' : '');
+import { API_BASE_URL } from "@/lib/api-base";
 const AUTH_CACHE_KEY = "leaflog_auth_state";
 const BOOTSTRAP_TIMEOUT_MS = 5000; // 5 second timeout for bootstrap
 const VERIFICATION_TIMEOUT_MS = 2500; // 2.5s for background verification - faster initial render
