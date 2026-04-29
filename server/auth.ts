@@ -91,6 +91,8 @@ export function requireRole(...roles: string[]) {
 }
 
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const CAN_EXPOSE_EMAIL_FALLBACK_CODE = process.env.NODE_ENV !== "production";
+const EMAIL_DELIVERY_FAILED_MESSAGE = "Verification email could not be sent. Please try again later.";
 
 interface RateLimitRecord {
   count: number;
@@ -150,6 +152,20 @@ function makeLimiter(cfg: LimiterConfig) {
     if (!result.allowed) return res.status(429).json({ message: result.message });
     next();
   };
+}
+
+function getEmailFallbackFields(sent: boolean, code: string): { emailSent: boolean; fallbackCode?: string } {
+  if (sent) return { emailSent: true };
+  if (CAN_EXPOSE_EMAIL_FALLBACK_CODE) return { emailSent: false, fallbackCode: code };
+  return { emailSent: false };
+}
+
+function logEmailSendFailure(label: string, email: string, code: string) {
+  if (CAN_EXPOSE_EMAIL_FALLBACK_CODE) {
+    console.log(`[EMAIL FALLBACK] ${label} code for ${email}: ${code}`);
+    return;
+  }
+  console.warn(`[Email] Failed to send ${label} verification email to ${email}`);
 }
 
 // Aggressive limiter for credential / sensitive endpoints (low legitimate frequency).
@@ -229,10 +245,17 @@ export function registerAuthRoutes(router: Router) {
 
     const sent = await sendVerificationEmail(parsed.data.email, code, "registration");
     if (!sent) {
-      console.log(`[EMAIL FALLBACK] Registration code for ${parsed.data.email}: ${code}`);
+      logEmailSendFailure("Registration", parsed.data.email, code);
+      if (!CAN_EXPOSE_EMAIL_FALLBACK_CODE) {
+        return res.status(503).json({ message: EMAIL_DELIVERY_FAILED_MESSAGE });
+      }
     }
 
-    res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent, fallbackCode: sent ? undefined : code });
+    res.status(200).json({
+      requiresVerification: true,
+      email: parsed.data.email,
+      ...getEmailFallbackFields(sent, code),
+    });
   });
 
   router.post("/api/auth/verify-email", authRateLimiter, async (req, res) => {
@@ -300,10 +323,13 @@ export function registerAuthRoutes(router: Router) {
     await storage.createEmailVerification(parsed.data.email, code, "recovery", null, account.id);
     const sent = await sendVerificationEmail(parsed.data.email, code, "recovery");
     if (!sent) {
-      console.log(`[EMAIL FALLBACK] Password reset code for ${parsed.data.email}: ${code}`);
+      logEmailSendFailure("Password reset", parsed.data.email, code);
     }
 
-    res.status(200).json({ success: true, emailSent: sent, fallbackCode: sent ? undefined : code });
+    res.status(200).json({
+      success: true,
+      ...(CAN_EXPOSE_EMAIL_FALLBACK_CODE ? getEmailFallbackFields(sent, code) : {}),
+    });
   });
 
   router.post("/api/auth/reset-password", authRateLimiter, async (req, res) => {
@@ -361,10 +387,17 @@ export function registerAuthRoutes(router: Router) {
 
     const sent = await sendVerificationEmail(parsed.data.email, code, "employee-upgrade");
     if (!sent) {
-      console.log(`[EMAIL FALLBACK] Employee upgrade code for ${parsed.data.email}: ${code}`);
+      logEmailSendFailure("Employee upgrade", parsed.data.email, code);
+      if (!CAN_EXPOSE_EMAIL_FALLBACK_CODE) {
+        return res.status(503).json({ message: EMAIL_DELIVERY_FAILED_MESSAGE });
+      }
     }
 
-    res.status(200).json({ requiresVerification: true, email: parsed.data.email, emailSent: sent, fallbackCode: sent ? undefined : code });
+    res.status(200).json({
+      requiresVerification: true,
+      email: parsed.data.email,
+      ...getEmailFallbackFields(sent, code),
+    });
   });
 
   router.post("/api/auth/verify-employee-upgrade", requireAuth, authRateLimiter, async (req, res) => {

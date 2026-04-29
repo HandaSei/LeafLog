@@ -67,6 +67,7 @@ export function registerTimeTrackingRoutes(router: Router) {
     const ownerAccountId = req.session.userId!;
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
     const date = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const all = req.query.all === "true";
     const range = getDateRangeQuery(req);
     if (range && "error" in range) return res.status(400).json({ message: range.error });
     if (range) {
@@ -79,6 +80,17 @@ export function registerTimeTrackingRoutes(router: Router) {
     } else if (date) {
       const entries = await storage.getTimeEntriesByDate(date, ownerAccountId);
       return res.json(entries);
+    }
+
+    if (!all) {
+      return res.status(400).json({
+        message: "Date range required. Use ?date=YYYY-MM-DD, ?from=YYYY-MM-DD&to=YYYY-MM-DD, or explicit ?all=true.",
+      });
+    }
+
+    const account = await storage.getAccount(ownerAccountId);
+    if (!account || (account.role !== "admin" && account.role !== "manager")) {
+      return res.status(403).json({ message: "Insufficient permissions" });
     }
 
     const entries = await storage.getAllTimeEntries(ownerAccountId);
