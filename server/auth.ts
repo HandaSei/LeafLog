@@ -4,7 +4,7 @@ import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { loginSchema, registerManagerSchema, accessCodeLoginSchema, forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema, upgradeEmployeeSchema } from "@shared/schema";
+import { loginSchema, registerManagerSchema, accessCodeLoginSchema, forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema, upgradeEmployeeSchema, type Account } from "@shared/schema";
 import { format } from "date-fns";
 import { sendVerificationEmail, generateCode } from "./email";
 
@@ -15,6 +15,55 @@ declare module "express-session" {
     employeeId: number | null;
     steepinMode: boolean;
   }
+}
+
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const SESSION_COOKIE_NAME = "connect.sid";
+const STANDARD_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const STEEPIN_SESSION_MAX_AGE_MS = 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+
+function getSessionCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: IS_PRODUCTION,
+    sameSite: IS_PRODUCTION ? "none" as const : "lax" as const,
+  };
+}
+
+function setSessionLifetime(req: Request, maxAge: number) {
+  req.session.cookie.maxAge = maxAge;
+  req.session.cookie.httpOnly = true;
+  req.session.cookie.secure = IS_PRODUCTION;
+  req.session.cookie.sameSite = IS_PRODUCTION ? "none" : "lax";
+}
+
+function regenerateSession(req: Request): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function saveSession(req: Request): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.save((err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+async function startAccountSession(req: Request, account: Account, options?: { steepinMode?: boolean }) {
+  const steepinMode = options?.steepinMode ?? false;
+  await regenerateSession(req);
+  req.session.userId = account.id;
+  req.session.role = account.role;
+  req.session.employeeId = account.employeeId ?? null;
+  req.session.steepinMode = steepinMode;
+  setSessionLifetime(req, steepinMode ? STEEPIN_SESSION_MAX_AGE_MS : STANDARD_SESSION_MAX_AGE_MS);
+  await saveSession(req);
 }
 
 export function setupSession(app: any) {
@@ -53,10 +102,8 @@ export function setupSession(app: any) {
       saveUninitialized: false,
       rolling: true,
       cookie: {
-        maxAge: 10 * 365 * 24 * 60 * 60 * 1000, // 10 years
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: process.env.NODE_ENV === "production" ? "none" as const : "lax" as const,
+        maxAge: STANDARD_SESSION_MAX_AGE_MS,
+        ...getSessionCookieOptions(),
       },
     })
   );
@@ -299,9 +346,7 @@ export function registerAuthRoutes(router: Router) {
 
     await storage.markEmailVerificationUsed(verification.id);
 
-    req.session.userId = account.id;
-    req.session.role = account.role;
-    req.session.employeeId = null;
+    await startAccountSession(req, account);
 
     const { password, ...safe } = account;
     res.status(201).json({ user: safe });
@@ -452,9 +497,7 @@ export function registerAuthRoutes(router: Router) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    req.session.userId = account.id;
-    req.session.role = account.role;
-    req.session.employeeId = account.employeeId;
+    await startAccountSession(req, account);
 
     const { password, ...safe } = account;
     let employee = null;
@@ -505,9 +548,7 @@ export function registerAuthRoutes(router: Router) {
 
     await storage.markAccessCodeUsed(ac.id);
 
-    req.session.userId = account.id;
-    req.session.role = "employee";
-    req.session.employeeId = employee.id;
+    await startAccountSession(req, account);
 
     const { password, ...safe } = account;
     res.json({ user: safe, employee });
@@ -525,9 +566,7 @@ export function registerAuthRoutes(router: Router) {
     if (account.role !== "admin" && account.role !== "manager") {
       return res.status(403).json({ message: "SteepIn requires manager or admin access" });
     }
-    req.session.userId = account.id;
-    req.session.role = account.role;
-    req.session.steepinMode = true;
+    await startAccountSession(req, account, { steepinMode: true });
     const { password: _, ...safe } = account;
     res.json({ user: safe });
   });
@@ -545,9 +584,7 @@ export function registerAuthRoutes(router: Router) {
     if (!account || (account.role !== "admin" && account.role !== "manager")) {
       return res.status(403).json({ message: "Owner account not eligible for SteepIn" });
     }
-    req.session.userId = account.id;
-    req.session.role = account.role;
-    req.session.steepinMode = true;
+    await startAccountSession(req, account, { steepinMode: true });
     res.json({ success: true });
   });
 
@@ -568,13 +605,14 @@ export function registerAuthRoutes(router: Router) {
 
     req.session.destroy((err) => {
       if (err) return res.status(500).json({ message: "Failed to log out" });
-      res.clearCookie("sid");
+      res.clearCookie(SESSION_COOKIE_NAME, getSessionCookieOptions());
       res.json({ success: true });
     });
   });
 
   router.post("/api/auth/logout", (req, res) => {
     req.session.destroy(() => {
+      res.clearCookie(SESSION_COOKIE_NAME, getSessionCookieOptions());
       res.json({ success: true });
     });
   });

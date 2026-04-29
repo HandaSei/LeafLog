@@ -6,11 +6,42 @@ import { API_BASE_URL } from "@/lib/api-base";
 const AUTH_CACHE_KEY = "leaflog_auth_state";
 const BOOTSTRAP_TIMEOUT_MS = 5000; // 5 second timeout for bootstrap
 const VERIFICATION_TIMEOUT_MS = 2500; // 2.5s for background verification - faster initial render
+const AUTH_CACHE_VERSION = 1;
+const STANDARD_AUTH_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const STEEPIN_AUTH_CACHE_MAX_AGE_MS = 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+
+interface CachedAuthEnvelope {
+  version: number;
+  auth: AuthState;
+  expiresAt: number;
+}
+
+function isAuthState(value: unknown): value is AuthState {
+  return !!value && typeof value === "object" && "authenticated" in value;
+}
+
+function getAuthCacheMaxAge(auth: AuthState) {
+  return auth.steepinMode ? STEEPIN_AUTH_CACHE_MAX_AGE_MS : STANDARD_AUTH_CACHE_MAX_AGE_MS;
+}
 
 function readCachedAuth(): AuthState | null | undefined {
   try {
     const raw = localStorage.getItem(AUTH_CACHE_KEY);
-    return raw ? JSON.parse(raw) : undefined;
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw);
+
+    if (parsed && typeof parsed === "object" && "auth" in parsed && "expiresAt" in parsed) {
+      const envelope = parsed as CachedAuthEnvelope;
+      if (typeof envelope.expiresAt === "number" && Date.now() > envelope.expiresAt) {
+        localStorage.removeItem(AUTH_CACHE_KEY);
+        return undefined;
+      }
+      return isAuthState(envelope.auth) ? envelope.auth : undefined;
+    }
+
+    // Backward compatibility for pre-expiry auth cache. Bootstrap will verify
+    // it in the background and rewrite it with an expiry if it is still valid.
+    return isAuthState(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }
@@ -19,7 +50,11 @@ function readCachedAuth(): AuthState | null | undefined {
 function saveCachedAuth(auth: AuthState | null) {
   try {
     if (auth) {
-      localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(auth));
+      localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({
+        version: AUTH_CACHE_VERSION,
+        auth,
+        expiresAt: Date.now() + getAuthCacheMaxAge(auth),
+      }));
     } else {
       localStorage.removeItem(AUTH_CACHE_KEY);
     }
