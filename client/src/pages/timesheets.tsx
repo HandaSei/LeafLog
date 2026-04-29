@@ -488,7 +488,7 @@ export default function Timesheets() {
         return;
       }
       const conflictLabel = conflictSession.clockOut
-        ? `${format(conflictSession.clockIn!, "HH:mm")} â€“ ${format(conflictSession.clockOut, "HH:mm")}`
+        ? `${format(conflictSession.clockIn!, "HH:mm")} - ${format(conflictSession.clockOut, "HH:mm")}`
         : `${format(conflictSession.clockIn!, "HH:mm")} (still open)`;
       toast({
         title: "Conflicting Timesheet",
@@ -761,7 +761,7 @@ export default function Timesheets() {
 
     if (conflictSession) {
       const conflictLabel = conflictSession.clockOut
-        ? `${format(conflictSession.clockIn!, "HH:mm")} â€“ ${format(conflictSession.clockOut, "HH:mm")}`
+        ? `${format(conflictSession.clockIn!, "HH:mm")} - ${format(conflictSession.clockOut, "HH:mm")}`
         : `${format(conflictSession.clockIn!, "HH:mm")} (still open)`;
       toast({
         title: "Conflicting Timesheet",
@@ -836,7 +836,7 @@ export default function Timesheets() {
       });
       if (insideExistingShift) {
         const conflictLabel = insideExistingShift.clockOut
-          ? `${format(insideExistingShift.clockIn!, "HH:mm")} â€“ ${format(insideExistingShift.clockOut, "HH:mm")}`
+          ? `${format(insideExistingShift.clockIn!, "HH:mm")} - ${format(insideExistingShift.clockOut, "HH:mm")}`
           : `${format(insideExistingShift.clockIn!, "HH:mm")} (still open)`;
         toast({
           title: "Conflicting Timesheet",
@@ -911,7 +911,7 @@ export default function Timesheets() {
 
     if (conflictSession) {
       const conflictLabel = conflictSession.clockOut
-        ? `${format(conflictSession.clockIn!, "HH:mm")} â€“ ${format(conflictSession.clockOut, "HH:mm")}`
+        ? `${format(conflictSession.clockIn!, "HH:mm")} - ${format(conflictSession.clockOut, "HH:mm")}`
         : `${format(conflictSession.clockIn!, "HH:mm")} (still open)`;
       toast({
         title: "Conflicting Timesheet",
@@ -949,7 +949,7 @@ export default function Timesheets() {
       const endStr = format(end, "yyyy-MM-dd");
       const queryStartStr = format(addDays(start, -1), "yyyy-MM-dd");
       const queryEndStr = format(addDays(end, 1), "yyyy-MM-dd");
-      const rangeLabel = `Period: ${format(start, "MMM d, yyyy")} â€“ ${format(end, "MMM d, yyyy")}`;
+      const rangeLabel = `Period: ${format(start, "MMM d, yyyy")} - ${format(end, "MMM d, yyyy")}`;
 
       const entriesRes = await apiRequest("GET", `/api/steepin/entries?from=${queryStartStr}&to=${queryEndStr}`);
       const exportEntries = normalizeEntryDates(await entriesRes.json());
@@ -1275,7 +1275,7 @@ export default function Timesheets() {
                   ))}
               </div>
               {exportSelectedEmployeeIds.length === 0 && (
-                <p className="text-[11px] text-muted-foreground">No employees selected â€” select at least one.</p>
+                <p className="text-[11px] text-muted-foreground">No employees selected - select at least one.</p>
               )}
               {exportSelectedEmployeeIds.length > 1 && (
                 <p className="text-[11px] text-muted-foreground">Each employee will get their own page, followed by a summary.</p>
@@ -1310,7 +1310,7 @@ export default function Timesheets() {
               data-testid="button-export-pdf-download"
             >
               <FileDown className="w-4 h-4" />
-              {isExporting ? "Generatingâ€¦" : "Download PDF"}
+              {isExporting ? "Generating..." : "Download PDF"}
             </Button>
           </div>
         </DialogContent>
@@ -1399,7 +1399,7 @@ export default function Timesheets() {
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">Worked</div>
                     {status === "incomplete" ? (
-                      <div className="font-medium text-muted-foreground">â€” (no clock-out)</div>
+                      <div className="font-medium text-muted-foreground">- (no clock-out)</div>
                     ) : (
                       <div className="font-medium">{formatMinutes(netWorkedMinutes)} ({formatHoursDecimal(netWorkedMinutes)} h)</div>
                     )}
@@ -1415,7 +1415,7 @@ export default function Timesheets() {
                             : totalBreakMinutes > 0
                               ? formatMinutes(totalBreakMinutes)
                               : noBreakWarning
-                                ? `No break Â· ${formatHoursDecimal(netWorkedMinutes)}h worked`
+                                ? `No break - ${formatHoursDecimal(netWorkedMinutes)}h worked`
                                 : "No break"}
                         </div>
                       );
@@ -1471,12 +1471,12 @@ export default function Timesheets() {
                       <div className="flex items-center gap-3">
                         <div>
                           <div className="text-xs text-muted-foreground mb-0.5">Clock In</div>
-                          <div className="font-medium font-mono">{clockIn ? format(clockIn, "HH:mm") : "â€”"}</div>
+                          <div className="font-medium font-mono">{clockIn ? format(clockIn, "HH:mm") : "-"}</div>
                         </div>
-                        <div className="text-muted-foreground mt-3">â†’</div>
+                        <div className="text-muted-foreground mt-3">{"->"}</div>
                         <div>
                           <div className="text-xs text-muted-foreground mb-0.5">Clock Out</div>
-                          <div className="font-medium font-mono">{clockOut ? format(clockOut, "HH:mm") : "â€”"}</div>
+                          <div className="font-medium font-mono">{clockOut ? format(clockOut, "HH:mm") : "-"}</div>
                         </div>
                       </div>
                     </div>
@@ -1499,7 +1499,7 @@ export default function Timesheets() {
                               ) : (
                                 <button
                                   className={`text-[10px] px-1.5 py-0.5 rounded font-medium border transition-colors ${bp.start.isUnpaid ? "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800" : "bg-muted text-muted-foreground border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-600 hover:border-red-200"}`}
-                                  title={bp.start.isUnpaid ? "Marked as unpaid â€” click to toggle" : "Mark as unpaid break"}
+                                  title={bp.start.isUnpaid ? "Marked as unpaid - click to toggle" : "Mark as unpaid break"}
                                   onClick={() => updateEntryMutation.mutate({ id: bp.start.id, isUnpaid: !bp.start.isUnpaid })}
                                   data-testid={`button-toggle-unpaid-${idx}`}
                                 >
@@ -1567,10 +1567,10 @@ export default function Timesheets() {
                               <div className="text-xs text-muted-foreground mb-0.5">Start</div>
                               <div className="font-medium font-mono">{format(new Date(bp.start.timestamp), "HH:mm")}</div>
                             </div>
-                            <div className="text-muted-foreground mt-3">â†’</div>
+                            <div className="text-muted-foreground mt-3">{"->"}</div>
                             <div>
                               <div className="text-xs text-muted-foreground mb-0.5">End</div>
-                              <div className="font-medium font-mono">{bp.end ? format(new Date(bp.end.timestamp), "HH:mm") : "â€”"}</div>
+                              <div className="font-medium font-mono">{bp.end ? format(new Date(bp.end.timestamp), "HH:mm") : "-"}</div>
                             </div>
                           </div>
                         </div>
@@ -1599,7 +1599,7 @@ export default function Timesheets() {
                         size="sm"
                         className="h-7 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
                         onClick={() => {
-                          // Always read the freshest entries at click time â€” avoids stale closure issues
+                          // Always read the freshest entries at click time - avoids stale closure issues
                           const freshEntries = (viewingWorkday?.entries ?? dayEntries);
                           const freshClockOut = [...freshEntries]
                             .filter(e => e.type === "clock-out")
@@ -1832,18 +1832,18 @@ export default function Timesheets() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Shift dialog â€” pencil edits both Clock In and Clock Out */}
+      {/* Edit Shift dialog - pencil edits both Clock In and Clock Out */}
       <Dialog open={!!editingShift} onOpenChange={() => setEditingShift(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Edit Shift Time</DialogTitle></DialogHeader>
           {editingShift && (
             <div className="space-y-4 py-2">
-              <div className="text-sm text-muted-foreground">{editingShift.employee.name} â€” {(() => { const d = editingShift.entries.find(e => e.type === "clock-in")?.date; return d ? format(new Date(d + "T00:00:00"), "EEE, MMM d, yyyy") : format(activeDay, "EEE, MMM d, yyyy"); })()}</div>
+              <div className="text-sm text-muted-foreground">{editingShift.employee.name} - {(() => { const d = editingShift.entries.find(e => e.type === "clock-in")?.date; return d ? format(new Date(d + "T00:00:00"), "EEE, MMM d, yyyy") : format(activeDay, "EEE, MMM d, yyyy"); })()}</div>
               <div className="space-y-2">
                 <Label>Clock In / Clock Out</Label>
                 <TimeRangeInput startValue={editShiftClockIn} endValue={editShiftClockOut} onStartChange={setEditShiftClockIn} onEndChange={setEditShiftClockOut} startTestId="input-edit-shift-clock-in" endTestId="input-edit-shift-clock-out" />
                 {/^\d{2}:\d{2}$/.test(editShiftClockOut) && editShiftClockOut < editShiftClockIn && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift â€” clock out will be saved as the next day.</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift - clock out will be saved as the next day.</p>
                 )}
               </div>
             </div>
@@ -1861,7 +1861,7 @@ export default function Timesheets() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Break dialog â€” pencil edits both Break Start and Break End */}
+      {/* Edit Break dialog - pencil edits both Break Start and Break End */}
       <Dialog open={!!editingBreak} onOpenChange={() => setEditingBreak(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Edit Break Time</DialogTitle></DialogHeader>
@@ -1921,7 +1921,7 @@ export default function Timesheets() {
               <span className="font-medium text-foreground">
                 {format(new Date(breakOverlapWarning.conflicting.start.timestamp), "HH:mm")}
                 {breakOverlapWarning.conflicting.end
-                  ? ` â€“ ${format(new Date(breakOverlapWarning.conflicting.end.timestamp), "HH:mm")}`
+                  ? ` - ${format(new Date(breakOverlapWarning.conflicting.end.timestamp), "HH:mm")}`
                   : ""}
               </span>
             )}
@@ -2032,7 +2032,7 @@ export default function Timesheets() {
             {deletingBreak && (
               <span className="font-medium text-foreground">
                 {format(new Date(deletingBreak.start.timestamp), "HH:mm")}
-                {deletingBreak.end ? ` â€“ ${format(new Date(deletingBreak.end.timestamp), "HH:mm")}` : ""}
+                {deletingBreak.end ? ` - ${format(new Date(deletingBreak.end.timestamp), "HH:mm")}` : ""}
               </span>
             )}
             {" "}This cannot be undone.
@@ -2102,7 +2102,7 @@ export default function Timesheets() {
                 The edited time overlaps with an existing shift from{" "}
                 <span className="font-medium text-foreground">
                   {format(mergeDialog.conflictSession.clockIn!, "HH:mm")}
-                  {mergeDialog.conflictSession.clockOut ? ` â€“ ${format(mergeDialog.conflictSession.clockOut, "HH:mm")}` : " (open)"}
+                  {mergeDialog.conflictSession.clockOut ? ` - ${format(mergeDialog.conflictSession.clockOut, "HH:mm")}` : " (open)"}
                 </span>
                 .
               </p>
@@ -2122,7 +2122,7 @@ export default function Timesheets() {
         </DialogContent>
       </Dialog>
 
-      {/* Direct Clock Picker â€” only for single-action adds (Add Clock Out, Add End Break, Add Break) */}
+      {/* Direct Clock Picker - only for single-action adds (Add Clock Out, Add End Break, Add Break) */}
       <ClockPickerDialog
         open={clockPicker.open}
         onOpenChange={(open) => setClockPicker(p => ({ ...p, open }))}
@@ -2230,7 +2230,7 @@ export default function Timesheets() {
                   <Label>Shift Time</Label>
                   <TimeRangeInput startValue={newTimesheetClockIn} endValue={newTimesheetClockOut} onStartChange={setNewTimesheetClockIn} onEndChange={setNewTimesheetClockOut} startTestId="input-timesheet-clock-in" endTestId="input-timesheet-clock-out" />
                   {/^\d{2}:\d{2}$/.test(newTimesheetClockOut) && newTimesheetClockOut < newTimesheetClockIn
-                    ? <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift â€” clock out will be saved as the next day.</p>
+                    ? <p className="text-xs text-amber-600 dark:text-amber-400">Overnight shift - clock out will be saved as the next day.</p>
                     : <p className="text-xs text-muted-foreground">Clock out is optional</p>
                   }
                 </div>
@@ -2260,7 +2260,7 @@ export default function Timesheets() {
         employees={employees}
       />
 
-      {/* Reopen Shift â€” Gap Time Dialog */}
+      {/* Reopen Shift - Gap Time Dialog */}
       <Dialog open={!!reopenGapDialog} onOpenChange={(open) => { if (!open) setReopenGapDialog(null); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -2276,7 +2276,7 @@ export default function Timesheets() {
             return (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  The shift closed at <span className="font-medium text-foreground">{clockOutTime}</span> and it is now <span className="font-medium text-foreground">{nowTime}</span> â€” a gap of <span className="font-medium text-foreground">{gapLabel}</span>.
+                  The shift closed at <span className="font-medium text-foreground">{clockOutTime}</span> and it is now <span className="font-medium text-foreground">{nowTime}</span> - a gap of <span className="font-medium text-foreground">{gapLabel}</span>.
                   How should this time be counted?
                 </p>
                 <div className="flex flex-col gap-2">
