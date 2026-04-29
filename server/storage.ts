@@ -4,9 +4,9 @@ import pg from "pg";
 import {
   employees, shifts, accounts, accessCodes, timeEntries, customRoles, feedback, emailVerifications,
   approvalRequests, notifications, timesheetBackups,
-  type Employee,
-  type Shift,
-  type Account,
+  type Employee, type InsertEmployee,
+  type Shift, type InsertShift,
+  type Account, type InsertAccount,
   type AccessCode, type TimeEntry, type CustomRole, type Feedback, type EmailVerification,
   type ApprovalRequest, type Notification, type TimesheetBackup, type KioskDevice,
 } from "@shared/schema";
@@ -110,9 +110,6 @@ type TimesheetBackupEntry = Omit<TimeEntryRow, "timestamp"> & {
 };
 
 type AccountSummaryRow = Pick<Account, "id" | "username" | "agencyName" | "email" | "role" | "createdAt">;
-type EmployeeInsertData = typeof employees.$inferInsert;
-type ShiftInsertData = typeof shifts.$inferInsert;
-type AccountInsertData = typeof accounts.$inferInsert;
 
 function mapTimeEntryRow(row: TimeEntryRow): TimeEntry {
   return {
@@ -191,8 +188,8 @@ function mapTimesheetBackupSummaryRow(row: TimesheetBackupSummaryRow): Omit<Time
 export interface IStorage {
   getEmployees(ownerAccountId?: number): Promise<Employee[]>;
   getEmployee(id: number): Promise<Employee | undefined>;
-  createEmployee(data: EmployeeInsertData): Promise<Employee>;
-  updateEmployee(id: number, data: Partial<EmployeeInsertData>): Promise<Employee | undefined>;
+  createEmployee(data: InsertEmployee): Promise<Employee>;
+  updateEmployee(id: number, data: Partial<InsertEmployee>): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<void>;
 
   getShifts(ownerAccountId?: number): Promise<Shift[]>;
@@ -201,8 +198,8 @@ export interface IStorage {
   getShiftsByEmployee(employeeId: number): Promise<Shift[]>;
   getShiftsByEmployeeAndDate(employeeId: number, date: string): Promise<Shift[]>;
   getShiftsByEmployeeAndDateRange(employeeId: number, from: string, to: string): Promise<Shift[]>;
-  createShift(data: ShiftInsertData): Promise<Shift>;
-  updateShift(id: number, data: Partial<ShiftInsertData>): Promise<Shift | undefined>;
+  createShift(data: InsertShift): Promise<Shift>;
+  updateShift(id: number, data: Partial<InsertShift>): Promise<Shift | undefined>;
   deleteShift(id: number): Promise<void>;
   updateShiftRolesForEmployee(employeeId: number, role: string, color: string): Promise<void>;
 
@@ -210,7 +207,7 @@ export interface IStorage {
   getAccount(id: number): Promise<Account | undefined>;
   getAccountByUsername(username: string): Promise<Account | undefined>;
   getAccountByEmail(email: string): Promise<Account | undefined>;
-  createAccount(data: AccountInsertData): Promise<Account>;
+  createAccount(data: InsertAccount): Promise<Account>;
   hasAnyManagers(): Promise<boolean>;
 
   createAccessCode(code: string, employeeId: number, createdBy: number, expiresAt: Date): Promise<AccessCode>;
@@ -330,13 +327,13 @@ export class DatabaseStorage implements IStorage {
     return emp;
   }
 
-  async createEmployee(data: EmployeeInsertData): Promise<Employee> {
+  async createEmployee(data: InsertEmployee): Promise<Employee> {
     const accessCode = data.accessCode || Math.floor(1000 + Math.random() * 9000).toString();
     const [emp] = await db.insert(employees).values({ ...data, accessCode }).returning();
     return emp;
   }
 
-  async updateEmployee(id: number, data: Partial<EmployeeInsertData>): Promise<Employee | undefined> {
+  async updateEmployee(id: number, data: Partial<InsertEmployee>): Promise<Employee | undefined> {
     const [emp] = await db.update(employees).set(data).where(eq(employees.id, id)).returning();
     return emp;
   }
@@ -423,12 +420,12 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async createShift(data: ShiftInsertData): Promise<Shift> {
+  async createShift(data: InsertShift): Promise<Shift> {
     const [shift] = await db.insert(shifts).values(data).returning();
     return shift;
   }
 
-  async updateShift(id: number, data: Partial<ShiftInsertData>): Promise<Shift | undefined> {
+  async updateShift(id: number, data: Partial<InsertShift>): Promise<Shift | undefined> {
     const [shift] = await db.update(shifts).set(data).where(eq(shifts.id, id)).returning();
     return shift;
   }
@@ -456,7 +453,7 @@ export class DatabaseStorage implements IStorage {
     return acc;
   }
 
-  async createAccount(data: AccountInsertData): Promise<Account> {
+  async createAccount(data: InsertAccount): Promise<Account> {
     const [acc] = await db.insert(accounts).values(data).returning();
     return acc;
   }

@@ -1,9 +1,7 @@
 import type { Router } from "express";
-import { employees, insertEmployeeSchema } from "@shared/schema";
+import { insertEmployeeSchema } from "@shared/schema";
 import { requireAuth, requireRole } from "../auth";
 import { storage } from "../storage";
-
-type EmployeeInsertData = typeof employees.$inferInsert;
 
 export function registerEmployeeRoutes(router: Router) {
   // === EMPLOYEES ===
@@ -27,8 +25,7 @@ export function registerEmployeeRoutes(router: Router) {
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
     }
-    const employeeData = parsed.data as EmployeeInsertData;
-    const emp = await storage.createEmployee({ ...employeeData, ownerAccountId: req.session.userId });
+    const emp = await storage.createEmployee({ ...parsed.data, ownerAccountId: req.session.userId! });
     res.status(201).json(emp);
   });
 
@@ -42,7 +39,7 @@ export function registerEmployeeRoutes(router: Router) {
     if (!partial.success) {
       return res.status(400).json({ message: partial.error.issues[0].message });
     }
-    const updated = await storage.updateEmployee(Number(req.params.id), partial.data as Partial<EmployeeInsertData>);
+    const updated = await storage.updateEmployee(Number(req.params.id), partial.data);
     res.json(updated);
   });
 
