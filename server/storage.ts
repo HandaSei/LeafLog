@@ -4,11 +4,11 @@ import pg from "pg";
 import {
   employees, shifts, accounts, accessCodes, timeEntries, customRoles, feedback, emailVerifications,
   approvalRequests, notifications, timesheetBackups,
-  type Employee, type InsertEmployee,
-  type Shift, type InsertShift,
-  type Account, type InsertAccount,
+  type Employee,
+  type Shift,
+  type Account,
   type AccessCode, type TimeEntry, type CustomRole, type Feedback, type EmailVerification,
-  type ApprovalRequest, type Notification, type TimesheetBackup,
+  type ApprovalRequest, type Notification, type TimesheetBackup, type KioskDevice,
 } from "@shared/schema";
 
 const isProd = process.env.NODE_ENV === "production";
@@ -43,7 +43,78 @@ if (isNeon) {
 }
 const db = drizzle(pool);
 
-function mapTimeEntryRow(row: any): TimeEntry {
+type TimeEntryRow = {
+  id: number;
+  employee_id: number;
+  type: string;
+  timestamp: Date;
+  entry_date: string;
+  role: string | null;
+  notes: string | null;
+  is_unpaid: boolean | null;
+  source: string | null;
+};
+
+type ApprovalRequestRow = {
+  id: number;
+  employee_id: number;
+  owner_account_id: number;
+  type: string;
+  status: string;
+  request_data: string | null;
+  manager_response: string | null;
+  entry_date: string | null;
+  created_at: Date | null;
+  resolved_at: Date | null;
+};
+
+type NotificationRow = {
+  id: number;
+  account_id: number;
+  type: string;
+  title: string;
+  message: string;
+  data: string | null;
+  read: boolean;
+  created_at: Date | null;
+};
+
+type FeedbackWithAccountRow = {
+  id: number;
+  account_id: number;
+  message: string;
+  created_at: Date | null;
+  username: string | null;
+  email: string | null;
+};
+
+type OpenSessionEntryProbeRow = {
+  type: string;
+  date: string;
+  timestamp: Date;
+};
+
+type TimesheetBackupRow = {
+  id: number;
+  owner_account_id: number;
+  label: string;
+  entry_count: number;
+  snapshot: string;
+  created_at: Date | null;
+};
+
+type TimesheetBackupSummaryRow = Omit<TimesheetBackupRow, "snapshot">;
+
+type TimesheetBackupEntry = Omit<TimeEntryRow, "timestamp"> & {
+  timestamp: Date | string;
+};
+
+type AccountSummaryRow = Pick<Account, "id" | "username" | "agencyName" | "email" | "role" | "createdAt">;
+type EmployeeInsertData = typeof employees.$inferInsert;
+type ShiftInsertData = typeof shifts.$inferInsert;
+type AccountInsertData = typeof accounts.$inferInsert;
+
+function mapTimeEntryRow(row: TimeEntryRow): TimeEntry {
   return {
     id: row.id,
     employeeId: row.employee_id,
@@ -57,11 +128,71 @@ function mapTimeEntryRow(row: any): TimeEntry {
   };
 }
 
+function mapApprovalRequestRow(row: ApprovalRequestRow): ApprovalRequest {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    ownerAccountId: row.owner_account_id,
+    type: row.type,
+    status: row.status,
+    requestData: row.request_data,
+    managerResponse: row.manager_response,
+    entryDate: row.entry_date,
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at,
+  };
+}
+
+function mapNotificationRow(row: NotificationRow): Notification {
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    type: row.type,
+    title: row.title,
+    message: row.message,
+    data: row.data,
+    read: row.read,
+    createdAt: row.created_at,
+  };
+}
+
+function mapFeedbackWithAccountRow(row: FeedbackWithAccountRow): Feedback & { username: string; email: string | null } {
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    message: row.message,
+    createdAt: row.created_at,
+    username: row.username ?? "Deleted Account",
+    email: row.email ?? null,
+  };
+}
+
+function mapTimesheetBackupRow(row: TimesheetBackupRow): TimesheetBackup {
+  return {
+    id: row.id,
+    ownerAccountId: row.owner_account_id,
+    label: row.label,
+    entryCount: row.entry_count,
+    snapshot: row.snapshot,
+    createdAt: row.created_at,
+  };
+}
+
+function mapTimesheetBackupSummaryRow(row: TimesheetBackupSummaryRow): Omit<TimesheetBackup, "snapshot"> {
+  return {
+    id: row.id,
+    ownerAccountId: row.owner_account_id,
+    label: row.label,
+    entryCount: row.entry_count,
+    createdAt: row.created_at,
+  };
+}
+
 export interface IStorage {
   getEmployees(ownerAccountId?: number): Promise<Employee[]>;
   getEmployee(id: number): Promise<Employee | undefined>;
-  createEmployee(data: any): Promise<Employee>;
-  updateEmployee(id: number, data: any): Promise<Employee | undefined>;
+  createEmployee(data: EmployeeInsertData): Promise<Employee>;
+  updateEmployee(id: number, data: Partial<EmployeeInsertData>): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<void>;
 
   getShifts(ownerAccountId?: number): Promise<Shift[]>;
@@ -70,8 +201,8 @@ export interface IStorage {
   getShiftsByEmployee(employeeId: number): Promise<Shift[]>;
   getShiftsByEmployeeAndDate(employeeId: number, date: string): Promise<Shift[]>;
   getShiftsByEmployeeAndDateRange(employeeId: number, from: string, to: string): Promise<Shift[]>;
-  createShift(data: any): Promise<Shift>;
-  updateShift(id: number, data: any): Promise<Shift | undefined>;
+  createShift(data: ShiftInsertData): Promise<Shift>;
+  updateShift(id: number, data: Partial<ShiftInsertData>): Promise<Shift | undefined>;
   deleteShift(id: number): Promise<void>;
   updateShiftRolesForEmployee(employeeId: number, role: string, color: string): Promise<void>;
 
@@ -79,7 +210,7 @@ export interface IStorage {
   getAccount(id: number): Promise<Account | undefined>;
   getAccountByUsername(username: string): Promise<Account | undefined>;
   getAccountByEmail(email: string): Promise<Account | undefined>;
-  createAccount(data: any): Promise<Account>;
+  createAccount(data: AccountInsertData): Promise<Account>;
   hasAnyManagers(): Promise<boolean>;
 
   createAccessCode(code: string, employeeId: number, createdBy: number, expiresAt: Date): Promise<AccessCode>;
@@ -121,7 +252,7 @@ export interface IStorage {
 
   deleteAccount(id: number): Promise<void>;
 
-  createEmailVerification(email: string, code: string, type: string, accountData?: any, accountId?: number): Promise<EmailVerification>;
+  createEmailVerification(email: string, code: string, type: string, accountData?: unknown, accountId?: number): Promise<EmailVerification>;
   getEmailVerification(email: string, code: string, type: string): Promise<EmailVerification | undefined>;
   markEmailVerificationUsed(id: number): Promise<void>;
   invalidatePendingVerifications(email: string, type: string): Promise<void>;
@@ -151,13 +282,13 @@ export interface IStorage {
   getLastClockOutForEmployee(employeeId: number): Promise<TimeEntry | null>;
   getAllAccounts(): Promise<Pick<Account, "id" | "username" | "agencyName" | "email" | "role" | "createdAt">[]>;
 
-  getKioskDevices(ownerAccountId: number): Promise<any[]>;
-  registerKioskDevice(ownerAccountId: number, deviceId: string, deviceName: string): Promise<any>;
+  getKioskDevices(ownerAccountId: number): Promise<KioskDevice[]>;
+  registerKioskDevice(ownerAccountId: number, deviceId: string, deviceName: string): Promise<KioskDevice>;
   getLockedKioskDeviceByDeviceId(deviceId: string): Promise<{ ownerAccountId: number } | null>;
-  updateKioskDeviceLock(id: number, ownerAccountId: number, isLocked: boolean): Promise<any>;
+  updateKioskDeviceLock(id: number, ownerAccountId: number, isLocked: boolean): Promise<KioskDevice | undefined>;
   deleteKioskDevice(id: number, ownerAccountId: number): Promise<void>;
   getKioskDeviceStatus(ownerAccountId: number, deviceId: string): Promise<{ isLocked: boolean } | null>;
-  renameKioskDevice(id: number, ownerAccountId: number, deviceName: string): Promise<any>;
+  renameKioskDevice(id: number, ownerAccountId: number, deviceName: string): Promise<KioskDevice | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -199,13 +330,13 @@ export class DatabaseStorage implements IStorage {
     return emp;
   }
 
-  async createEmployee(data: any): Promise<Employee> {
+  async createEmployee(data: EmployeeInsertData): Promise<Employee> {
     const accessCode = data.accessCode || Math.floor(1000 + Math.random() * 9000).toString();
     const [emp] = await db.insert(employees).values({ ...data, accessCode }).returning();
     return emp;
   }
 
-  async updateEmployee(id: number, data: any): Promise<Employee | undefined> {
+  async updateEmployee(id: number, data: Partial<EmployeeInsertData>): Promise<Employee | undefined> {
     const [emp] = await db.update(employees).set(data).where(eq(employees.id, id)).returning();
     return emp;
   }
@@ -292,12 +423,12 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async createShift(data: any): Promise<Shift> {
+  async createShift(data: ShiftInsertData): Promise<Shift> {
     const [shift] = await db.insert(shifts).values(data).returning();
     return shift;
   }
 
-  async updateShift(id: number, data: any): Promise<Shift | undefined> {
+  async updateShift(id: number, data: Partial<ShiftInsertData>): Promise<Shift | undefined> {
     const [shift] = await db.update(shifts).set(data).where(eq(shifts.id, id)).returning();
     return shift;
   }
@@ -325,7 +456,7 @@ export class DatabaseStorage implements IStorage {
     return acc;
   }
 
-  async createAccount(data: any): Promise<Account> {
+  async createAccount(data: AccountInsertData): Promise<Account> {
     const [acc] = await db.insert(accounts).values(data).returning();
     return acc;
   }
@@ -397,7 +528,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTimeEntryManualForOwner(ownerAccountId: number, employeeId: number, type: string, date: string, timestamp: Date, role?: string | null, notes?: string | null, isUnpaid?: boolean): Promise<TimeEntry | undefined> {
-    const result = await pool.query(
+    const result = await pool.query<TimeEntryRow>(
       `INSERT INTO time_entries (employee_id, type, timestamp, entry_date, role, notes, is_unpaid, source)
        SELECT $1, $2, $3, $4, $5, $6, $7, 'manager'
        WHERE EXISTS (
@@ -410,26 +541,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTimeEntriesByEmployeeAndDate(employeeId: number, date: string): Promise<TimeEntry[]> {
-    const result = await pool.query(
+    const result = await pool.query<TimeEntryRow>(
       "SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source FROM time_entries WHERE employee_id = $1 AND entry_date = $2 ORDER BY timestamp",
       [employeeId, date]
     );
-    return result.rows.map((row: any) => ({
-      id: row.id,
-      employeeId: row.employee_id,
-      type: row.type,
-      timestamp: row.timestamp,
-      date: row.entry_date,
-      role: row.role ?? null,
-      notes: row.notes ?? null,
-      isUnpaid: row.is_unpaid ?? false,
-      source: row.source ?? "employee",
-    }));
+    return result.rows.map(mapTimeEntryRow);
   }
 
   async getTimeEntriesByDate(date: string, ownerAccountId?: number): Promise<TimeEntry[]> {
     if (ownerAccountId) {
-      const result = await pool.query(
+      const result = await pool.query<TimeEntryRow>(
         `SELECT t.id, t.employee_id, t.type, t.timestamp, t.entry_date::text, t.role, t.notes, t.is_unpaid, t.source
          FROM time_entries t
          JOIN employees e ON e.id = t.employee_id
@@ -438,37 +559,17 @@ export class DatabaseStorage implements IStorage {
          ORDER BY t.timestamp`,
         [date, ownerAccountId]
       );
-      return result.rows.map((row: any) => ({
-        id: row.id,
-        employeeId: row.employee_id,
-        type: row.type,
-        timestamp: row.timestamp,
-        date: row.entry_date,
-        role: row.role ?? null,
-        notes: row.notes ?? null,
-        isUnpaid: row.is_unpaid ?? false,
-        source: row.source ?? "employee",
-      }));
+      return result.rows.map(mapTimeEntryRow);
     }
-    const result = await pool.query(
+    const result = await pool.query<TimeEntryRow>(
       "SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source FROM time_entries WHERE entry_date = $1 ORDER BY timestamp",
       [date]
     );
-    return result.rows.map((row: any) => ({
-      id: row.id,
-      employeeId: row.employee_id,
-      type: row.type,
-      timestamp: row.timestamp,
-      date: row.entry_date,
-      role: row.role ?? null,
-      notes: row.notes ?? null,
-      isUnpaid: row.is_unpaid ?? false,
-      source: row.source ?? "employee",
-    }));
+    return result.rows.map(mapTimeEntryRow);
   }
 
   async getTimeEntriesByDateRange(ownerAccountId: number | undefined, from: string, to: string, employeeId?: number): Promise<TimeEntry[]> {
-    const params: any[] = [from, to];
+    const params: unknown[] = [from, to];
     const clauses = ["entry_date >= $1", "entry_date <= $2"];
 
     if (employeeId) {
@@ -481,7 +582,7 @@ export class DatabaseStorage implements IStorage {
       clauses.push(`employee_id IN (SELECT id FROM employees WHERE owner_account_id = $${params.length})`);
     }
 
-    const result = await pool.query(
+    const result = await pool.query<TimeEntryRow>(
       `SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source
        FROM time_entries
        WHERE ${clauses.join(" AND ")}
@@ -493,7 +594,7 @@ export class DatabaseStorage implements IStorage {
 
   async getAllTimeEntries(ownerAccountId?: number): Promise<TimeEntry[]> {
     if (ownerAccountId) {
-      const result = await pool.query(
+      const result = await pool.query<TimeEntryRow>(
         `SELECT t.id, t.employee_id, t.type, t.timestamp, t.entry_date::text, t.role, t.notes, t.is_unpaid, t.source
          FROM time_entries t
          JOIN employees e ON e.id = t.employee_id
@@ -501,34 +602,14 @@ export class DatabaseStorage implements IStorage {
          ORDER BY t.timestamp`,
         [ownerAccountId]
       );
-      return result.rows.map((row: any) => ({
-        id: row.id,
-        employeeId: row.employee_id,
-        type: row.type,
-        timestamp: row.timestamp,
-        date: row.entry_date,
-        role: row.role ?? null,
-        notes: row.notes ?? null,
-        isUnpaid: row.is_unpaid ?? false,
-        source: row.source ?? "employee",
-      }));
+      return result.rows.map(mapTimeEntryRow);
     }
-    const result = await pool.query("SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source FROM time_entries ORDER BY timestamp");
-    return result.rows.map((row: any) => ({
-      id: row.id,
-      employeeId: row.employee_id,
-      type: row.type,
-      timestamp: row.timestamp,
-      date: row.entry_date,
-      role: row.role ?? null,
-      notes: row.notes ?? null,
-      isUnpaid: row.is_unpaid ?? false,
-      source: row.source ?? "employee",
-    }));
+    const result = await pool.query<TimeEntryRow>("SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source FROM time_entries ORDER BY timestamp");
+    return result.rows.map(mapTimeEntryRow);
   }
 
   async getOpenSessionDate(employeeId: number): Promise<string | null> {
-    const result = await pool.query(
+    const result = await pool.query<{ date: string }>(
       `SELECT entry_date::text as date
        FROM time_entries
        WHERE employee_id = $1
@@ -540,7 +621,7 @@ export class DatabaseStorage implements IStorage {
     if (result.rows.length === 0) return null;
 
     const uniqueDates = [...new Set(result.rows.map(r => r.date))];
-    const entries = await pool.query(
+    const entries = await pool.query<OpenSessionEntryProbeRow>(
       `SELECT type, entry_date::text as date, timestamp 
        FROM time_entries 
        WHERE employee_id = $1 AND entry_date = ANY($2)
@@ -548,7 +629,7 @@ export class DatabaseStorage implements IStorage {
       [employeeId, uniqueDates]
     );
 
-    const entriesByDate: Record<string, any[]> = {};
+    const entriesByDate: Record<string, OpenSessionEntryProbeRow[]> = {};
     entries.rows.forEach(r => {
       if (!entriesByDate[r.date]) entriesByDate[r.date] = [];
       entriesByDate[r.date].push(r);
@@ -564,7 +645,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOpenSessionEntries(ownerAccountId: number): Promise<TimeEntry[]> {
-    const result = await pool.query(
+    const result = await pool.query<TimeEntryRow>(
       `WITH owner_employees AS (
          SELECT id FROM employees WHERE owner_account_id = $1
        ),
@@ -602,7 +683,7 @@ export class DatabaseStorage implements IStorage {
       source: "source",
     };
     const sets: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     (Object.keys(columnMap) as Array<keyof TimeEntry>).forEach((key) => {
       if (data[key] !== undefined) {
@@ -621,7 +702,7 @@ export class DatabaseStorage implements IStorage {
       ownerClause = ` AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $${params.length})`;
     }
 
-    const result = await pool.query(
+    const result = await pool.query<TimeEntryRow>(
       `UPDATE time_entries
        SET ${sets.join(", ")}
        WHERE id = $${idParam}${ownerClause}
@@ -636,7 +717,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteTimeEntryForOwner(id: number, ownerAccountId: number): Promise<TimeEntry | undefined> {
-    const result = await pool.query(
+    const result = await pool.query<TimeEntryRow>(
       `DELETE FROM time_entries
        WHERE id = $1
          AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $2)
@@ -654,7 +735,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteTimeEntriesByEmployeeAndDateForOwner(employeeId: number, date: string, ownerAccountId: number): Promise<TimeEntry[]> {
-    const result = await pool.query(
+    const result = await pool.query<TimeEntryRow>(
       `DELETE FROM time_entries
        WHERE employee_id = $1
          AND entry_date = $2
@@ -667,7 +748,7 @@ export class DatabaseStorage implements IStorage {
 
   async batchDeleteTimeEntriesByIds(ids: number[], ownerAccountId: number): Promise<TimeEntry[]> {
     if (ids.length === 0) return [];
-    const result = await pool.query(
+    const result = await pool.query<TimeEntryRow>(
       `DELETE FROM time_entries
        WHERE id = ANY($1)
          AND employee_id IN (SELECT id FROM employees WHERE owner_account_id = $2)
@@ -770,7 +851,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(accounts).where(eq(accounts.id, id));
   }
 
-  async createEmailVerification(email: string, code: string, type: string, accountData?: any, accountId?: number): Promise<EmailVerification> {
+  async createEmailVerification(email: string, code: string, type: string, accountData?: unknown, accountId?: number): Promise<EmailVerification> {
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
     const res = await pool.query(
       `INSERT INTO email_verifications (email, code, type, account_data, account_id, expires_at)
@@ -815,20 +896,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllFeedback(): Promise<(Feedback & { username: string; email: string | null })[]> {
-    const res = await pool.query(
+    const res = await pool.query<FeedbackWithAccountRow>(
       `SELECT f.id, f.account_id, f.message, f.created_at, a.username, a.email
        FROM feedback f
        LEFT JOIN accounts a ON a.id = f.account_id
        ORDER BY f.created_at DESC`
     );
-    return res.rows.map((r: any) => ({
-      id: r.id,
-      accountId: r.account_id,
-      message: r.message,
-      createdAt: r.created_at,
-      username: r.username ?? "Deleted Account",
-      email: r.email ?? null,
-    }));
+    return res.rows.map(mapFeedbackWithAccountRow);
   }
 
   async createApprovalRequest(data: { employeeId: number; ownerAccountId: number; type: string; requestData?: string; entryDate?: string }): Promise<ApprovalRequest> {
@@ -837,33 +911,33 @@ export class DatabaseStorage implements IStorage {
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [data.employeeId, data.ownerAccountId, data.type, data.requestData || null, data.entryDate || null]
     );
-    const r = res.rows[0];
-    return { id: r.id, employeeId: r.employee_id, ownerAccountId: r.owner_account_id, type: r.type, status: r.status, requestData: r.request_data, managerResponse: r.manager_response, entryDate: r.entry_date, createdAt: r.created_at, resolvedAt: r.resolved_at };
+    const r = res.rows[0] as ApprovalRequestRow;
+    return mapApprovalRequestRow(r);
   }
 
   async getApprovalRequestsByOwner(ownerAccountId: number, status?: string): Promise<ApprovalRequest[]> {
     let query = "SELECT * FROM approval_requests WHERE owner_account_id = $1";
-    const params: any[] = [ownerAccountId];
+    const params: unknown[] = [ownerAccountId];
     if (status) {
       query += " AND status = $2";
       params.push(status);
     }
     query += " ORDER BY created_at DESC";
-    const res = await pool.query(query, params);
-    return res.rows.map((r: any) => ({ id: r.id, employeeId: r.employee_id, ownerAccountId: r.owner_account_id, type: r.type, status: r.status, requestData: r.request_data, managerResponse: r.manager_response, entryDate: r.entry_date, createdAt: r.created_at, resolvedAt: r.resolved_at }));
+    const res = await pool.query<ApprovalRequestRow>(query, params);
+    return res.rows.map(mapApprovalRequestRow);
   }
 
   async getApprovalRequestsByEmployeeAndDate(employeeId: number, entryDate: string): Promise<ApprovalRequest[]> {
-    const res = await pool.query(
+    const res = await pool.query<ApprovalRequestRow>(
       "SELECT * FROM approval_requests WHERE employee_id = $1 AND entry_date = $2 ORDER BY created_at DESC",
       [employeeId, entryDate]
     );
-    return res.rows.map((r: any) => ({ id: r.id, employeeId: r.employee_id, ownerAccountId: r.owner_account_id, type: r.type, status: r.status, requestData: r.request_data, managerResponse: r.manager_response, entryDate: r.entry_date, createdAt: r.created_at, resolvedAt: r.resolved_at }));
+    return res.rows.map(mapApprovalRequestRow);
   }
 
   async updateApprovalRequest(id: number, data: Partial<ApprovalRequest>, ownerAccountId?: number): Promise<ApprovalRequest | undefined> {
     const sets: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
     let idx = 1;
     if (data.status !== undefined) { sets.push(`status = $${idx++}`); params.push(data.status); }
     if (data.managerResponse !== undefined) { sets.push(`manager_response = $${idx++}`); params.push(data.managerResponse); }
@@ -875,10 +949,9 @@ export class DatabaseStorage implements IStorage {
       params.push(ownerAccountId);
       whereClause += ` AND owner_account_id = $${idx}`;
     }
-    const res = await pool.query(`UPDATE approval_requests SET ${sets.join(', ')} ${whereClause} RETURNING *`, params);
+    const res = await pool.query<ApprovalRequestRow>(`UPDATE approval_requests SET ${sets.join(', ')} ${whereClause} RETURNING *`, params);
     if (res.rows.length === 0) return undefined;
-    const r = res.rows[0];
-    return { id: r.id, employeeId: r.employee_id, ownerAccountId: r.owner_account_id, type: r.type, status: r.status, requestData: r.request_data, managerResponse: r.manager_response, entryDate: r.entry_date, createdAt: r.created_at, resolvedAt: r.resolved_at };
+    return mapApprovalRequestRow(res.rows[0]);
   }
 
   async createNotification(data: { accountId: number; type: string; title: string; message: string; data?: string }): Promise<Notification> {
@@ -887,16 +960,16 @@ export class DatabaseStorage implements IStorage {
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [data.accountId, data.type, data.title, data.message, data.data || null]
     );
-    const r = res.rows[0];
-    return { id: r.id, accountId: r.account_id, type: r.type, title: r.title, message: r.message, data: r.data, read: r.read, createdAt: r.created_at };
+    const r = res.rows[0] as NotificationRow;
+    return mapNotificationRow(r);
   }
 
   async getNotificationsByAccount(accountId: number, limit: number = 50): Promise<Notification[]> {
-    const res = await pool.query(
+    const res = await pool.query<NotificationRow>(
       "SELECT * FROM notifications WHERE account_id = $1 ORDER BY created_at DESC LIMIT $2",
       [accountId, limit]
     );
-    return res.rows.map((r: any) => ({ id: r.id, accountId: r.account_id, type: r.type, title: r.title, message: r.message, data: r.data, read: r.read, createdAt: r.created_at }));
+    return res.rows.map(mapNotificationRow);
   }
 
   async getUnreadNotificationCount(accountId: number): Promise<number> {
@@ -935,7 +1008,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateNotificationSettings(accountId: number, settings: { notifyLate?: boolean; notifyEarlyClockOut?: boolean; notifyNotes?: boolean; notifyApprovals?: boolean; lateThresholdMinutes?: number; earlyClockOutThresholdMinutes?: number; timezone?: string }): Promise<void> {
     const sets: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
     let idx = 1;
     if (settings.notifyLate !== undefined) { sets.push(`notify_late = $${idx++}`); params.push(settings.notifyLate); }
     if (settings.notifyEarlyClockOut !== undefined) { sets.push(`notify_early_clock_out = $${idx++}`); params.push(settings.notifyEarlyClockOut); }
@@ -950,17 +1023,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLastClockOutForEmployee(employeeId: number): Promise<TimeEntry | null> {
-    const res = await pool.query(
+    const res = await pool.query<TimeEntryRow>(
       "SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source FROM time_entries WHERE employee_id = $1 AND type = 'clock-out' ORDER BY timestamp DESC LIMIT 1",
       [employeeId]
     );
     if (res.rows.length === 0) return null;
-    const r = res.rows[0];
-    return { id: r.id, employeeId: r.employee_id, type: r.type, timestamp: r.timestamp, date: r.entry_date, role: r.role ?? null, notes: r.notes ?? null, isUnpaid: r.is_unpaid ?? false, source: r.source ?? "employee" };
+    return mapTimeEntryRow(res.rows[0]);
   }
 
   async getAllAccounts(): Promise<Pick<Account, "id" | "username" | "agencyName" | "email" | "role" | "createdAt">[]> {
-    const result = await pool.query(
+    const result = await pool.query<AccountSummaryRow>(
       `SELECT id, username, agency_name as "agencyName", email, role, created_at as "createdAt"
        FROM accounts
        ORDER BY created_at DESC`
@@ -970,42 +1042,42 @@ export class DatabaseStorage implements IStorage {
 
   async createTimesheetBackup(ownerAccountId: number, label: string): Promise<TimesheetBackup> {
     const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
-    let entries: any[] = [];
+    let entries: TimeEntryRow[] = [];
     if (empIds.length > 0) {
-      const res = await pool.query(
+      const res = await pool.query<TimeEntryRow>(
         "SELECT id, employee_id, type, timestamp, entry_date::text, role, notes, is_unpaid, source FROM time_entries WHERE employee_id = ANY($1) ORDER BY timestamp ASC",
         [empIds]
       );
       entries = res.rows;
     }
     const snapshot = JSON.stringify(entries);
-    const result = await pool.query(
+    const result = await pool.query<TimesheetBackupRow>(
       "INSERT INTO timesheet_backups (owner_account_id, label, entry_count, snapshot) VALUES ($1, $2, $3, $4) RETURNING *",
       [ownerAccountId, label, entries.length, snapshot]
     );
-    const row = result.rows[0];
     await pool.query(
       "DELETE FROM timesheet_backups WHERE owner_account_id = $1 AND id NOT IN (SELECT id FROM timesheet_backups WHERE owner_account_id = $1 ORDER BY created_at DESC LIMIT 10)",
       [ownerAccountId]
     );
-    return { id: row.id, ownerAccountId: row.owner_account_id, label: row.label, entryCount: row.entry_count, snapshot: row.snapshot, createdAt: row.created_at };
+    return mapTimesheetBackupRow(result.rows[0]);
   }
 
   async getTimesheetBackups(ownerAccountId: number): Promise<Omit<TimesheetBackup, "snapshot">[]> {
-    const res = await pool.query(
+    const res = await pool.query<TimesheetBackupSummaryRow>(
       "SELECT id, owner_account_id, label, entry_count, created_at FROM timesheet_backups WHERE owner_account_id = $1 ORDER BY created_at DESC",
       [ownerAccountId]
     );
-    return res.rows.map(r => ({ id: r.id, ownerAccountId: r.owner_account_id, label: r.label, entryCount: r.entry_count, createdAt: r.created_at }));
+    return res.rows.map(mapTimesheetBackupSummaryRow);
   }
 
   async restoreTimesheetBackup(id: number, ownerAccountId: number): Promise<number> {
-    const res = await pool.query(
+    const res = await pool.query<Pick<TimesheetBackupRow, "snapshot" | "entry_count">>(
       "SELECT snapshot, entry_count FROM timesheet_backups WHERE id = $1 AND owner_account_id = $2",
       [id, ownerAccountId]
     );
     if (res.rows.length === 0) throw new Error("Backup not found");
-    const entries: any[] = JSON.parse(res.rows[0].snapshot);
+    const parsedSnapshot: unknown = JSON.parse(res.rows[0].snapshot);
+    const entries: TimesheetBackupEntry[] = Array.isArray(parsedSnapshot) ? parsedSnapshot as TimesheetBackupEntry[] : [];
     const empIds = await this.getEmployeeIdsByOwner(ownerAccountId);
     if (empIds.length > 0) {
       await pool.query("DELETE FROM time_entries WHERE employee_id = ANY($1)", [empIds]);
@@ -1028,8 +1100,8 @@ export class DatabaseStorage implements IStorage {
     await pool.query("DELETE FROM timesheet_backups WHERE id = $1 AND owner_account_id = $2", [id, ownerAccountId]);
   }
 
-  async getKioskDevices(ownerAccountId: number): Promise<any[]> {
-    const res = await pool.query(
+  async getKioskDevices(ownerAccountId: number): Promise<KioskDevice[]> {
+    const res = await pool.query<KioskDevice>(
       `SELECT id, owner_account_id as "ownerAccountId", device_id as "deviceId", device_name as "deviceName", is_locked as "isLocked", last_seen as "lastSeen"
        FROM kiosk_devices WHERE owner_account_id = $1 ORDER BY last_seen DESC`,
       [ownerAccountId]
@@ -1037,20 +1109,20 @@ export class DatabaseStorage implements IStorage {
     return res.rows;
   }
 
-  async registerKioskDevice(ownerAccountId: number, deviceId: string, deviceName: string): Promise<any> {
-    const existing = await pool.query(
+  async registerKioskDevice(ownerAccountId: number, deviceId: string, deviceName: string): Promise<KioskDevice> {
+    const existing = await pool.query<{ id: number }>(
       "SELECT id FROM kiosk_devices WHERE owner_account_id = $1 AND device_id = $2",
       [ownerAccountId, deviceId]
     );
     if (existing.rows.length > 0) {
-      const res = await pool.query(
+      const res = await pool.query<KioskDevice>(
         `UPDATE kiosk_devices SET device_name = $1, last_seen = NOW() WHERE id = $2
          RETURNING id, owner_account_id as "ownerAccountId", device_id as "deviceId", device_name as "deviceName", is_locked as "isLocked", last_seen as "lastSeen"`,
         [deviceName, existing.rows[0].id]
       );
       return res.rows[0];
     }
-    const res = await pool.query(
+    const res = await pool.query<KioskDevice>(
       `INSERT INTO kiosk_devices (owner_account_id, device_id, device_name, is_locked, last_seen)
        VALUES ($1, $2, $3, false, NOW())
        RETURNING id, owner_account_id as "ownerAccountId", device_id as "deviceId", device_name as "deviceName", is_locked as "isLocked", last_seen as "lastSeen"`,
@@ -1059,8 +1131,8 @@ export class DatabaseStorage implements IStorage {
     return res.rows[0];
   }
 
-  async updateKioskDeviceLock(id: number, ownerAccountId: number, isLocked: boolean): Promise<any> {
-    const res = await pool.query(
+  async updateKioskDeviceLock(id: number, ownerAccountId: number, isLocked: boolean): Promise<KioskDevice | undefined> {
+    const res = await pool.query<KioskDevice>(
       `UPDATE kiosk_devices SET is_locked = $1 WHERE id = $2 AND owner_account_id = $3
        RETURNING id, owner_account_id as "ownerAccountId", device_id as "deviceId", device_name as "deviceName", is_locked as "isLocked", last_seen as "lastSeen"`,
       [isLocked, id, ownerAccountId]
@@ -1073,7 +1145,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getKioskDeviceStatus(ownerAccountId: number, deviceId: string): Promise<{ isLocked: boolean } | null> {
-    const res = await pool.query(
+    const res = await pool.query<{ isLocked: boolean }>(
       "SELECT is_locked as \"isLocked\" FROM kiosk_devices WHERE owner_account_id = $1 AND device_id = $2",
       [ownerAccountId, deviceId]
     );
@@ -1082,7 +1154,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLockedKioskDeviceByDeviceId(deviceId: string): Promise<{ ownerAccountId: number } | null> {
-    const res = await pool.query(
+    const res = await pool.query<{ ownerAccountId: number }>(
       `SELECT owner_account_id as "ownerAccountId" FROM kiosk_devices WHERE device_id = $1 AND is_locked = true LIMIT 1`,
       [deviceId]
     );
@@ -1090,8 +1162,8 @@ export class DatabaseStorage implements IStorage {
     return res.rows[0];
   }
 
-  async renameKioskDevice(id: number, ownerAccountId: number, deviceName: string): Promise<any> {
-    const res = await pool.query(
+  async renameKioskDevice(id: number, ownerAccountId: number, deviceName: string): Promise<KioskDevice | undefined> {
+    const res = await pool.query<KioskDevice>(
       `UPDATE kiosk_devices SET device_name = $1 WHERE id = $2 AND owner_account_id = $3
        RETURNING id, owner_account_id as "ownerAccountId", device_id as "deviceId", device_name as "deviceName", is_locked as "isLocked", last_seen as "lastSeen"`,
       [deviceName, id, ownerAccountId]

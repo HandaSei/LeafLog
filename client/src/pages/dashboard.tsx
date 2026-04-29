@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format, differenceInMinutes, parseISO, addDays } from "date-fns";
-import type { Shift, Employee } from "@shared/schema";
+import type { Shift, Employee, TimeEntry } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,217 +10,13 @@ import { Calendar, ArrowRight, CalendarDays, CheckCircle2, Clock, AlertTriangle,
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { formatTime } from "@/lib/constants";
 import { isActiveUnarchivedEmployee } from "@/lib/employees";
-
-interface TimeEntry {
-  id: number;
-  employeeId: number;
-  type: string;
-  timestamp: string;
-  date: string;
-}
-
-interface BreakInfo {
-  onBreak: boolean;
-  currentBreakMinutes: number;
-  totalBreakMinutes: number;
-  breakCount: number;
-  hasUnfinishedBreak: boolean;
-  unpaidBreakMinutes: number;
-}
-
-interface NoBreakWarning {
-  workedMinutes: number;
-}
-
-type ClockStatus =
-  | { kind: "on-time"; clockInTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
-  | { kind: "clocked-late"; clockInTime: string; minutesLate: number; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
-  | { kind: "not-yet"; minutesUntil: number }
-  | { kind: "late"; minutesLate: number }
-  | { kind: "very-late"; minutesLate: number }
-  | { kind: "clocked-out"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
-  | { kind: "waiting" }
-  | { kind: "working-no-schedule"; clockInTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null }
-  | { kind: "done-no-schedule"; clockInTime: string; clockOutTime: string; breakInfo: BreakInfo; noBreakWarning: NoBreakWarning | null };
-
-function getBreakInfo(entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): BreakInfo {
-  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const clockOuts = entries.filter(e => e.type === 'clock-out').map(e => new Date(e.timestamp));
-  const lastClockOut = clockOuts.length > 0 ? new Date(Math.max(...clockOuts.map(d => d.getTime()))) : null;
-
-  let activeBreakStart: Date | null = null;
-  let totalBreakMinutes = 0;
-  let breakCount = 0;
-  let hasUnfinishedBreak = false;
-
-  for (const entry of sorted) {
-    const ts = new Date(entry.timestamp);
-    if (entry.type === 'break-start') {
-      activeBreakStart = ts;
-    } else if (entry.type === 'break-end') {
-      if (activeBreakStart) {
-        totalBreakMinutes += differenceInMinutes(ts, activeBreakStart);
-        breakCount++;
-        activeBreakStart = null;
-      }
-    } else if (entry.type === 'clock-out') {
-      if (activeBreakStart !== null) {
-        hasUnfinishedBreak = true;
-        activeBreakStart = null;
-      }
-    }
-  }
-
-  const onBreak = activeBreakStart !== null && (!lastClockOut || activeBreakStart > lastClockOut);
-
-  let currentBreakMinutes = 0;
-  if (onBreak && activeBreakStart) {
-    currentBreakMinutes = differenceInMinutes(now, activeBreakStart);
-  }
-
-  const finalTotalBreak = totalBreakMinutes + currentBreakMinutes;
-  const unpaidBreakMinutes = (paidBreakMinutes != null && paidBreakMinutes >= 0)
-    ? Math.max(0, finalTotalBreak - paidBreakMinutes)
-    : 0;
-
-  return {
-    onBreak,
-    currentBreakMinutes,
-    totalBreakMinutes: finalTotalBreak,
-    breakCount: breakCount + (onBreak ? 1 : 0),
-    hasUnfinishedBreak,
-    unpaidBreakMinutes,
-  };
-}
-
-function getNoBreakWarning(entries: TimeEntry[], endTime: Date, breakInfo: BreakInfo): NoBreakWarning | null {
-  if (breakInfo.breakCount > 0 || breakInfo.hasUnfinishedBreak) return null;
-
-  const clockIns = entries.filter((e) => e.type === "clock-in");
-  if (clockIns.length === 0) return null;
-
-  const lastClockIn = clockIns[clockIns.length - 1];
-  const workedMinutes = differenceInMinutes(endTime, new Date(lastClockIn.timestamp));
-  if (workedMinutes >= 375) {
-    return { workedMinutes };
-  }
-  return null;
-}
-
-function getSessionEntries(allEntries: TimeEntry[], clockInTs: string, clockOutTs: string | null): TimeEntry[] {
-  const sorted = [...allEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const result: TimeEntry[] = [];
-  let collecting = false;
-  for (const e of sorted) {
-    if (e.type === "clock-in" && e.timestamp === clockInTs) {
-      collecting = true;
-      result.push(e);
-    } else if (collecting) {
-      result.push(e);
-      if (e.type === "clock-out") break;
-      if (e.type === "clock-in") break;
-    }
-  }
-  return result;
-}
-
-function getClockStatusForScheduled(shift: Shift, entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): ClockStatus[] {
-  const shiftStart = parseISO(`${shift.date}T${shift.startTime}`);
-  const shiftEnd = parseISO(`${shift.date}T${shift.endTime}`);
-  if (shiftEnd <= shiftStart) {
-    shiftEnd.setDate(shiftEnd.getDate() + 1);
-  }
-
-  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-  const sessions: ClockStatus[] = [];
-
-  let currentClockIn: TimeEntry | null = null;
-  for (const entry of sorted) {
-    if (entry.type === "clock-in") {
-      currentClockIn = entry;
-    } else if (entry.type === "clock-out" && currentClockIn) {
-      const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, entry.timestamp);
-      const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
-      const doneWarning = getNoBreakWarning(sessionEntries, new Date(entry.timestamp), sessionBreakInfo);
-      sessions.push({ 
-        kind: "clocked-out", 
-        clockInTime: currentClockIn.timestamp, 
-        clockOutTime: entry.timestamp, 
-        breakInfo: sessionBreakInfo, 
-        noBreakWarning: doneWarning 
-      });
-      currentClockIn = null;
-    }
-  }
-
-  const isActive = currentClockIn !== null;
-
-  if (isActive && currentClockIn) {
-    const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, null);
-    const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
-    const noBreakWarning = getNoBreakWarning(sessionEntries, now, sessionBreakInfo);
-    const minsLate = differenceInMinutes(new Date(currentClockIn.timestamp), shiftStart);
-    if (minsLate <= 5) {
-      sessions.push({ kind: "on-time", clockInTime: currentClockIn.timestamp, breakInfo: sessionBreakInfo, noBreakWarning });
-    } else {
-      sessions.push({ kind: "clocked-late", clockInTime: currentClockIn.timestamp, minutesLate: minsLate, breakInfo: sessionBreakInfo, noBreakWarning });
-    }
-  } else if (sessions.length === 0) {
-    if (now < shiftStart) {
-      const minsUntil = differenceInMinutes(shiftStart, now);
-      if (minsUntil <= 60) {
-        sessions.push({ kind: "not-yet", minutesUntil: minsUntil });
-      } else {
-        sessions.push({ kind: "waiting" });
-      }
-    } else {
-      const minsLate = differenceInMinutes(now, shiftStart);
-      if (minsLate >= 60) {
-        sessions.push({ kind: "very-late", minutesLate: minsLate });
-      } else {
-        sessions.push({ kind: "late", minutesLate: minsLate });
-      }
-    }
-  }
-
-  return sessions;
-}
-
-function getClockStatusForUnscheduled(entries: TimeEntry[], now: Date, paidBreakMinutes?: number | null): ClockStatus[] {
-  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const sessions: ClockStatus[] = [];
-
-  let currentClockIn: TimeEntry | null = null;
-  for (const entry of sorted) {
-    if (entry.type === "clock-in") {
-      currentClockIn = entry;
-    } else if (entry.type === "clock-out" && currentClockIn) {
-      const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, entry.timestamp);
-      const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
-      const doneWarning = getNoBreakWarning(sessionEntries, new Date(entry.timestamp), sessionBreakInfo);
-      sessions.push({ 
-        kind: "done-no-schedule", 
-        clockInTime: currentClockIn.timestamp, 
-        clockOutTime: entry.timestamp, 
-        breakInfo: sessionBreakInfo, 
-        noBreakWarning: doneWarning 
-      });
-      currentClockIn = null;
-    }
-  }
-
-  const isActive = currentClockIn !== null;
-
-  if (isActive && currentClockIn) {
-    const sessionEntries = getSessionEntries(entries, currentClockIn.timestamp, null);
-    const sessionBreakInfo = getBreakInfo(sessionEntries, now, paidBreakMinutes);
-    const noBreakWarning = getNoBreakWarning(sessionEntries, now, sessionBreakInfo);
-    sessions.push({ kind: "working-no-schedule", clockInTime: currentClockIn.timestamp, breakInfo: sessionBreakInfo, noBreakWarning });
-  }
-
-  return sessions;
-}
+import {
+  getClockStatusForScheduled,
+  getClockStatusForUnscheduled,
+  type BreakInfo,
+  type ClockStatus,
+  type NoBreakWarning,
+} from "@/lib/dashboard/clock-status";
 
 function BreakBadge({ breakInfo, hasWarning, isDone }: { breakInfo: BreakInfo; hasWarning?: boolean; isDone?: boolean }) {
   if (breakInfo.onBreak) {
@@ -605,7 +401,7 @@ export default function Dashboard() {
       }
 
       const empPaidBreak = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : accountPaidBreakMinutes;
-      const statuses = getClockStatusForScheduled(bestShift, entries, now, empPaidBreak);
+      const statuses = getClockStatusForScheduled(bestShift, emp, entries, now, empPaidBreak);
       rows.push({ employee: emp, shift: bestShift, statuses });
     });
 
@@ -615,7 +411,7 @@ export default function Dashboard() {
       const emp = employeeMap.get(employeeId);
       if (!emp) return;
       const empPaidBreak = emp.paidBreakMinutes != null ? emp.paidBreakMinutes : accountPaidBreakMinutes;
-      const statuses = getClockStatusForUnscheduled(entries, now, empPaidBreak);
+      const statuses = getClockStatusForUnscheduled(emp, entries, now, empPaidBreak);
       if (statuses.length > 0) {
         rows.push({ employee: emp, shift: null, statuses });
       }

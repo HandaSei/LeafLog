@@ -10,8 +10,9 @@
     "start": "node scripts/run-env.mjs production node dist/index.cjs",
     "check": "tsc",
     "test:timesheet-engine": "tsx tests/timesheet-session-engine.test.ts",
+    "test:dashboard-clock": "tsx tests/dashboard-clock-status.test.ts",
     "test:overnight": "node tests/overnight-flow.test.mjs",
-    "validate": "npm run check && npm run test:timesheet-engine && npm run test:overnight",
+    "validate": "npm run check && npm run test:timesheet-engine && npm run test:dashboard-clock && npm run test:overnight",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
