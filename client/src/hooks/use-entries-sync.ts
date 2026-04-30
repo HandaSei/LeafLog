@@ -19,6 +19,7 @@ export function useEntriesSync({
   const [isConnected, setIsConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const isProcessingRef = useRef(false);
+  const pendingUpdateRef = useRef(false);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onUpdateRef = useRef(onUpdateDetected);
   onUpdateRef.current = onUpdateDetected;
@@ -32,6 +33,7 @@ export function useEntriesSync({
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    pendingUpdateRef.current = false;
     setIsConnected(false);
   }, []);
 
@@ -49,6 +51,31 @@ export function useEntriesSync({
     let retryDelay = 2000;
     const maxRetryDelay = 30000;
     let isMounted = true;
+
+    const processUpdate = async () => {
+      if (!isMounted) return;
+
+      if (isProcessingRef.current) {
+        pendingUpdateRef.current = true;
+        return;
+      }
+
+      isProcessingRef.current = true;
+
+      try {
+        do {
+          pendingUpdateRef.current = false;
+
+          try {
+            await onUpdateRef.current();
+          } catch (error) {
+            console.debug("[useEntriesSync] Update refresh failed:", error);
+          }
+        } while (isMounted && pendingUpdateRef.current);
+      } finally {
+        isProcessingRef.current = false;
+      }
+    };
 
     function connect() {
       if (!isMounted) return;
@@ -69,14 +96,8 @@ export function useEntriesSync({
         retryDelay = 2000;
       };
 
-      es.addEventListener("entry-update", async () => {
-        if (!isMounted || isProcessingRef.current) return;
-        isProcessingRef.current = true;
-        try {
-          await onUpdateRef.current();
-        } finally {
-          isProcessingRef.current = false;
-        }
+      es.addEventListener("entry-update", () => {
+        void processUpdate();
       });
 
       es.onerror = () => {

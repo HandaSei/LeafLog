@@ -396,22 +396,59 @@ export default function SteepInPage() {
   const lastMutationTsRef = useRef<number>(0);
 
   const [liveTime, setLiveTime] = useState(() => format(new Date(), "HH:mm"));
+  const updateLiveTime = useCallback(() => {
+    setLiveTime(format(new Date(), "HH:mm"));
+  }, []);
+
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const clearScheduledTick = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
     const scheduleNext = () => {
       const now = new Date();
       const msUntilNextMinute =
         60000 - (now.getSeconds() * 1000 + now.getMilliseconds());
       timeoutId = setTimeout(() => {
-        setLiveTime(format(new Date(), "HH:mm"));
+        updateLiveTime();
         scheduleNext();
       }, msUntilNextMinute);
     };
-    scheduleNext();
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
+
+    const catchUpAndReschedule = () => {
+      updateLiveTime();
+      clearScheduledTick();
+      scheduleNext();
     };
-  }, []);
+
+    catchUpAndReschedule();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        catchUpAndReschedule();
+      }
+    };
+
+    const handleResume = () => {
+      catchUpAndReschedule();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleResume);
+    window.addEventListener("pageshow", handleResume);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleResume);
+      window.removeEventListener("pageshow", handleResume);
+      clearScheduledTick();
+    };
+  }, [updateLiveTime]);
 
   const [themeSettings] = useState<SteepinTheme>(getCachedTheme);
   const [isDark, setIsDark] = useState(() => resolveTheme(getCachedTheme()) === "dark");
