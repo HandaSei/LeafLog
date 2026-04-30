@@ -109,11 +109,19 @@ export async function processQueue(
       });
 
       if (res.ok) {
+        const data = await res.json().catch(() => null);
+        const key = ["/api/steepin/entries", action.employeeId.toString()];
+
         removeFromQueue(action.id);
         processed++;
-        queryClient.invalidateQueries({
-          queryKey: ["/api/steepin/entries", action.employeeId.toString()],
-        });
+
+        if (data && Array.isArray(data.entries)) {
+          queryClient.setQueryData(key, data.entries);
+          cacheEntries(action.employeeId, data.entries);
+        } else {
+          queryClient.invalidateQueries({ queryKey: key });
+        }
+
         onProcessed?.(action, true);
       } else if (res.status === 409) {
         // Conflict - action was invalid (e.g., clock-out when already clocked out)

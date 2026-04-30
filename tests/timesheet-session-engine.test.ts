@@ -8,6 +8,7 @@ import {
   STALE_OPEN_SESSION_MINUTES,
 } from "../client/src/lib/timesheets/session-engine";
 import type { Employee, TimeEntry } from "../shared/schema";
+import { getOpenSessionDateFromEntries } from "../shared/timekeeping";
 
 const baseEmployee: Employee = {
   id: 1,
@@ -154,4 +155,38 @@ run("splits a newer clock-in into a new session instead of merging with the olde
   assert.equal(workdays[0].status, "incomplete");
   assert.equal(workdays[1].status, "working");
   assert.equal(workdays[1].netWorkedMinutes, 120);
+});
+
+run("detects an open same-day second shift after an earlier clock-out", () => {
+  const openDate = getOpenSessionDateFromEntries([
+    { type: "clock-in", timestamp: "2026-04-28T08:00:00.000Z", date: "2026-04-28" },
+    { type: "clock-out", timestamp: "2026-04-28T12:00:00.000Z", date: "2026-04-28" },
+    { type: "clock-in", timestamp: "2026-04-28T16:00:00.000Z", date: "2026-04-28" },
+  ]);
+
+  assert.equal(openDate, "2026-04-28");
+});
+
+run("keeps an overnight shift open under the original clock-in date", () => {
+  const openDate = getOpenSessionDateFromEntries([
+    { type: "clock-in", timestamp: "2026-04-28T22:00:00.000Z", date: "2026-04-28" },
+    { type: "break-start", timestamp: "2026-04-29T01:00:00.000Z", date: "2026-04-28" },
+  ]);
+
+  assert.equal(openDate, "2026-04-28");
+});
+
+run("treats a shift on break as open until a later clock-out exists", () => {
+  const openDate = getOpenSessionDateFromEntries([
+    { type: "clock-in", timestamp: "2026-04-28T09:00:00.000Z", date: "2026-04-28" },
+    { type: "break-start", timestamp: "2026-04-28T12:00:00.000Z", date: "2026-04-28" },
+  ]);
+  const closedDate = getOpenSessionDateFromEntries([
+    { type: "clock-in", timestamp: "2026-04-28T09:00:00.000Z", date: "2026-04-28" },
+    { type: "break-start", timestamp: "2026-04-28T12:00:00.000Z", date: "2026-04-28" },
+    { type: "clock-out", timestamp: "2026-04-28T17:00:00.000Z", date: "2026-04-28" },
+  ]);
+
+  assert.equal(openDate, "2026-04-28");
+  assert.equal(closedDate, null);
 });

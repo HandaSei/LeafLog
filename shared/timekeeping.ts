@@ -16,8 +16,37 @@ export type TimeStampedEntry = {
   timestamp: string | Date;
 };
 
+export type OpenSessionProbeEntry = TimeStampedEntry & {
+  date: string;
+};
+
 export function isOpenSessionEntryType(type: string | null | undefined): boolean {
   return type === "clock-in" || type === "break-start" || type === "break-end";
+}
+
+export function getOpenSessionDateFromEntries(entries: OpenSessionProbeEntry[]): string | null {
+  let latestClockIn: OpenSessionProbeEntry | null = null;
+  let latestClockInTime = -Infinity;
+
+  for (const entry of entries) {
+    if (entry.type !== "clock-in") continue;
+    const timestamp = new Date(entry.timestamp).getTime();
+    if (Number.isNaN(timestamp)) continue;
+    if (timestamp > latestClockInTime) {
+      latestClockIn = entry;
+      latestClockInTime = timestamp;
+    }
+  }
+
+  if (!latestClockIn) return null;
+
+  const hasLaterClockOut = entries.some((entry) => {
+    if (entry.type !== "clock-out") return false;
+    const timestamp = new Date(entry.timestamp).getTime();
+    return !Number.isNaN(timestamp) && timestamp > latestClockInTime;
+  });
+
+  return hasLaterClockOut ? null : latestClockIn.date;
 }
 
 export function timeStringToMinutes(time: string): number {

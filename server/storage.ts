@@ -10,6 +10,7 @@ import {
   type AccessCode, type TimeEntry, type CustomRole, type Feedback, type EmailVerification,
   type ApprovalRequest, type Notification, type TimesheetBackup, type KioskDevice,
 } from "@shared/schema";
+import { getOpenSessionDateFromEntries } from "@shared/timekeeping";
 
 const isProd = process.env.NODE_ENV === "production";
 let connectionString = isProd
@@ -606,39 +607,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOpenSessionDate(employeeId: number): Promise<string | null> {
-    const result = await pool.query<{ date: string }>(
-      `SELECT entry_date::text as date
+    const result = await pool.query<OpenSessionEntryProbeRow>(
+      `SELECT type, entry_date::text as date, timestamp
        FROM time_entries
        WHERE employee_id = $1
          AND timestamp > NOW() - INTERVAL '48 hours'
-       ORDER BY timestamp DESC
-       LIMIT 10`,
+         AND type IN ('clock-in', 'clock-out', 'break-start', 'break-end')
+       ORDER BY timestamp ASC`,
       [employeeId]
     );
-    if (result.rows.length === 0) return null;
-
-    const uniqueDates = [...new Set(result.rows.map(r => r.date))];
-    const entries = await pool.query<OpenSessionEntryProbeRow>(
-      `SELECT type, entry_date::text as date, timestamp 
-       FROM time_entries 
-       WHERE employee_id = $1 AND entry_date = ANY($2)
-       ORDER BY timestamp DESC`,
-      [employeeId, uniqueDates]
-    );
-
-    const entriesByDate: Record<string, OpenSessionEntryProbeRow[]> = {};
-    entries.rows.forEach(r => {
-      if (!entriesByDate[r.date]) entriesByDate[r.date] = [];
-      entriesByDate[r.date].push(r);
-    });
-
-    for (const date of uniqueDates) {
-      const dayEntries = entriesByDate[date] || [];
-      const hasClockOut = dayEntries.some(e => e.type === 'clock-out');
-      const hasClockIn = dayEntries.some(e => e.type === 'clock-in');
-      if (hasClockIn && !hasClockOut) return date;
-    }
-    return null;
+    return getOpenSessionDateFromEntries(result.rows);
   }
 
   async getOpenSessionEntries(ownerAccountId: number): Promise<TimeEntry[]> {
