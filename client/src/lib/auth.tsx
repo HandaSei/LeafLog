@@ -253,7 +253,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Read cached auth once on mount
   const cachedAuthRef = useRef(readCachedAuth());
   const didVerifyRef = useRef(false);
-  const authRestoreInFlightRef = useRef(false);
   
   // Start with cached auth if available, otherwise undefined (loading state)
   // This ensures first-load waits for verification, but returning users see UI immediately
@@ -322,44 +321,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Listen for 401 auth errors from API calls and force logout
   useEffect(() => {
     const unsubscribe = onAuthError(() => {
+      // Session expired on server - force logout
       if (authState?.authenticated) {
-        const clearAuthState = () => {
-          console.warn('[Auth] Session expired, forcing logout');
-          saveCachedAuth(null);
-          try { localStorage.removeItem("leaflog_steepin_auth"); } catch {}
-          queryClient.clear();
-          setAuthState(null);
-          setIsInitialVerificationComplete(true);
-        };
-
-        if (authState.steepinMode) {
-          if (authRestoreInFlightRef.current) return;
-          authRestoreInFlightRef.current = true;
-          void (async () => {
-            try {
-              const restored = await attemptSteepinRestore();
-              if (restored) {
-                const freshAuth = await fetchBootstrapWithTimeout(0, VERIFICATION_TIMEOUT_MS);
-                if (freshAuth?.authenticated) {
-                  setAuthState(freshAuth);
-                  setIsInitialVerificationComplete(true);
-                  return;
-                }
-              }
-              clearAuthState();
-            } finally {
-              authRestoreInFlightRef.current = false;
-            }
-          })();
-          return;
-        }
-
-        clearAuthState();
+        console.warn('[Auth] Session expired, forcing logout');
+        saveCachedAuth(null);
+        try { localStorage.removeItem("leaflog_steepin_auth"); } catch {}
+        queryClient.clear();
+        setAuthState(null);
+        setIsInitialVerificationComplete(true);
       }
     });
     
     return unsubscribe;
-  }, [authState?.authenticated, authState?.steepinMode]);
+  }, [authState?.authenticated]);
 
   // Handle online/offline transitions
   useEffect(() => {
