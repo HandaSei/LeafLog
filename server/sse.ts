@@ -26,7 +26,8 @@ function ensureHeartbeat() {
       const dead: SSEClient[] = [];
       for (const client of clientSet) {
         try {
-          client.res.write(`:heartbeat\n\n`);
+          const data = JSON.stringify({ serverTime: new Date().toISOString() });
+          client.res.write(`event: heartbeat\ndata: ${data}\n\n`);
         } catch {
           dead.push(client);
         }

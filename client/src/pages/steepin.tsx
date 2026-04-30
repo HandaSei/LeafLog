@@ -621,6 +621,7 @@ export default function SteepInPage() {
 
   const { isConnected: isSyncConnected } = useEntriesSync({
     employeeId: selectedEmployee?.id ?? null,
+    onConnected: handleVisibleRefresh,
     onUpdateDetected: async () => {
       console.debug("[SteepIn] SSE update detected, refreshing...");
       await refetchEntries();

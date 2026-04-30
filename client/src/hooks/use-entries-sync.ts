@@ -4,6 +4,7 @@ import { API_BASE_URL } from "@/lib/api-base";
 interface UseEntriesSyncOptions {
   employeeId: number | null | undefined;
   onUpdateDetected: () => void | Promise<void>;
+  onConnected?: () => void | Promise<void>;
   enabled?: boolean;
 }
 
@@ -14,26 +15,37 @@ interface SSEStatus {
 export function useEntriesSync({
   employeeId,
   onUpdateDetected,
+  onConnected,
   enabled = true,
 }: UseEntriesSyncOptions): SSEStatus {
   const [isConnected, setIsConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const isProcessingRef = useRef(false);
   const pendingUpdateRef = useRef(false);
+  const pendingConnectedRef = useRef(false);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const watchdogIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastEventAtRef = useRef(Date.now());
   const onUpdateRef = useRef(onUpdateDetected);
+  const onConnectedRef = useRef(onConnected);
   onUpdateRef.current = onUpdateDetected;
+  onConnectedRef.current = onConnected;
 
   const cleanup = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
+    if (watchdogIntervalRef.current) {
+      clearInterval(watchdogIntervalRef.current);
+      watchdogIntervalRef.current = null;
+    }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
     pendingUpdateRef.current = false;
+    pendingConnectedRef.current = false;
     setIsConnected(false);
   }, []);
 
@@ -50,31 +62,78 @@ export function useEntriesSync({
 
     let retryDelay = 2000;
     const maxRetryDelay = 30000;
+    const streamStaleAfterMs = 75000;
     let isMounted = true;
 
-    const processUpdate = async () => {
+    const markEventReceived = () => {
+      lastEventAtRef.current = Date.now();
+    };
+
+    const processRefresh = async (
+      initialRefresh: () => void | Promise<void>,
+      pendingType: "update" | "connected",
+    ) => {
       if (!isMounted) return;
 
       if (isProcessingRef.current) {
-        pendingUpdateRef.current = true;
+        if (pendingType === "update") {
+          pendingUpdateRef.current = true;
+        } else {
+          pendingConnectedRef.current = true;
+        }
         return;
       }
 
       isProcessingRef.current = true;
 
       try {
-        do {
+        let refresh = initialRefresh;
+        while (isMounted) {
           pendingUpdateRef.current = false;
+          pendingConnectedRef.current = false;
 
           try {
-            await onUpdateRef.current();
+            await refresh();
           } catch (error) {
             console.debug("[useEntriesSync] Update refresh failed:", error);
           }
-        } while (isMounted && pendingUpdateRef.current);
+
+          if (pendingUpdateRef.current) {
+            refresh = onUpdateRef.current;
+            continue;
+          }
+
+          if (pendingConnectedRef.current && onConnectedRef.current) {
+            refresh = onConnectedRef.current;
+            continue;
+          }
+
+          break;
+        }
       } finally {
         isProcessingRef.current = false;
       }
+    };
+
+    const processUpdate = () => processRefresh(onUpdateRef.current, "update");
+
+    const startWatchdog = () => {
+      if (watchdogIntervalRef.current) {
+        clearInterval(watchdogIntervalRef.current);
+      }
+      watchdogIntervalRef.current = setInterval(() => {
+        if (!isMounted || !navigator.onLine) return;
+        if (!eventSourceRef.current || eventSourceRef.current.readyState === EventSource.CLOSED) return;
+
+        const msSinceEvent = Date.now() - lastEventAtRef.current;
+        if (msSinceEvent < streamStaleAfterMs) return;
+
+        console.debug("[useEntriesSync] SSE stream stale, reconnecting...");
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+        setIsConnected(false);
+        connect();
+      }, 30000);
     };
 
     function connect() {
@@ -89,19 +148,37 @@ export function useEntriesSync({
       const url = `${API_BASE_URL}/api/steepin/entries/${employeeId}/stream`;
       const es = new EventSource(url, { withCredentials: true });
       eventSourceRef.current = es;
+      markEventReceived();
+      startWatchdog();
 
       es.onopen = () => {
-        if (!isMounted) return;
+        if (!isMounted || eventSourceRef.current !== es) return;
+        markEventReceived();
         setIsConnected(true);
         retryDelay = 2000;
+        if (onConnectedRef.current) {
+          void processRefresh(onConnectedRef.current, "connected");
+        }
       };
 
+      es.addEventListener("connected", () => {
+        if (!isMounted || eventSourceRef.current !== es) return;
+        markEventReceived();
+      });
+
+      es.addEventListener("heartbeat", () => {
+        if (!isMounted || eventSourceRef.current !== es) return;
+        markEventReceived();
+      });
+
       es.addEventListener("entry-update", () => {
+        if (!isMounted || eventSourceRef.current !== es) return;
+        markEventReceived();
         void processUpdate();
       });
 
       es.onerror = () => {
-        if (!isMounted) return;
+        if (!isMounted || eventSourceRef.current !== es) return;
         setIsConnected(false);
         es.close();
         eventSourceRef.current = null;

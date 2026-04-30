@@ -27,9 +27,23 @@ export function useRefreshOnVisibility({
   const lastRefreshRef = useRef<number>(0);
   const isRefreshingRef = useRef<boolean>(false);
   const pendingRefreshRef = useRef<boolean>(false);
+  const pendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPendingTimeout = useCallback(() => {
+    if (pendingTimeoutRef.current) {
+      clearTimeout(pendingTimeoutRef.current);
+      pendingTimeoutRef.current = null;
+    }
+  }, []);
 
   const triggerRefresh = useCallback(async () => {
-    if (!enabled || isRefreshingRef.current) {
+    if (!enabled) {
+      pendingRefreshRef.current = false;
+      clearPendingTimeout();
+      return;
+    }
+
+    if (isRefreshingRef.current) {
       pendingRefreshRef.current = true;
       return;
     }
@@ -39,17 +53,22 @@ export function useRefreshOnVisibility({
 
     // Throttle: don't refresh more frequently than minInterval
     if (timeSinceLastRefresh < minInterval) {
-      // Schedule a delayed refresh if we're in the throttle window
+      pendingRefreshRef.current = true;
+      if (pendingTimeoutRef.current) return;
+
+      // Schedule one delayed refresh if we're in the throttle window.
       const delay = minInterval - timeSinceLastRefresh;
-      setTimeout(() => {
+      pendingTimeoutRef.current = setTimeout(() => {
+        pendingTimeoutRef.current = null;
         if (pendingRefreshRef.current) {
           pendingRefreshRef.current = false;
-          triggerRefresh();
+          void triggerRefresh();
         }
       }, delay);
       return;
     }
 
+    clearPendingTimeout();
     isRefreshingRef.current = true;
     lastRefreshRef.current = now;
     pendingRefreshRef.current = false;
@@ -65,10 +84,19 @@ export function useRefreshOnVisibility({
       if (pendingRefreshRef.current) {
         pendingRefreshRef.current = false;
         // Small delay to allow state to settle
-        setTimeout(triggerRefresh, 100);
+        pendingTimeoutRef.current = setTimeout(() => {
+          pendingTimeoutRef.current = null;
+          void triggerRefresh();
+        }, 100);
       }
     }
-  }, [enabled, minInterval, onVisible]);
+  }, [clearPendingTimeout, enabled, minInterval, onVisible]);
+
+  useEffect(() => {
+    if (enabled) return;
+    pendingRefreshRef.current = false;
+    clearPendingTimeout();
+  }, [clearPendingTimeout, enabled]);
 
   useEffect(() => {
     // Skip if SSR
@@ -85,14 +113,27 @@ export function useRefreshOnVisibility({
       triggerRefresh();
     };
 
+    const handleFocus = () => {
+      triggerRefresh();
+    };
+
+    const handlePageShow = () => {
+      triggerRefresh();
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("online", handleOnline);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("pageshow", handlePageShow);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("pageshow", handlePageShow);
+      clearPendingTimeout();
     };
-  }, [triggerRefresh]);
+  }, [clearPendingTimeout, triggerRefresh]);
 
   // Expose a manual refresh function
   const manualRefresh = useCallback(() => {
