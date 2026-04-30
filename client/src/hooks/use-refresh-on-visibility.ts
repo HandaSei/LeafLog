@@ -1,8 +1,17 @@
 import { useEffect, useRef, useCallback } from "react";
 
+export type VisibilityRefreshReason = "visible" | "online" | "focus" | "pageshow";
+
+const refreshReasonPriority: Record<VisibilityRefreshReason, number> = {
+  focus: 0,
+  pageshow: 1,
+  visible: 2,
+  online: 3,
+};
+
 interface UseRefreshOnVisibilityOptions {
-  /** Callback to trigger when visibility changes to visible */
-  onVisible: () => void | Promise<void>;
+  /** Callback to trigger when the app may need fresh visible data */
+  onVisible: (reason: VisibilityRefreshReason) => void | Promise<void>;
   /** Minimum time in ms between refreshes to prevent spam (default: 2000ms) */
   minInterval?: number;
   /** Whether refreshing is currently enabled (e.g., online status) */
@@ -10,8 +19,8 @@ interface UseRefreshOnVisibilityOptions {
 }
 
 /**
- * Hook that triggers a callback when the document becomes visible again.
- * Useful for refreshing data when user returns to the app after switching tabs/apps.
+ * Hook that triggers a callback when the document becomes visible again,
+ * returns online, receives focus, or is restored from page cache.
  * 
  * Features:
  * - Throttles refreshes to prevent excessive API calls
@@ -27,6 +36,7 @@ export function useRefreshOnVisibility({
   const lastRefreshRef = useRef<number>(0);
   const isRefreshingRef = useRef<boolean>(false);
   const pendingRefreshRef = useRef<boolean>(false);
+  const pendingReasonRef = useRef<VisibilityRefreshReason | null>(null);
   const pendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearPendingTimeout = useCallback(() => {
@@ -36,15 +46,26 @@ export function useRefreshOnVisibility({
     }
   }, []);
 
-  const triggerRefresh = useCallback(async () => {
+  const triggerRefresh = useCallback(async (reason: VisibilityRefreshReason) => {
+    const rememberPendingReason = (nextReason: VisibilityRefreshReason) => {
+      if (
+        !pendingReasonRef.current ||
+        refreshReasonPriority[nextReason] > refreshReasonPriority[pendingReasonRef.current]
+      ) {
+        pendingReasonRef.current = nextReason;
+      }
+    };
+
     if (!enabled) {
       pendingRefreshRef.current = false;
+      pendingReasonRef.current = null;
       clearPendingTimeout();
       return;
     }
 
     if (isRefreshingRef.current) {
       pendingRefreshRef.current = true;
+      rememberPendingReason(reason);
       return;
     }
 
@@ -54,6 +75,7 @@ export function useRefreshOnVisibility({
     // Throttle: don't refresh more frequently than minInterval
     if (timeSinceLastRefresh < minInterval) {
       pendingRefreshRef.current = true;
+      rememberPendingReason(reason);
       if (pendingTimeoutRef.current) return;
 
       // Schedule one delayed refresh if we're in the throttle window.
@@ -61,8 +83,10 @@ export function useRefreshOnVisibility({
       pendingTimeoutRef.current = setTimeout(() => {
         pendingTimeoutRef.current = null;
         if (pendingRefreshRef.current) {
+          const nextReason = pendingReasonRef.current ?? reason;
           pendingRefreshRef.current = false;
-          void triggerRefresh();
+          pendingReasonRef.current = null;
+          void triggerRefresh(nextReason);
         }
       }, delay);
       return;
@@ -74,7 +98,7 @@ export function useRefreshOnVisibility({
     pendingRefreshRef.current = false;
 
     try {
-      await onVisible();
+      await onVisible(reason);
     } catch (error) {
       // Silent fail - let the query handle its own error state
       console.debug("[useRefreshOnVisibility] Refresh failed:", error);
@@ -82,11 +106,13 @@ export function useRefreshOnVisibility({
       isRefreshingRef.current = false;
       // If a refresh was requested while we were refreshing, trigger it now
       if (pendingRefreshRef.current) {
+        const nextReason = pendingReasonRef.current ?? reason;
         pendingRefreshRef.current = false;
+        pendingReasonRef.current = null;
         // Small delay to allow state to settle
         pendingTimeoutRef.current = setTimeout(() => {
           pendingTimeoutRef.current = null;
-          void triggerRefresh();
+          void triggerRefresh(nextReason);
         }, 100);
       }
     }
@@ -95,6 +121,7 @@ export function useRefreshOnVisibility({
   useEffect(() => {
     if (enabled) return;
     pendingRefreshRef.current = false;
+    pendingReasonRef.current = null;
     clearPendingTimeout();
   }, [clearPendingTimeout, enabled]);
 
@@ -104,21 +131,21 @@ export function useRefreshOnVisibility({
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        triggerRefresh();
+        triggerRefresh("visible");
       }
     };
 
     // Also refresh when coming back online
     const handleOnline = () => {
-      triggerRefresh();
+      triggerRefresh("online");
     };
 
     const handleFocus = () => {
-      triggerRefresh();
+      triggerRefresh("focus");
     };
 
     const handlePageShow = () => {
-      triggerRefresh();
+      triggerRefresh("pageshow");
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -137,7 +164,7 @@ export function useRefreshOnVisibility({
 
   // Expose a manual refresh function
   const manualRefresh = useCallback(() => {
-    return triggerRefresh();
+    return triggerRefresh("focus");
   }, [triggerRefresh]);
 
   return { manualRefresh };

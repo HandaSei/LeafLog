@@ -2,7 +2,7 @@ import { memo, useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useRefreshOnVisibility } from "@/hooks/use-refresh-on-visibility";
+import { useRefreshOnVisibility, type VisibilityRefreshReason } from "@/hooks/use-refresh-on-visibility";
 import { useEntriesSync } from "@/hooks/use-entries-sync";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
@@ -369,6 +369,7 @@ interface BreakPolicy {
 }
 
 type ActionType = "clock-in" | "clock-out" | "break-start" | "break-end";
+const VISIBLE_STATUS_REFRESH_MAX_AGE_MS = 30 * 1000;
 
 export default function SteepInPage() {
   const { data: authState, isLoading: authLoading } = useQuery<any>({
@@ -487,7 +488,6 @@ export default function SteepInPage() {
   const { 
     data: entries = [], 
     isLoading: entriesLoading, 
-    isFetching: entriesFetching,
     refetch: refetchEntries,
     dataUpdatedAt: entriesUpdatedAt,
   } = useQuery<TimeEntry[]>({
@@ -546,6 +546,7 @@ export default function SteepInPage() {
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState(() => getQueue().length);
+  const [manualEntriesRefreshPending, setManualEntriesRefreshPending] = useState(false);
 
   useEffect(() => {
     const goOnline = () => setIsOnline(true);
@@ -573,58 +574,82 @@ export default function SteepInPage() {
   // - No refresh attempts when offline
   // - Initial data still comes from localStorage cache
   // - Optimistic UI updates continue to work
-  // Tracks the time the currently-selected employee was opened. We compare this
-  // against `entriesUpdatedAt` to decide whether the data we're showing reflects
-  // a fresh server fetch made AFTER the selection — anything older might be stale
-  // from another device and could let the user fire a conflicting action.
-  const [selectedAt, setSelectedAt] = useState<number>(0);
+  // Tracks employee-facing verification only. Routine live sync and reconnect
+  // refreshes keep data accurate without showing the warning banner.
+  const [statusVerificationStartedAt, setStatusVerificationStartedAt] = useState<number>(0);
   const prevSelectedEmpRef = useRef<number | null>(null);
-  useEffect(() => {
-    const empId = selectedEmployee?.id ?? null;
-    if (empId && empId !== prevSelectedEmpRef.current) {
-      setSelectedAt(Date.now());
-      if (isActive && navigator.onLine) {
-        // Always refetch on selection so we never trust the cached snapshot
-        // for actionable decisions — another device may have updated the
-        // employee's status while this kiosk was idle.
-        refetchEntries();
-      }
-    }
-    prevSelectedEmpRef.current = empId;
-  }, [selectedEmployee, isActive, refetchEntries]);
 
-  // True when we're online with an employee selected but haven't yet received a
-  // server response newer than the moment they were selected. Used to lock the
-  // action buttons so users can't act on stale cached state.
-  const isVerifyingStatus =
-    isOnline &&
-    !!selectedEmployee &&
-    selectedAt > 0 &&
-    (entriesFetching || !entriesUpdatedAt || entriesUpdatedAt < selectedAt);
-
-  const handleVisibleRefresh = useCallback(async () => {
+  const refreshEntriesSafely = useCallback(async (options?: { showVerification?: boolean }) => {
     if (!selectedEmployee || !isActive) return;
     if (!navigator.onLine) return;
 
+    if (options?.showVerification) {
+      setStatusVerificationStartedAt(Date.now());
+    }
+
     try {
-      await refetchEntries();
+      await refetchEntries({ cancelRefetch: false });
     } catch (error) {
       console.debug("[SteepIn] Refresh failed:", error);
     }
   }, [selectedEmployee, isActive, refetchEntries]);
 
+  useEffect(() => {
+    const empId = selectedEmployee?.id ?? null;
+    if (empId && empId !== prevSelectedEmpRef.current) {
+      if (isActive && navigator.onLine) {
+        // Always refetch on selection so we never trust the cached snapshot
+        // for actionable decisions — another device may have updated the
+        // employee's status while this kiosk was idle.
+        void refreshEntriesSafely({ showVerification: true });
+      } else {
+        setStatusVerificationStartedAt(0);
+      }
+    } else if (!empId) {
+      setStatusVerificationStartedAt(0);
+    }
+    prevSelectedEmpRef.current = empId;
+  }, [selectedEmployee, isActive, refreshEntriesSafely]);
+
+  // True only for visible verification windows, not routine background fetches.
+  // This still locks actions when data could be stale, without flashing on every
+  // SSE reconnect or quiet refetch.
+  const isVerifyingStatus =
+    isOnline &&
+    !!selectedEmployee &&
+    statusVerificationStartedAt > 0 &&
+    (!entriesUpdatedAt || entriesUpdatedAt < statusVerificationStartedAt);
+
+  const handleManualEntriesRefresh = useCallback(async () => {
+    setManualEntriesRefreshPending(true);
+    try {
+      await refreshEntriesSafely();
+    } finally {
+      setManualEntriesRefreshPending(false);
+    }
+  }, [refreshEntriesSafely]);
+
+  const handleVisibleRefresh = useCallback(async (reason: VisibilityRefreshReason) => {
+    const dataAge = entriesUpdatedAt ? Date.now() - entriesUpdatedAt : Number.POSITIVE_INFINITY;
+    const showVerification =
+      reason === "online" ||
+      dataAge > VISIBLE_STATUS_REFRESH_MAX_AGE_MS;
+
+    await refreshEntriesSafely({ showVerification });
+  }, [entriesUpdatedAt, refreshEntriesSafely]);
+
   useRefreshOnVisibility({
     onVisible: handleVisibleRefresh,
     minInterval: 3000,
-    enabled: isActive && isOnline && !!selectedEmployee,
+    enabled: isActive && !!selectedEmployee,
   });
 
   const { isConnected: isSyncConnected } = useEntriesSync({
     employeeId: selectedEmployee?.id ?? null,
-    onConnected: handleVisibleRefresh,
+    onConnected: () => refreshEntriesSafely(),
     onUpdateDetected: async () => {
       console.debug("[SteepIn] SSE update detected, refreshing...");
-      await refetchEntries();
+      await refreshEntriesSafely();
       if (Date.now() - lastMutationTsRef.current > 3000) {
         toast({
           title: "Status Updated",
@@ -1135,12 +1160,12 @@ export default function SteepInPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => refetchEntries()}
-                disabled={entriesFetching}
+                onClick={handleManualEntriesRefresh}
+                disabled={manualEntriesRefreshPending || isVerifyingStatus}
                 className={`h-8 w-8 rounded-full ${t.buttonBg} ${t.buttonBorder} ${t.buttonText} ${t.buttonHoverBg} ${t.buttonHoverText} transition-[background-color,color] duration-200`}
                 title={entriesUpdatedAt ? `Last updated: ${format(entriesUpdatedAt, "HH:mm:ss")}` : "Refresh"}
               >
-                <RefreshCw className={`w-4 h-4 ${entriesFetching ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-4 h-4 ${(manualEntriesRefreshPending || isVerifyingStatus) ? "animate-spin" : ""}`} />
               </Button>
             )}
           </div>
@@ -1172,8 +1197,8 @@ export default function SteepInPage() {
                     <WifiOff className="w-3.5 h-3.5 shrink-0" />
                     <span>Offline — current status unknown. All actions are available.</span>
                   </div>
-                ) : entriesUpdatedAt && Date.now() - entriesUpdatedAt > 5 * 60 * 1000 ? (
-                  // Show warning if data is older than 5 minutes (even when online)
+                ) : !isSyncConnected && entriesUpdatedAt && Date.now() - entriesUpdatedAt > 5 * 60 * 1000 ? (
+                  // Show stale data only when live sync is not connected.
                   <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium ${t.offlineAmberBg} ${t.offlineAmberText} border ${t.offlineAmberBorder}`}>
                     <RefreshCw className="w-3.5 h-3.5 shrink-0" />
                     <span>Data may be outdated — last updated {Math.round((Date.now() - entriesUpdatedAt) / 60000)}m ago</span>
