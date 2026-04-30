@@ -1,7 +1,7 @@
-import type { Router } from "express";
+import type { Request, Response, Router } from "express";
 import { format } from "date-fns";
 import { isOpenSessionEntryType } from "@shared/timekeeping";
-import type { TimeEntry } from "@shared/schema";
+import type { Employee, TimeEntry } from "@shared/schema";
 import { requireAuth, requireRole } from "../auth";
 import { storage } from "../storage";
 import { addSSEClient, broadcastEntryUpdate, removeSSEClient } from "../sse";
@@ -9,6 +9,46 @@ import { autoCloseStaleSession } from "./auto-close";
 import { DATE_ONLY_RE, getDateRangeQuery } from "./utils";
 import { handleKioskAction } from "../services/time-tracking/kiosk-action-service";
 import { importTimesheetCsv } from "../services/time-tracking/csv-import-service";
+
+type AuthorizedEmployeeResult =
+  | { ok: true; employee: Employee }
+  | { ok: false };
+
+async function getAuthorizedSteepInEmployee(
+  req: Request,
+  res: Response,
+  employeeId: number,
+): Promise<AuthorizedEmployeeResult> {
+  if (!Number.isFinite(employeeId)) {
+    res.status(400).json({ message: "Invalid employee ID" });
+    return { ok: false };
+  }
+
+  if (!req.session.userId) {
+    res.status(401).json({ message: "Not authenticated" });
+    return { ok: false };
+  }
+
+  const employee = await storage.getEmployee(employeeId);
+  if (!employee) {
+    res.status(404).json({ message: "Employee not found" });
+    return { ok: false };
+  }
+
+  const ownerCanAccess = employee.ownerAccountId === req.session.userId;
+  const employeeCanAccessSelf = req.session.employeeId === employee.id;
+  if (!ownerCanAccess && !employeeCanAccessSelf) {
+    res.status(403).json({ message: "Access denied" });
+    return { ok: false };
+  }
+
+  if (employee.status !== "active" || employee.hiddenFromSteepin) {
+    res.status(403).json({ message: "Employee is archived" });
+    return { ok: false };
+  }
+
+  return { ok: true, employee };
+}
 
 export function registerTimeTrackingRoutes(router: Router) {
   router.get("/api/steepin/employees", requireAuth, async (req, res) => {
@@ -18,14 +58,18 @@ export function registerTimeTrackingRoutes(router: Router) {
   });
 
   router.get("/api/steepin/entries/:employeeId", async (req, res) => {
-    await autoCloseStaleSession(Number(req.params.employeeId));
+    const employeeId = Number(req.params.employeeId);
+    const auth = await getAuthorizedSteepInEmployee(req, res, employeeId);
+    if (!auth.ok) return;
+
+    await autoCloseStaleSession(employeeId);
     const todayStr = format(new Date(), "yyyy-MM-dd");
-    let entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), todayStr);
+    let entries = await storage.getTimeEntriesByEmployeeAndDate(employeeId, todayStr);
     const lastType = entries.length > 0 ? entries[entries.length - 1].type : null;
     if (!isOpenSessionEntryType(lastType)) {
-      const openDate = await storage.getOpenSessionDate(Number(req.params.employeeId));
+      const openDate = await storage.getOpenSessionDate(employeeId);
       if (openDate && openDate !== todayStr) {
-        entries = await storage.getTimeEntriesByEmployeeAndDate(Number(req.params.employeeId), openDate);
+        entries = await storage.getTimeEntriesByEmployeeAndDate(employeeId, openDate);
       }
     }
     res.json(entries);
@@ -37,11 +81,10 @@ export function registerTimeTrackingRoutes(router: Router) {
     res.json({ deprecated: true, useStream: true });
   });
 
-  router.get("/api/steepin/entries/:employeeId/stream", (req, res) => {
+  router.get("/api/steepin/entries/:employeeId/stream", async (req, res) => {
     const employeeId = Number(req.params.employeeId);
-    if (isNaN(employeeId)) {
-      return res.status(400).json({ message: "Invalid employee ID" });
-    }
+    const auth = await getAuthorizedSteepInEmployee(req, res, employeeId);
+    if (!auth.ok) return;
 
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -68,6 +111,9 @@ export function registerTimeTrackingRoutes(router: Router) {
   router.get("/api/steepin/entries", requireAuth, async (req, res) => {
     const ownerAccountId = req.session.userId!;
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+    if (employeeId !== undefined && !Number.isFinite(employeeId)) {
+      return res.status(400).json({ message: "Invalid employee ID" });
+    }
     const date = typeof req.query.date === 'string' ? req.query.date : undefined;
     const all = req.query.all === "true";
     const range = getDateRangeQuery(req);
@@ -76,8 +122,8 @@ export function registerTimeTrackingRoutes(router: Router) {
       const entries = await storage.getTimeEntriesByDateRange(ownerAccountId, range.from, range.to, employeeId);
       return res.json(entries);
     }
-    if (employeeId && date) {
-      const entries = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
+    if (employeeId !== undefined && date) {
+      const entries = await storage.getTimeEntriesByDateRange(ownerAccountId, date, date, employeeId);
       return res.json(entries);
     } else if (date) {
       const entries = await storage.getTimeEntriesByDate(date, ownerAccountId);
@@ -100,6 +146,10 @@ export function registerTimeTrackingRoutes(router: Router) {
   });
 
   router.post("/api/steepin/action", async (req, res) => {
+    const employeeId = Number(req.body?.employeeId);
+    const auth = await getAuthorizedSteepInEmployee(req, res, employeeId);
+    if (!auth.ok) return;
+
     const actionResult = await handleKioskAction(req.body);
     res.status(actionResult.status).json(actionResult.body);
   });

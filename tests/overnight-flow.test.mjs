@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import pg from "pg";
+import bcrypt from "bcryptjs";
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:5000";
 const DB_URL =
@@ -17,6 +18,10 @@ const pool = new pg.Pool({
   ssl: DB_URL.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
 });
 
+const TEST_USERNAME = "overnight-test-admin";
+const TEST_PASSWORD = "overnight-test-password";
+let sessionCookie = "";
+
 const fmtDate = (d) =>
   `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 
@@ -30,7 +35,10 @@ const pass = (msg) => console.log(`  ✓ ${msg}`);
 async function postAction(body) {
   const res = await fetch(`${BASE_URL}/api/steepin/action`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(sessionCookie ? { Cookie: sessionCookie } : {}),
+    },
     body: JSON.stringify(body),
   });
   let json = null;
@@ -38,6 +46,23 @@ async function postAction(body) {
     json = await res.json();
   } catch {}
   return { status: res.status, body: json };
+}
+
+async function loginSteepIn() {
+  const res = await fetch(`${BASE_URL}/api/auth/steepin-login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: TEST_USERNAME, password: TEST_PASSWORD }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`SteepIn test login failed: ${res.status} ${text}`);
+  }
+  const setCookie = res.headers.get("set-cookie");
+  if (!setCookie) {
+    throw new Error("SteepIn test login did not return a session cookie");
+  }
+  sessionCookie = setCookie.split(";")[0];
 }
 
 async function setup() {
@@ -57,20 +82,23 @@ async function setup() {
 
   // Account: reuse "overnight-test-admin" if present, else create.
   let accountId;
+  const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10);
   const acc = await pool.query(
-    "SELECT id FROM accounts WHERE username = 'overnight-test-admin' LIMIT 1"
+    "SELECT id FROM accounts WHERE username = $1 LIMIT 1",
+    [TEST_USERNAME]
   );
   if (acc.rows[0]) {
     accountId = acc.rows[0].id;
     await pool.query(
-      "UPDATE accounts SET timezone = 'UTC', agency_name = 'OvernightTest' WHERE id = $1",
-      [accountId]
+      "UPDATE accounts SET password = $1, timezone = 'UTC', agency_name = 'OvernightTest', role = 'manager', email_verified = true WHERE id = $2",
+      [passwordHash, accountId]
     );
   } else {
     const ins = await pool.query(
       `INSERT INTO accounts (username, password, role, agency_name, timezone, email_verified)
-       VALUES ('overnight-test-admin', 'not-a-real-hash', 'manager', 'OvernightTest', 'UTC', true)
-       RETURNING id`
+       VALUES ($1, $2, 'manager', 'OvernightTest', 'UTC', true)
+       RETURNING id`,
+      [TEST_USERNAME, passwordHash]
     );
     accountId = ins.rows[0].id;
   }
@@ -122,6 +150,7 @@ async function teardown({ accountId, employeeId }) {
 
 async function run() {
   const ctx = await setup();
+  await loginSteepIn();
   const { accountId, employeeId, cutover, sessionDate } = ctx;
   try {
     const t = (offsetMs) => new Date(cutover.getTime() + offsetMs).toISOString();
