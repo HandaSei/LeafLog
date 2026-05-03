@@ -700,31 +700,55 @@ export default function SteepInPage() {
 
   // Background prefetch of entries for every employee on the kiosk roster so
   // when an employee taps their card the action screen opens with buttons
-  // already enabled — no isVerifyingStatus wait. Runs at idle time, respects
-  // staleTime (no-op if cache is already fresh), and is gated to small rosters
-  // to avoid request storms on large tenants.
+  // already enabled — no isVerifyingStatus wait. Uses a single batched
+  // /api/steepin/entries/batch round trip instead of N per-employee fetches
+  // (which previously caused a 13× request storm on initial mount when the
+  // bootstrap was taken before SteepIn mode was activated).
   const prefetchedFor = useRef<string>("");
   useEffect(() => {
     if (!isActive || !isOnline || !employees || employees.length === 0) return;
-    if (employees.length > 30) return;
     const sig = employees.map((e) => e.id).sort().join(",");
     if (sig === prefetchedFor.current) return;
+
+    // Skip if every employee's cache is already fresh (within staleTime). This
+    // covers the case where bootstrap pre-populated all entries.
+    const STALE_MS = 60000;
+    const now = Date.now();
+    const allFresh = employees.every((emp) => {
+      const state = queryClient.getQueryState([
+        "/api/steepin/entries",
+        emp.id.toString(),
+      ]);
+      return state && state.data !== undefined && now - state.dataUpdatedAt < STALE_MS;
+    });
+    if (allFresh) {
+      prefetchedFor.current = sig;
+      return;
+    }
+
     prefetchedFor.current = sig;
 
-    const run = () => {
-      employees.forEach((emp) => {
-        queryClient.prefetchQuery({
-          queryKey: ["/api/steepin/entries", emp.id.toString()],
-          queryFn: getQueryFn({ on401: "returnNull" }),
-          staleTime: 60000,
-        });
-      });
+    const run = async () => {
+      try {
+        const res = await apiRequest("GET", "/api/steepin/entries/batch");
+        if (!res.ok) return;
+        const data = (await res.json()) as Record<string, TimeEntry[]>;
+        for (const [empId, entries] of Object.entries(data)) {
+          queryClient.setQueryData(
+            ["/api/steepin/entries", empId],
+            entries,
+          );
+        }
+      } catch {
+        // Best-effort prefetch; the per-employee endpoint is the fallback when
+        // the user actually taps a card.
+      }
     };
     if (typeof (window as any).requestIdleCallback === "function") {
-      const id = (window as any).requestIdleCallback(run, { timeout: 2000 });
+      const id = (window as any).requestIdleCallback(() => { void run(); }, { timeout: 2000 });
       return () => (window as any).cancelIdleCallback?.(id);
     }
-    const id = window.setTimeout(run, 0);
+    const id = window.setTimeout(() => { void run(); }, 0);
     return () => window.clearTimeout(id);
   }, [employees, isActive, isOnline]);
 

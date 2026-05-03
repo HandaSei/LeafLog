@@ -3,7 +3,7 @@ import { format } from "date-fns";
 import { isOpenSessionEntryType } from "@shared/timekeeping";
 import type { TimeEntry } from "@shared/schema";
 import { requireAuth, requireRole } from "../auth";
-import { storage } from "../storage";
+import { storage, pool } from "../storage";
 import { addSSEClient, broadcastEntryUpdate, removeSSEClient } from "../sse";
 import { autoCloseStaleSession } from "./auto-close";
 import { DATE_ONLY_RE, getDateRangeQuery, toDateOnly } from "./utils";
@@ -15,6 +15,70 @@ export function registerTimeTrackingRoutes(router: Router) {
     const ownerAccountId = req.session.userId!;
     const emps = await storage.getEmployees(ownerAccountId);
     res.json(emps.filter(e => e.status === "active" && !e.hiddenFromSteepin));
+  });
+
+  // Batched fetch of "current view" entries for every active kiosk employee
+  // in a single round trip. Mirrors the bootstrap logic so the kiosk can seed
+  // its per-employee cache from one request instead of N. This avoids the
+  // 13× /api/steepin/entries/:id storm on initial mount when bootstrap was
+  // taken before the user entered SteepIn mode.
+  router.get("/api/steepin/entries/batch", requireAuth, async (req, res) => {
+    const ownerAccountId = req.session.userId!;
+    const emps = await storage.getEmployees(ownerAccountId);
+    const activeEmps = emps.filter(e => e.status === "active" && !e.hiddenFromSteepin);
+    const empIds = activeEmps.map(e => e.id);
+    const result: Record<string, TimeEntry[]> = {};
+    if (empIds.length === 0) {
+      return res.json(result);
+    }
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    const rows = await pool.query<{
+      id: number; employee_id: number; type: string; timestamp: Date;
+      date: string; role: string | null; notes: string | null;
+      is_unpaid: boolean | null; source: string | null;
+    }>(
+      `SELECT id, employee_id, type, timestamp, entry_date::text as date, role, notes, is_unpaid, source
+       FROM time_entries
+       WHERE employee_id = ANY($1)
+         AND timestamp > NOW() - INTERVAL '48 hours'
+       ORDER BY employee_id, timestamp ASC`,
+      [empIds],
+    );
+    const byEmp = new Map<number, TimeEntry[]>();
+    for (const id of empIds) byEmp.set(id, []);
+    for (const r of rows.rows) {
+      // Defaults must match storage.mapTimeEntryRow so cache entries seeded
+      // by this batch route are byte-identical to those fetched from the
+      // per-employee /api/steepin/entries/:employeeId endpoint.
+      byEmp.get(r.employee_id)!.push({
+        id: r.id,
+        employeeId: r.employee_id,
+        type: r.type as TimeEntry["type"],
+        timestamp: r.timestamp,
+        date: r.date,
+        role: r.role ?? null,
+        notes: r.notes ?? null,
+        isUnpaid: r.is_unpaid ?? false,
+        source: (r.source as TimeEntry["source"]) ?? "employee",
+      });
+    }
+    for (const id of empIds) {
+      const all = byEmp.get(id)!;
+      const todayEntries = all.filter(e => e.date === todayStr);
+      if (todayEntries.length > 0) {
+        result[id.toString()] = todayEntries;
+        continue;
+      }
+      if (all.length > 0) {
+        const latest = all[all.length - 1];
+        if (latest.type !== "clock-out") {
+          result[id.toString()] = all.filter(e => e.date === latest.date);
+          continue;
+        }
+      }
+      result[id.toString()] = [];
+    }
+    res.json(result);
   });
 
   router.get("/api/steepin/entries/:employeeId", async (req, res) => {
