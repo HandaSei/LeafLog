@@ -51,6 +51,7 @@ import {
   type EmployeeWorkday,
 } from "@/lib/timesheets/session-engine";
 import { useToday } from "@/hooks/use-today";
+import { usePersistedState, dateSerializer } from "@/hooks/use-persisted-state";
 
 const WEEK_OPTIONS = { weekStartsOn: 1 as const };
 
@@ -71,10 +72,22 @@ export default function Timesheets() {
   const today = useToday();
   const todayKey = toDateKey(today);
   const previousTodayKeyRef = useRef(todayKey);
-  const [viewMode, setViewMode] = useState<"week" | "month">("week");
-  const [selectedWeek, setSelectedWeek] = useState(() => getWeekStart(today));
-  const [selectedDay, setSelectedDay] = useState<Date>(() => today);
-  const [selectedMonth, setSelectedMonth] = useState(() => startOfMonth(today));
+  const [viewMode, setViewMode] = usePersistedState<"week" | "month">("leaflog_timesheets_view_mode", "week");
+  const [selectedWeek, setSelectedWeek] = usePersistedState<Date>(
+    "leaflog_timesheets_selected_week",
+    () => getWeekStart(today),
+    dateSerializer,
+  );
+  const [selectedDay, setSelectedDay] = usePersistedState<Date>(
+    "leaflog_timesheets_selected_day",
+    () => today,
+    dateSerializer,
+  );
+  const [selectedMonth, setSelectedMonth] = usePersistedState<Date>(
+    "leaflog_timesheets_selected_month",
+    () => startOfMonth(today),
+    dateSerializer,
+  );
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);

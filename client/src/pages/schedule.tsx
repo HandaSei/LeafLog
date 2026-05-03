@@ -47,6 +47,7 @@ import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import { calculateDayPay, formatCurrency, hasPayConfig } from "@/lib/pay-utils";
 import { exportSchedulePDF } from "@/lib/reports/schedule-pdf";
 import { useToday } from "@/hooks/use-today";
+import { usePersistedState, dateSerializer } from "@/hooks/use-persisted-state";
 
 const WEEK_OPTIONS = { weekStartsOn: 1 as const };
 
@@ -66,11 +67,18 @@ export default function Schedule() {
   const today = useToday();
   const todayKey = toDateKey(today);
   const previousTodayKeyRef = useRef(todayKey);
-  const [currentDate, setCurrentDate] = useState(() => today);
+  const [currentDate, setCurrentDate] = usePersistedState<Date>(
+    "leaflog_schedule_current_date",
+    () => today,
+    dateSerializer,
+  );
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
-  const [selectedDateKey, setSelectedDateKey] = useState(() => todayKey);
+  const [selectedDateKey, setSelectedDateKey] = usePersistedState<string>(
+    "leaflog_schedule_selected_date_key",
+    () => todayKey,
+  );
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const { toast } = useToast();
