@@ -4,6 +4,7 @@ import { insertShiftSchema } from "@shared/schema";
 import { requireAuth, requireRole } from "../auth";
 import { storage } from "../storage";
 import { getDateRangeQuery, toDateOnly } from "./utils";
+import { broadcastManagerUpdate } from "../sse";
 
 export function registerShiftRoutes(router: Router) {
   // === SHIFTS ===
@@ -111,6 +112,13 @@ export function registerShiftRoutes(router: Router) {
       }
     }
     const shift = await storage.createShift(shiftData);
+    broadcastManagerUpdate(req.session.userId!, {
+      type: "shifts-changed",
+      employeeId: shift.employeeId,
+      date: toDateOnly(shift.date),
+      shiftId: shift.id,
+      source: "manager",
+    });
     res.status(201).json(shift);
   });
 
@@ -181,11 +189,30 @@ export function registerShiftRoutes(router: Router) {
       }
     }
     const shift = await storage.updateShift(Number(req.params.id), shiftPatch);
+    if (shift) {
+      broadcastManagerUpdate(req.session.userId!, {
+        type: "shifts-changed",
+        employeeId: shift.employeeId,
+        date: toDateOnly(shift.date),
+        shiftId: shift.id,
+        source: "manager",
+      });
+    }
     res.json(shift);
   });
 
   router.delete("/api/shifts/:id", requireRole("admin", "manager"), async (req, res) => {
+    const existing = await storage.getShift(Number(req.params.id));
     await storage.deleteShift(Number(req.params.id));
+    if (existing) {
+      broadcastManagerUpdate(req.session.userId!, {
+        type: "shifts-changed",
+        employeeId: existing.employeeId,
+        date: toDateOnly(existing.date),
+        shiftId: existing.id,
+        source: "manager",
+      });
+    }
     res.status(204).send();
   });
 }

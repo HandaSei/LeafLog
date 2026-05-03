@@ -11,17 +11,17 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileHeader, MobileBottomNav } from "@/components/mobile-nav";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { useManagerLiveSync } from "@/hooks/use-manager-live-sync";
+import Dashboard from "@/pages/dashboard";
 
 const LoginPage = lazy(() => import("@/pages/login"));
 
-const loadDashboard = () => import("@/pages/dashboard");
 const loadSchedule = () => import("@/pages/schedule");
 const loadEmployees = () => import("@/pages/employees");
 const loadTimesheets = () => import("@/pages/timesheets");
 const loadSettings = () => import("@/pages/settings");
 const loadAdmin = () => import("@/pages/admin");
 
-const Dashboard = lazy(loadDashboard);
 const Schedule = lazy(loadSchedule);
 const Employees = lazy(loadEmployees);
 const Timesheets = lazy(loadTimesheets);
@@ -80,6 +80,7 @@ function AuthenticatedRouter() {
 
 function AuthenticatedLayout() {
   const { isAdmin, isManager } = useAuth();
+  useManagerLiveSync(isAdmin || isManager);
   const style = {
     "--sidebar-width": "15rem",
     "--sidebar-width-icon": "3rem",

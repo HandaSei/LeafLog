@@ -2,6 +2,7 @@ import type { Router } from "express";
 import { insertEmployeeSchema } from "@shared/schema";
 import { requireAuth, requireRole } from "../auth";
 import { storage } from "../storage";
+import { broadcastManagerUpdate } from "../sse";
 
 export function registerEmployeeRoutes(router: Router) {
   // === EMPLOYEES ===
@@ -26,6 +27,11 @@ export function registerEmployeeRoutes(router: Router) {
       return res.status(400).json({ message: parsed.error.issues[0].message });
     }
     const emp = await storage.createEmployee({ ...parsed.data, ownerAccountId: req.session.userId! });
+    broadcastManagerUpdate(req.session.userId!, {
+      type: "employees-changed",
+      employeeId: emp.id,
+      source: "manager",
+    });
     res.status(201).json(emp);
   });
 
@@ -40,6 +46,11 @@ export function registerEmployeeRoutes(router: Router) {
       return res.status(400).json({ message: partial.error.issues[0].message });
     }
     const updated = await storage.updateEmployee(Number(req.params.id), partial.data);
+    broadcastManagerUpdate(req.session.userId!, {
+      type: "employees-changed",
+      employeeId: Number(req.params.id),
+      source: "manager",
+    });
     res.json(updated);
   });
 
@@ -50,6 +61,11 @@ export function registerEmployeeRoutes(router: Router) {
       return res.status(403).json({ message: "Access denied" });
     }
     await storage.deleteEmployee(Number(req.params.id));
+    broadcastManagerUpdate(req.session.userId!, {
+      type: "employees-changed",
+      employeeId: Number(req.params.id),
+      source: "manager",
+    });
     res.status(204).send();
   });
 
@@ -63,6 +79,11 @@ export function registerEmployeeRoutes(router: Router) {
     const { role, color } = req.body;
     if (!role || !color) return res.status(400).json({ message: "Role and color are required" });
     await storage.updateShiftRolesForEmployee(Number(req.params.id), role, color);
+    broadcastManagerUpdate(req.session.userId!, {
+      type: "shifts-changed",
+      employeeId: Number(req.params.id),
+      source: "manager",
+    });
     res.json({ updated: true });
   });
 }

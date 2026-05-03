@@ -6,7 +6,7 @@ import { requireAuth, requireRole } from "../auth";
 import { storage } from "../storage";
 import { addSSEClient, broadcastEntryUpdate, removeSSEClient } from "../sse";
 import { autoCloseStaleSession } from "./auto-close";
-import { DATE_ONLY_RE, getDateRangeQuery } from "./utils";
+import { DATE_ONLY_RE, getDateRangeQuery, toDateOnly } from "./utils";
 import { handleKioskAction } from "../services/time-tracking/kiosk-action-service";
 import { importTimesheetCsv } from "../services/time-tracking/csv-import-service";
 
@@ -104,10 +104,17 @@ export function registerTimeTrackingRoutes(router: Router) {
     res.status(actionResult.status).json(actionResult.body);
   });
 
-  const broadcastEntriesChanged = (entries: TimeEntry[], type: string = "delete") => {
+  const broadcastEntriesChanged = (entries: TimeEntry[], type: string = "delete", accountId?: number) => {
     const employeeIds = new Set(entries.map(entry => entry.employeeId));
     for (const employeeId of employeeIds) {
-      broadcastEntryUpdate(employeeId, { type, timestamp: new Date().toISOString(), source: "manager" });
+      const entry = entries.find((item) => item.employeeId === employeeId);
+      broadcastEntryUpdate(employeeId, {
+        type,
+        timestamp: new Date().toISOString(),
+        source: "manager",
+        accountId,
+        date: entry ? toDateOnly(entry.date as string | Date) : undefined,
+      });
     }
   };
 
@@ -147,6 +154,8 @@ export function registerTimeTrackingRoutes(router: Router) {
       type: entry.type,
       timestamp: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : String(entry.timestamp),
       source: "manager",
+      accountId: req.session.userId!,
+      date: toDateOnly(entry.date as string | Date),
     });
     res.json(entry);
   });
@@ -176,6 +185,8 @@ export function registerTimeTrackingRoutes(router: Router) {
       type: entry.type,
       timestamp: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : String(entry.timestamp),
       source: "manager",
+      accountId: req.session.userId!,
+      date,
     });
     res.status(201).json(entry);
   });
@@ -191,7 +202,7 @@ export function registerTimeTrackingRoutes(router: Router) {
       return res.status(403).json({ message: "Access denied" });
     }
     const deletedEntries = await storage.deleteTimeEntriesByEmployeeAndDateForOwner(employeeId, date, req.session.userId!);
-    broadcastEntriesChanged(deletedEntries);
+    broadcastEntriesChanged(deletedEntries, "delete", req.session.userId!);
     res.status(204).send();
   });
 
@@ -202,7 +213,7 @@ export function registerTimeTrackingRoutes(router: Router) {
     }
     const deletedEntry = await storage.deleteTimeEntryForOwner(entryId, req.session.userId!);
     if (!deletedEntry) return res.status(404).json({ message: "Entry not found" });
-    broadcastEntriesChanged([deletedEntry]);
+    broadcastEntriesChanged([deletedEntry], "delete", req.session.userId!);
     res.status(204).send();
   });
 
@@ -220,7 +231,7 @@ export function registerTimeTrackingRoutes(router: Router) {
         return res.status(403).json({ message: "Not authorized" });
       }
       const deletedEntries = await storage.deleteTimeEntriesByEmployeeAndDateForOwner(employeeIdNum, dateStr, ownerAccountId);
-      broadcastEntriesChanged(deletedEntries);
+      broadcastEntriesChanged(deletedEntries, "delete", ownerAccountId);
       return res.status(204).send();
     }
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -233,7 +244,7 @@ export function registerTimeTrackingRoutes(router: Router) {
     const ownerAccountId = req.session.userId!;
     const deletedEntries = await storage.batchDeleteTimeEntriesByIds(numericIds, ownerAccountId);
     if (deletedEntries.length === 0) return res.status(404).json({ message: "Entries not found" });
-    broadcastEntriesChanged(deletedEntries);
+    broadcastEntriesChanged(deletedEntries, "delete", ownerAccountId);
     res.status(204).send();
   });
 

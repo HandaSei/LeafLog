@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -46,31 +46,49 @@ import { formatTime, getDaysBetween } from "@/lib/constants";
 import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import { calculateDayPay, formatCurrency, hasPayConfig } from "@/lib/pay-utils";
 import { exportSchedulePDF } from "@/lib/reports/schedule-pdf";
+import { useToday } from "@/hooks/use-today";
+
+const WEEK_OPTIONS = { weekStartsOn: 1 as const };
+
+function toDateKey(date: Date) {
+  return format(date, "yyyy-MM-dd");
+}
+
+function getDefaultDateKeyForWeek(dateInWeek: Date, today: Date) {
+  const start = startOfWeek(dateInWeek, WEEK_OPTIONS);
+  const end = endOfWeek(dateInWeek, WEEK_OPTIONS);
+  const days = getDaysBetween(start, end);
+  const todayKey = toDateKey(today);
+  return days.some((day) => toDateKey(day) === todayKey) ? todayKey : toDateKey(start);
+}
 
 export default function Schedule() {
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const today = useToday();
+  const todayKey = toDateKey(today);
+  const previousTodayKeyRef = useRef(todayKey);
+  const [currentDate, setCurrentDate] = useState(() => today);
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
-  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [selectedDateKey, setSelectedDateKey] = useState(() => todayKey);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const { toast } = useToast();
 
-  const isCurrentWeek = isSameWeek(currentDate, new Date(), { weekStartsOn: 1 });
+  const isCurrentWeek = isSameWeek(currentDate, today, WEEK_OPTIONS);
   const weekLabel = useMemo(() => {
-    const diff = differenceInCalendarWeeks(currentDate, new Date(), { weekStartsOn: 1 });
+    const diff = differenceInCalendarWeeks(currentDate, today, WEEK_OPTIONS);
     if (diff === 0) return "This Week";
     if (diff === 1) return "Next Week";
     if (diff === -1) return "Last Week";
     if (diff > 0) return `In ${diff} weeks`;
     return `${Math.abs(diff)} weeks ago`;
-  }, [currentDate]);
+  }, [currentDate, today]);
 
   const dateRange = useMemo(() => {
     return {
-      start: startOfWeek(currentDate, { weekStartsOn: 1 }),
-      end: endOfWeek(currentDate, { weekStartsOn: 1 }),
+      start: startOfWeek(currentDate, WEEK_OPTIONS),
+      end: endOfWeek(currentDate, WEEK_OPTIONS),
     };
   }, [currentDate]);
 
@@ -78,10 +96,26 @@ export default function Schedule() {
   const shiftsFrom = format(dateRange.start, "yyyy-MM-dd");
   const shiftsTo = format(dateRange.end, "yyyy-MM-dd");
 
+  const selectedDayIndex = useMemo(() => {
+    const selectedIdx = days.findIndex((day) => toDateKey(day) === selectedDateKey);
+    if (selectedIdx >= 0) return selectedIdx;
+
+    const fallbackKey = getDefaultDateKeyForWeek(currentDate, today);
+    const fallbackIdx = days.findIndex((day) => toDateKey(day) === fallbackKey);
+    return fallbackIdx >= 0 ? fallbackIdx : 0;
+  }, [currentDate, days, selectedDateKey, today]);
+
   useEffect(() => {
-    const todayIdx = days.findIndex((d) => isToday(d));
-    setSelectedDayIndex(todayIdx >= 0 ? todayIdx : 0);
-  }, [days]);
+    const previousTodayKey = previousTodayKeyRef.current;
+    if (previousTodayKey === todayKey) return;
+
+    const previousToday = parseISO(previousTodayKey);
+    if (isSameWeek(currentDate, previousToday, WEEK_OPTIONS)) {
+      setCurrentDate(today);
+    }
+    setSelectedDateKey((current) => current === previousTodayKey ? todayKey : current);
+    previousTodayKeyRef.current = todayKey;
+  }, [currentDate, today, todayKey]);
 
   const selectedDay = days[selectedDayIndex];
   const selectedDateStr = format(selectedDay, "yyyy-MM-dd");
@@ -140,7 +174,9 @@ export default function Schedule() {
   }, [visibleShifts]);
 
   const navigate = (direction: number) => {
-    setCurrentDate(direction > 0 ? addWeeks(currentDate, 1) : subWeeks(currentDate, 1));
+    const nextDate = direction > 0 ? addWeeks(currentDate, 1) : subWeeks(currentDate, 1);
+    setCurrentDate(nextDate);
+    setSelectedDateKey(getDefaultDateKeyForWeek(nextDate, today));
   };
 
   const handleAddShift = (dateStr?: string) => {
@@ -200,7 +236,10 @@ export default function Schedule() {
               </span>
               {!isCurrentWeek && (
                 <button
-                  onClick={() => setCurrentDate(new Date())}
+                  onClick={() => {
+                    setCurrentDate(today);
+                    setSelectedDateKey(todayKey);
+                  }}
                   className="text-[10px] text-primary hover:underline font-medium"
                   data-testid="button-today"
                 >
@@ -231,7 +270,7 @@ export default function Schedule() {
             shiftsByDate={shiftsByDate}
             employeeMap={employeeMap}
             selectedDayIndex={selectedDayIndex}
-            onSelectDayIndex={setSelectedDayIndex}
+            onSelectDayIndex={(idx) => setSelectedDateKey(toDateKey(days[idx]))}
             onAddShift={handleAddShift}
             onEditShift={handleEditShift}
             onDeleteShift={(id) => setPendingDeleteId(id)}

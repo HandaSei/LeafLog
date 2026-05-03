@@ -7,6 +7,7 @@ import {
 import { broadcastEntryUpdate } from "../../sse";
 import { pool, storage } from "../../storage";
 import { autoCloseStaleSession } from "../../routes/auto-close";
+import { toDateOnly } from "../../routes/utils";
 
 type KioskActionBody = {
   employeeId?: unknown;
@@ -142,6 +143,8 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
           type: "clock-out",
           timestamp: autoCloseTime!.toISOString(),
           source: "auto-close",
+          accountId: emp.ownerAccountId ?? undefined,
+          date: autoCloseDate!,
         });
       }
     }
@@ -150,6 +153,7 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
   if (type === "clock-in") {
     const lastClockOut = await storage.getLastClockOutForEmployee(employeeIdNum);
     if (lastClockOut) {
+      const lastClockOutDate = toDateOnly(lastClockOut.date as string | Date);
       const minutesSince = differenceInMinutes(actionTime, new Date(lastClockOut.timestamp));
       if (minutesSince < 2) {
         await storage.deleteTimeEntry(lastClockOut.id);
@@ -157,6 +161,8 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
           type: "delete",
           timestamp: actionTime.toISOString(),
           source: "auto-reclock",
+          accountId: emp.ownerAccountId ?? undefined,
+          date: lastClockOutDate,
         });
         return result(201, { reClockHandled: true, action: "reopen", entryId: lastClockOut.id });
       } else if (minutesSince <= 10) {
@@ -164,7 +170,7 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
         await storage.createTimeEntryManual(
           employeeIdNum,
           "break-start",
-          lastClockOut.date as string,
+          lastClockOutDate,
           new Date(lastClockOut.timestamp),
           null,
           null,
@@ -174,7 +180,7 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
         const entry = await storage.createTimeEntryManual(
           employeeIdNum,
           "break-end",
-          lastClockOut.date as string,
+          lastClockOutDate,
           actionTime,
           null,
           null,
@@ -185,6 +191,8 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
           type: "break-end",
           timestamp: actionTime.toISOString(),
           source: "auto-reclock",
+          accountId: emp.ownerAccountId ?? undefined,
+          date: lastClockOutDate,
         });
         return result(201, {
           reClockHandled: true,
@@ -345,6 +353,8 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
     type: entry.type,
     timestamp: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : String(entry.timestamp),
     source: "employee",
+    accountId: emp.ownerAccountId ?? undefined,
+    date,
   });
 
   let updatedEntries = await storage.getTimeEntriesByEmployeeAndDate(employeeIdNum, date);

@@ -5,6 +5,7 @@ import { breakPolicySchema, notificationSettingsSchema } from "@shared/schema";
 import { requireAuth, requireRole } from "../auth";
 import { pool, storage } from "../storage";
 import { DATE_ONLY_RE, type RecentEntryRow } from "./utils";
+import { addManagerSSEClient, removeManagerSSEClient } from "../sse";
 
 export function registerManagementRoutes(router: Router) {
   // === TIMESHEET BACKUPS ===
@@ -270,6 +271,22 @@ export function registerManagementRoutes(router: Router) {
     res.json(updated);
   });
 
+  router.get("/api/manager/stream", requireRole("admin", "manager"), (req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    res.write(`event: connected\ndata: ${JSON.stringify({ accountId: req.session.userId })}\n\n`);
+
+    const client = addManagerSSEClient(req.session.userId!, res);
+    req.on("close", () => {
+      removeManagerSSEClient(client);
+    });
+  });
+
   // === BOOTSTRAP — batches all startup data into one round-trip ===
   router.get("/api/bootstrap", async (req, res) => {
     if (!req.session.userId) {
@@ -286,10 +303,28 @@ export function registerManagementRoutes(router: Router) {
         ? req.query.dashboardYesterday
         : format(subDays(parseISO(dashboardToday), 1), "yyyy-MM-dd");
 
-    // Start employees query first; if in SteepIn mode, kick off the recent-entries
-    // query as soon as employee IDs are known so it overlaps with the remaining
-    // queries below instead of running sequentially after them.
+    // Start independent bootstrap queries early. Manager dashboard data begins as
+    // soon as the account role is known; SteepIn recent entries begin as soon as
+    // employee IDs are known.
+    const accountPromise = storage.getAccount(accountId);
     const employeesPromise = storage.getEmployees(accountId);
+    const dashboardPromise = accountPromise.then(async (account) => {
+      if (!account || isSteepInSession || (account.role !== "admin" && account.role !== "manager")) {
+        return null;
+      }
+      const [dashboardShifts, dashboardEntries, dashboardOpenSessionEntries] = await Promise.all([
+        storage.getShiftsByDateRange(accountId, dashboardYesterday, dashboardToday),
+        storage.getTimeEntriesByDate(dashboardToday, accountId),
+        storage.getOpenSessionEntries(accountId),
+      ]);
+      return {
+        today: dashboardToday,
+        yesterday: dashboardYesterday,
+        shifts: dashboardShifts,
+        entries: dashboardEntries,
+        openSessionEntries: dashboardOpenSessionEntries,
+      };
+    });
     const recentEntriesPromise: Promise<{ rows: RecentEntryRow[] }> | null = isSteepInSession
       ? employeesPromise.then(async (emps) => {
           const activeEmps = emps.filter(
@@ -308,12 +343,13 @@ export function registerManagementRoutes(router: Router) {
         })
       : null;
 
-    const [account, employees, roles, breakPolicy, notificationCount] = await Promise.all([
-      storage.getAccount(accountId),
+    const [account, employees, roles, breakPolicy, notificationCount, dashboardData] = await Promise.all([
+      accountPromise,
       employeesPromise,
       storage.getCustomRoles(accountId),
       storage.getBreakPolicy(accountId),
       storage.getUnreadNotificationCount(accountId),
+      dashboardPromise,
     ]);
     if (!account) {
       return res.json({ auth: { authenticated: false } });
@@ -348,19 +384,8 @@ export function registerManagementRoutes(router: Router) {
       nightStartHour: account.steepinNightStartHour ?? 19,
     };
 
-    if (!isSteepIn && (account.role === "admin" || account.role === "manager")) {
-      const [dashboardShifts, dashboardEntries, dashboardOpenSessionEntries] = await Promise.all([
-        storage.getShiftsByDateRange(accountId, dashboardYesterday, dashboardToday),
-        storage.getTimeEntriesByDate(dashboardToday, accountId),
-        storage.getOpenSessionEntries(accountId),
-      ]);
-      response.dashboard = {
-        today: dashboardToday,
-        yesterday: dashboardYesterday,
-        shifts: dashboardShifts,
-        entries: dashboardEntries,
-        openSessionEntries: dashboardOpenSessionEntries,
-      };
+    if (dashboardData) {
+      response.dashboard = dashboardData;
     }
 
     if (isSteepIn) {

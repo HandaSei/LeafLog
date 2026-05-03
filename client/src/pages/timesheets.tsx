@@ -2,9 +2,9 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   format, startOfWeek, endOfWeek, eachDayOfInterval, isToday, isSameDay,
-  differenceInMinutes, startOfMonth, endOfMonth, addMonths, subMonths, addDays, parseISO,
+  differenceInMinutes, startOfMonth, endOfMonth, addMonths, subMonths, addDays, parseISO, isSameWeek,
 } from "date-fns";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronLeft, ChevronRight, Edit2, Plus, Coffee, Search, FileDown, FileUp, Calendar, CalendarDays, Check, AlertCircle, StickyNote, Trash2, Clock as ClockIcon, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -50,13 +50,31 @@ import {
   toEntryTimestampIso,
   type EmployeeWorkday,
 } from "@/lib/timesheets/session-engine";
+import { useToday } from "@/hooks/use-today";
+
+const WEEK_OPTIONS = { weekStartsOn: 1 as const };
+
+function toDateKey(date: Date) {
+  return format(date, "yyyy-MM-dd");
+}
+
+function getWeekStart(date: Date) {
+  return startOfWeek(date, WEEK_OPTIONS);
+}
+
+function getDefaultSelectedDayForWeek(weekStart: Date, today: Date) {
+  return isSameWeek(weekStart, today, WEEK_OPTIONS) ? today : weekStart;
+}
 
 export default function Timesheets() {
   const [, setLocation] = useLocation();
+  const today = useToday();
+  const todayKey = toDateKey(today);
+  const previousTodayKeyRef = useRef(todayKey);
   const [viewMode, setViewMode] = useState<"week" | "month">("week");
-  const [selectedWeek, setSelectedWeek] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [selectedDay, setSelectedDay] = useState<Date>(() => new Date());
-  const [selectedMonth, setSelectedMonth] = useState(() => startOfMonth(new Date()));
+  const [selectedWeek, setSelectedWeek] = useState(() => getWeekStart(today));
+  const [selectedDay, setSelectedDay] = useState<Date>(() => today);
+  const [selectedMonth, setSelectedMonth] = useState(() => startOfMonth(today));
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
@@ -118,14 +136,14 @@ export default function Timesheets() {
   const [isExporting, setIsExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportSelectedEmployeeIds, setExportSelectedEmployeeIds] = useState<number[]>([]);
-  const [exportStartDate, setExportStartDate] = useState(() => format(startOfMonth(new Date()), "yyyy-MM-dd"));
-  const [exportEndDate, setExportEndDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [exportStartDate, setExportStartDate] = useState(() => format(startOfMonth(today), "yyyy-MM-dd"));
+  const [exportEndDate, setExportEndDate] = useState(() => todayKey);
   const [exportShowScheduled, setExportShowScheduled] = useState(false);
   const [csvImporterOpen, setCsvImporterOpen] = useState(false);
   const [reopenGapDialog, setReopenGapDialog] = useState<{ clockOutEntry: TimeEntry; gapMinutes: number; employeeId: number; clockOutDate: string } | null>(null);
   const { toast } = useToast();
 
-  const weekEnd = endOfWeek(selectedWeek, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(selectedWeek, WEEK_OPTIONS);
   const weekDays = useMemo(() => eachDayOfInterval({ start: selectedWeek, end: weekEnd }), [selectedWeek]);
   const monthEnd = useMemo(() => endOfMonth(selectedMonth), [selectedMonth]);
   const entriesFrom = format(addDays(viewMode === "week" ? selectedWeek : selectedMonth, -1), "yyyy-MM-dd");
@@ -263,13 +281,34 @@ export default function Timesheets() {
     };
   };
 
+  useEffect(() => {
+    const previousTodayKey = previousTodayKeyRef.current;
+    if (previousTodayKey === todayKey) return;
+
+    const previousToday = parseISO(previousTodayKey);
+    const wasFollowingToday =
+      isSameDay(selectedDay, previousToday) &&
+      isSameWeek(selectedWeek, previousToday, WEEK_OPTIONS);
+
+    if (wasFollowingToday) {
+      setSelectedWeek(getWeekStart(today));
+      setSelectedDay(today);
+      setViewingDate(null);
+    }
+    if (isSameDay(selectedMonth, startOfMonth(previousToday))) {
+      setSelectedMonth(startOfMonth(today));
+    }
+    setExportEndDate((current) => current === previousTodayKey ? todayKey : current);
+    previousTodayKeyRef.current = todayKey;
+  }, [selectedDay, selectedMonth, selectedWeek, today, todayKey]);
 
   const navigateWeek = (direction: number) => {
     const next = new Date(selectedWeek);
     next.setDate(next.getDate() + direction * 7);
-    const newStart = startOfWeek(next, { weekStartsOn: 1 });
+    const newStart = getWeekStart(next);
     setSelectedWeek(newStart);
-    setSelectedDay(newStart);
+    setSelectedDay(getDefaultSelectedDayForWeek(newStart, today));
+    setViewingDate(null);
   };
 
   const navigateMonth = (direction: number) => {

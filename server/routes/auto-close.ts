@@ -41,6 +41,13 @@ export async function autoCloseStaleSession(employeeId: number): Promise<void> {
       false,
       "auto-close"
     );
-    broadcastEntryUpdate(employeeId, { type: "clock-out", timestamp: closeTime.toISOString(), source: "auto-close" });
+    const emp = await storage.getEmployee(employeeId);
+    broadcastEntryUpdate(employeeId, {
+      type: "clock-out",
+      timestamp: closeTime.toISOString(),
+      source: "auto-close",
+      accountId: emp?.ownerAccountId ?? undefined,
+      date: closeDate,
+    });
   }
 }
