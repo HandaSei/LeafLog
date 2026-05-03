@@ -129,6 +129,20 @@ export async function processQueue(
         removeFromQueue(action.id);
         const errorData = await res.json().catch(() => ({ message: "Action conflicted with server state" }));
         onProcessed?.(action, false, errorData.message);
+      } else if (res.status === 401) {
+        // Kiosk session may be transiently expired (sleep/wake, sw update,
+        // network change). Keep queued actions so they can retry once the
+        // long-lived session is restored, instead of silently dropping them.
+        break;
+      } else if (res.status === 403) {
+        const errorData = await res.json().catch(() => ({ message: "Access denied" }));
+        if (errorData.message === "Employee is archived") {
+          removeFromQueue(action.id);
+          onProcessed?.(action, false, errorData.message);
+        } else {
+          // Treat other 403s as transient auth issues, same rationale as 401.
+          break;
+        }
       } else if (res.status >= 400 && res.status < 500) {
         removeFromQueue(action.id);
         onProcessed?.(action, false);

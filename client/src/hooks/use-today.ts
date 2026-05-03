@@ -7,20 +7,38 @@ function msUntilNextLocalDay() {
   return Math.max(1000, nextDay.getTime() - now.getTime());
 }
 
+function localDateKey(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function useToday() {
   const [today, setToday] = useState(() => new Date());
 
   useEffect(() => {
     let timeoutId: number | undefined;
 
-    const refresh = () => {
-      setToday(new Date());
-      timeoutId = window.setTimeout(refresh, msUntilNextLocalDay());
+    // Only emit a new Date when the local YYYY-MM-DD has actually changed,
+    // so consumers' useMemo([today]) deps don't invalidate on every focus.
+    const maybeUpdate = () => {
+      setToday((prev) => {
+        const next = new Date();
+        return localDateKey(prev) === localDateKey(next) ? prev : next;
+      });
     };
 
-    timeoutId = window.setTimeout(refresh, msUntilNextLocalDay());
+    const scheduleNext = () => {
+      timeoutId = window.setTimeout(() => {
+        maybeUpdate();
+        scheduleNext();
+      }, msUntilNextLocalDay());
+    };
 
-    const handleResume = () => setToday(new Date());
+    scheduleNext();
+
+    const handleResume = () => maybeUpdate();
     window.addEventListener("focus", handleResume);
     document.addEventListener("visibilitychange", handleResume);
 

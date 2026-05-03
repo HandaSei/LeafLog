@@ -607,11 +607,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOpenSessionDate(employeeId: number): Promise<string | null> {
+    // Widened from 48h to 7 days so a long-stuck session (auto-close failed,
+    // kiosk left clocked in over a holiday, etc.) is still anchored to its
+    // original date rather than silently being treated as "today".
     const result = await pool.query<OpenSessionEntryProbeRow>(
       `SELECT type, entry_date::text as date, timestamp
        FROM time_entries
        WHERE employee_id = $1
-         AND timestamp > NOW() - INTERVAL '48 hours'
+         AND timestamp > NOW() - INTERVAL '7 days'
          AND type IN ('clock-in', 'clock-out', 'break-start', 'break-end')
        ORDER BY timestamp ASC`,
       [employeeId]
