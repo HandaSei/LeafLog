@@ -533,10 +533,10 @@ export default function Dashboard() {
                       <EmployeeAvatar name={row.employee.name} color={row.employee.color} size="sm" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-4 overflow-x-auto pb-1 no-scrollbar">
-                          <div className="flex-shrink-0 border-r pr-4">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-semibold truncate">{row.employee.name}</span>
-                              <span className="text-[10px] text-muted-foreground">
+                          <div className="flex-shrink-0 border-r pr-4 min-w-[82px] max-w-[118px] sm:max-w-[160px]">
+                            <div className="flex min-w-0 flex-col">
+                              <span className="truncate text-xs font-semibold">{row.employee.name}</span>
+                              <span className="truncate text-[10px] text-muted-foreground">
                                 {row.employee.role || "No Role"}
                               </span>
                             </div>

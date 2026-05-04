@@ -33,6 +33,7 @@ import { ROLE_COLORS } from "@/lib/constants";
 import { SettingsManagementTab } from "@/components/settings/settings-management-tab";
 import { SettingsAccountTab } from "@/components/settings/settings-account-tab";
 import { SettingsAestheticTab } from "@/components/settings/settings-aesthetic-tab";
+import { isActiveUnarchivedEmployee } from "@/lib/employees";
 
 type SettingsTab = "management" | "account" | "aesthetic";
 
@@ -332,7 +333,8 @@ export default function SettingsPage() {
     updateEmpExceptionMutation.mutate({ id: Number(empExceptionId), paidBreakMinutes: paid, maxBreakMinutes: max });
   };
 
-  const employeesWithExceptions = employees.filter(e => e.paidBreakMinutes != null || e.maxBreakMinutes != null);
+  const breakPolicyEmployees = employees.filter(isActiveUnarchivedEmployee);
+  const employeesWithExceptions = breakPolicyEmployees.filter(e => e.paidBreakMinutes != null || e.maxBreakMinutes != null);
 
   const createMutation = useMutation({
     mutationFn: async (data: { name: string; color: string }) => {
@@ -647,7 +649,7 @@ export default function SettingsPage() {
                   <SelectValue placeholder="Select employee…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {employees.map(emp => (
+                  {breakPolicyEmployees.map(emp => (
                     <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
                   ))}
                 </SelectContent>
