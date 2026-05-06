@@ -7,6 +7,7 @@ import { storage } from "./storage";
 import { loginSchema, registerManagerSchema, accessCodeLoginSchema, forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema, upgradeEmployeeSchema, type Account } from "@shared/schema";
 import { format } from "date-fns";
 import { sendVerificationEmail, generateCode } from "./email";
+import { getNewAccountTrialEndDate } from "@shared/subscription";
 
 declare module "express-session" {
   interface SessionData {
@@ -289,6 +290,7 @@ export function registerAuthRoutes(router: Router) {
       agencyName: parsed.data.agencyName,
       email: parsed.data.email,
       country: parsed.data.country || null,
+      subscriptionTier: parsed.data.subscriptionTier,
     });
 
     const sent = await sendVerificationEmail(parsed.data.email, code, "registration");
@@ -343,6 +345,10 @@ export function registerAuthRoutes(router: Router) {
       agencyName: accountData.agencyName,
       email: accountData.email,
       country: accountData.country || null,
+      subscriptionTier: accountData.subscriptionTier || "rinse",
+      subscriptionStatus: "trial",
+      subscriptionTrialEndsAt: getNewAccountTrialEndDate(),
+      subscriptionUpdatedAt: new Date(),
     });
 
     await storage.markEmailVerificationUsed(verification.id);

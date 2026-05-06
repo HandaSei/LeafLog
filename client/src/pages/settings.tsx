@@ -33,9 +33,10 @@ import { ROLE_COLORS } from "@/lib/constants";
 import { SettingsManagementTab } from "@/components/settings/settings-management-tab";
 import { SettingsAccountTab } from "@/components/settings/settings-account-tab";
 import { SettingsAestheticTab } from "@/components/settings/settings-aesthetic-tab";
+import { SettingsSubscriptionTab, type SubscriptionSummary } from "@/components/settings/settings-subscription-tab";
 import { isActiveUnarchivedEmployee } from "@/lib/employees";
 
-type SettingsTab = "management" | "account" | "aesthetic";
+type SettingsTab = "management" | "account" | "aesthetic" | "subscription";
 
 function readCachedSteepInTheme() {
   try {
@@ -132,6 +133,11 @@ export default function SettingsPage() {
   });
 
   const { data: employees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery<SubscriptionSummary>({
+    queryKey: ["/api/subscription"],
+    enabled: activeTab === "subscription",
+  });
 
   const { data: backups = [], isLoading: backupsLoading } = useQuery<Omit<TimesheetBackup, "snapshot">[]>({
     queryKey: ["/api/backups"],
@@ -442,7 +448,7 @@ export default function SettingsPage() {
 
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-6 max-w-2xl mx-auto space-y-6">
+    <div className="flex flex-col h-full overflow-auto p-6 max-w-5xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <div className="p-2 rounded-lg bg-primary/10">
           <Settings2 className="w-5 h-5 text-primary" />
@@ -454,10 +460,11 @@ export default function SettingsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)} className="w-full">
-        <TabsList className="w-full grid grid-cols-3 mb-2">
-          <TabsTrigger value="management" data-testid="tab-management">Management</TabsTrigger>
-          <TabsTrigger value="account" data-testid="tab-account">Account</TabsTrigger>
-          <TabsTrigger value="aesthetic" data-testid="tab-aesthetic">Aesthetic</TabsTrigger>
+        <TabsList className="w-full grid grid-cols-4 mb-2">
+          <TabsTrigger value="management" className="px-1 text-[11px] sm:text-sm" data-testid="tab-management">Management</TabsTrigger>
+          <TabsTrigger value="account" className="px-1 text-[11px] sm:text-sm" data-testid="tab-account">Account</TabsTrigger>
+          <TabsTrigger value="aesthetic" className="px-1 text-[11px] sm:text-sm" data-testid="tab-aesthetic">Aesthetic</TabsTrigger>
+          <TabsTrigger value="subscription" className="px-1 text-[11px] sm:text-sm" data-testid="tab-subscription">Subscription</TabsTrigger>
         </TabsList>
 
         {/* ── MANAGEMENT TAB ── */}
@@ -529,6 +536,11 @@ export default function SettingsPage() {
           setDayStartHour={setDayStartHour}
           nightStartHour={nightStartHour}
           setNightStartHour={setNightStartHour}
+        />
+
+        <SettingsSubscriptionTab
+          subscription={subscription}
+          isLoading={subscriptionLoading}
         />
       </Tabs>
 

@@ -1,6 +1,7 @@
 import { storage, pool } from "./storage";
 import { format, addDays } from "date-fns";
 import bcrypt from "bcryptjs";
+import { getExistingAccountTrialEndDate } from "@shared/subscription";
 
 async function createIndexIfTableExists(tableName: string, createIndexSql: string) {
   const result = await pool.query("SELECT to_regclass($1) as table_name", [`public.${tableName}`]);
@@ -35,6 +36,39 @@ export async function runMigrations() {
     UPDATE accounts SET role = 'admin'
     WHERE agency_name = 'LeafLog' AND role = 'manager'
   `);
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription_tier text`);
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription_status text`);
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription_trial_ends_at timestamp`);
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription_gift_expires_at timestamp`);
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription_updated_at timestamp`);
+  await pool.query(
+    `UPDATE accounts
+     SET subscription_tier = 'ceremony',
+         subscription_status = 'trial',
+         subscription_trial_ends_at = $1,
+         subscription_updated_at = COALESCE(subscription_updated_at, NOW())
+     WHERE subscription_tier IS NULL
+       AND role IN ('admin', 'manager')`,
+    [getExistingAccountTrialEndDate()],
+  );
+  await pool.query(
+    `UPDATE accounts
+     SET subscription_tier = 'raw',
+         subscription_status = 'free',
+         subscription_updated_at = COALESCE(subscription_updated_at, NOW())
+     WHERE subscription_tier IS NULL`,
+  );
+  await pool.query(
+    `UPDATE accounts
+     SET subscription_status = CASE
+       WHEN subscription_tier = 'raw' THEN 'free'
+       ELSE 'trial'
+     END
+     WHERE subscription_status IS NULL`,
+  );
+  await pool.query(`UPDATE accounts SET subscription_updated_at = NOW() WHERE subscription_updated_at IS NULL`);
+  await pool.query(`ALTER TABLE accounts ALTER COLUMN subscription_tier SET DEFAULT 'raw'`);
+  await pool.query(`ALTER TABLE accounts ALTER COLUMN subscription_status SET DEFAULT 'free'`);
   await createIndexIfTableExists("employees", `CREATE INDEX IF NOT EXISTS employees_owner_status_idx ON employees (owner_account_id, status)`);
   await createIndexIfTableExists("shifts", `CREATE INDEX IF NOT EXISTS shifts_employee_date_idx ON shifts (employee_id, date)`);
   await createIndexIfTableExists("time_entries", `CREATE INDEX IF NOT EXISTS time_entries_employee_date_timestamp_idx ON time_entries (employee_id, entry_date, timestamp)`);

@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, onAuthError } from "@/lib/queryClient";
 import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import { API_BASE_URL } from "@/lib/api-base";
+import type { PaidTrialTierId } from "@shared/subscription";
 const AUTH_CACHE_KEY = "leaflog_auth_state";
 const BOOTSTRAP_TIMEOUT_MS = 5000; // 5 second timeout for bootstrap
 const VERIFICATION_TIMEOUT_MS = 2500; // 2.5s for background verification - faster initial render
@@ -237,7 +238,7 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<void>;
   loginSteepIn: (username: string, password: string) => Promise<void>;
   loginWithCode: (code: string) => Promise<void>;
-  registerManager: (username: string, password: string, email: string, agencyName: string, country?: string) => Promise<AuthEmailResult>;
+  registerManager: (username: string, password: string, email: string, agencyName: string, country?: string, subscriptionTier?: PaidTrialTierId) => Promise<AuthEmailResult>;
   verifyEmail: (email: string, code: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<AuthEmailResult>;
   resetPassword: (email: string, code: string, newPassword: string) => Promise<void>;
@@ -414,8 +415,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const registerMutation = useMutation({
-    mutationFn: async ({ username, password, email, agencyName, country }: { username: string; password: string; email: string; agencyName: string; country?: string }) => {
-      const res = await apiRequest("POST", "/api/auth/register-manager", { username, password, email, agencyName, country });
+    mutationFn: async ({ username, password, email, agencyName, country, subscriptionTier }: { username: string; password: string; email: string; agencyName: string; country?: string; subscriptionTier?: PaidTrialTierId }) => {
+      const res = await apiRequest("POST", "/api/auth/register-manager", { username, password, email, agencyName, country, subscriptionTier });
       return res.json();
     },
   });
@@ -499,8 +500,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await codeMutation.mutateAsync(code);
   }, [codeMutation]);
 
-  const registerManager = useCallback(async (username: string, password: string, email: string, agencyName: string, country?: string) => {
-    return await registerMutation.mutateAsync({ username, password, email, agencyName, country });
+  const registerManager = useCallback(async (username: string, password: string, email: string, agencyName: string, country?: string, subscriptionTier?: PaidTrialTierId) => {
+    return await registerMutation.mutateAsync({ username, password, email, agencyName, country, subscriptionTier });
   }, [registerMutation]);
 
   const verifyEmail = useCallback(async (email: string, code: string) => {

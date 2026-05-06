@@ -7,17 +7,53 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LogIn, KeyRound, Monitor, UserPlus, ArrowLeft } from "lucide-react";
 import { useLocation, Redirect } from "wouter";
 import logoImage from "@assets/m3MJU_1771476103365.webp";
+import { PAID_TRIAL_TIER_IDS, SUBSCRIPTION_TIERS, type PaidTrialTierId } from "@shared/subscription";
 
 const LEAF_YELLOW = "#D4C5A0";
 const LEAF_YELLOW_BG = "#E8DCC4";
 const LEAF_GREEN = "#8B9E8B";
 const inputStyle = "bg-white/90 border-[#b8cbb8] text-[#3a4a3a] placeholder:text-[#8B9E8B]/70 focus-visible:ring-[#8B9E8B]";
 const labelStyle = { color: LEAF_YELLOW };
+const trialTierOptions = SUBSCRIPTION_TIERS.filter((tier) =>
+  PAID_TRIAL_TIER_IDS.includes(tier.id as PaidTrialTierId),
+);
 
 type View = "main" | "signup" | "verify-registration" | "forgot-password" | "reset-password" | "upgrade-employee" | "verify-upgrade";
+
+function TrialTierSelect({
+  value,
+  onValueChange,
+  triggerTestId,
+}: {
+  value: PaidTrialTierId;
+  onValueChange: (value: PaidTrialTierId) => void;
+  triggerTestId: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label style={labelStyle}>Trial Tier</Label>
+      <Select value={value} onValueChange={(next) => onValueChange(next as PaidTrialTierId)}>
+        <SelectTrigger className={inputStyle} data-testid={triggerTestId}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {trialTierOptions.map((tier) => (
+            <SelectItem key={tier.id} value={tier.id}>
+              {tier.name} - {tier.priceLabel}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-[11px]" style={{ color: "#d4d4c0" }}>
+        Starts with 7 days free, then falls back to Raw.
+      </p>
+    </div>
+  );
+}
 
 export default function LoginPage() {
   const {
@@ -37,8 +73,8 @@ export default function LoginPage() {
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [codeForm, setCodeForm] = useState({ code: "" });
   const [steepinForm, setSteepinForm] = useState({ username: "", password: "" });
-  const [registerForm, setRegisterForm] = useState({ username: "", password: "", email: "", agencyName: "", country: "" });
-  const [signupForm, setSignupForm] = useState({ username: "", password: "", email: "", agencyName: "", country: "" });
+  const [registerForm, setRegisterForm] = useState({ username: "", password: "", email: "", agencyName: "", country: "", subscriptionTier: "rinse" as PaidTrialTierId });
+  const [signupForm, setSignupForm] = useState({ username: "", password: "", email: "", agencyName: "", country: "", subscriptionTier: "rinse" as PaidTrialTierId });
   const [forgotForm, setForgotForm] = useState({ email: "" });
   const [emailSent, setEmailSent] = useState(true);
   const [fallbackCode, setFallbackCode] = useState<string | undefined>(undefined);
@@ -276,7 +312,7 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      const result = await registerManager(registerForm.username, registerForm.password, registerForm.email, registerForm.agencyName, registerForm.country || undefined);
+      const result = await registerManager(registerForm.username, registerForm.password, registerForm.email, registerForm.agencyName, registerForm.country || undefined, registerForm.subscriptionTier);
       if (result.requiresVerification) {
         setPendingEmail(result.email ?? registerForm.email);
         const sent = result.emailSent !== false;
@@ -302,7 +338,7 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      const result = await registerManager(signupForm.username, signupForm.password, signupForm.email, signupForm.agencyName, signupForm.country || undefined);
+      const result = await registerManager(signupForm.username, signupForm.password, signupForm.email, signupForm.agencyName, signupForm.country || undefined, signupForm.subscriptionTier);
       if (result.requiresVerification) {
         setPendingEmail(result.email ?? signupForm.email);
         const sent = result.emailSent !== false;
@@ -707,6 +743,11 @@ export default function LoginPage() {
                   data-testid="input-signup-password"
                 />
               </div>
+              <TrialTierSelect
+                value={signupForm.subscriptionTier}
+                onValueChange={(subscriptionTier) => setSignupForm({ ...signupForm, subscriptionTier })}
+                triggerTestId="select-signup-trial-tier"
+              />
               <Button
                 type="submit"
                 className="w-full font-semibold"
@@ -817,6 +858,11 @@ export default function LoginPage() {
                   data-testid="input-register-password"
                 />
               </div>
+              <TrialTierSelect
+                value={registerForm.subscriptionTier}
+                onValueChange={(subscriptionTier) => setRegisterForm({ ...registerForm, subscriptionTier })}
+                triggerTestId="select-register-trial-tier"
+              />
               <Button
                 type="submit"
                 className="w-full font-semibold"

@@ -110,7 +110,21 @@ type TimesheetBackupEntry = Omit<TimeEntryRow, "timestamp"> & {
   timestamp: Date | string;
 };
 
-type AccountSummaryRow = Pick<Account, "id" | "username" | "agencyName" | "email" | "role" | "createdAt">;
+type AccountSummaryRow = Pick<
+  Account,
+  | "id"
+  | "username"
+  | "agencyName"
+  | "email"
+  | "role"
+  | "createdAt"
+  | "subscriptionTier"
+  | "subscriptionStatus"
+  | "subscriptionTrialEndsAt"
+  | "subscriptionGiftExpiresAt"
+  | "subscriptionUpdatedAt"
+>;
+type AccountInsertRow = typeof accounts.$inferInsert;
 
 function mapTimeEntryRow(row: TimeEntryRow): TimeEntry {
   return {
@@ -278,7 +292,7 @@ export interface IStorage {
   deleteTimesheetBackup(id: number, ownerAccountId: number): Promise<void>;
 
   getLastClockOutForEmployee(employeeId: number): Promise<TimeEntry | null>;
-  getAllAccounts(): Promise<Pick<Account, "id" | "username" | "agencyName" | "email" | "role" | "createdAt">[]>;
+  getAllAccounts(): Promise<AccountSummaryRow[]>;
 
   getKioskDevices(ownerAccountId: number): Promise<KioskDevice[]>;
   registerKioskDevice(ownerAccountId: number, deviceId: string, deviceName: string): Promise<KioskDevice>;
@@ -455,7 +469,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createAccount(data: InsertAccount): Promise<Account> {
-    const [acc] = await db.insert(accounts).values(data).returning();
+    const [acc] = await db.insert(accounts).values(data as AccountInsertRow).returning();
     return acc;
   }
 
@@ -1013,9 +1027,19 @@ export class DatabaseStorage implements IStorage {
     return mapTimeEntryRow(res.rows[0]);
   }
 
-  async getAllAccounts(): Promise<Pick<Account, "id" | "username" | "agencyName" | "email" | "role" | "createdAt">[]> {
+  async getAllAccounts(): Promise<AccountSummaryRow[]> {
     const result = await pool.query<AccountSummaryRow>(
-      `SELECT id, username, agency_name as "agencyName", email, role, created_at as "createdAt"
+      `SELECT id,
+              username,
+              agency_name as "agencyName",
+              email,
+              role,
+              created_at as "createdAt",
+              subscription_tier as "subscriptionTier",
+              subscription_status as "subscriptionStatus",
+              subscription_trial_ends_at as "subscriptionTrialEndsAt",
+              subscription_gift_expires_at as "subscriptionGiftExpiresAt",
+              subscription_updated_at as "subscriptionUpdatedAt"
        FROM accounts
        ORDER BY created_at DESC`
     );

@@ -1,11 +1,41 @@
 import type { Router } from "express";
 import bcrypt from "bcryptjs";
 import { format, parseISO, subDays } from "date-fns";
-import { breakPolicySchema, notificationSettingsSchema } from "@shared/schema";
+import { adminGiftSubscriptionSchema, breakPolicySchema, notificationSettingsSchema, type Account } from "@shared/schema";
+import { computeEffectiveSubscription } from "@shared/subscription";
 import { requireAuth, requireRole } from "../auth";
 import { pool, storage } from "../storage";
 import { DATE_ONLY_RE, type RecentEntryRow } from "./utils";
 import { addManagerSSEClient, removeManagerSSEClient } from "../sse";
+
+function subscriptionSnapshotFromAccount(account: Pick<
+  Account,
+  | "subscriptionTier"
+  | "subscriptionStatus"
+  | "subscriptionTrialEndsAt"
+  | "subscriptionGiftExpiresAt"
+  | "subscriptionUpdatedAt"
+>) {
+  return computeEffectiveSubscription({
+    tier: account.subscriptionTier,
+    status: account.subscriptionStatus,
+    trialEndsAt: account.subscriptionTrialEndsAt,
+    giftExpiresAt: account.subscriptionGiftExpiresAt,
+    updatedAt: account.subscriptionUpdatedAt,
+  });
+}
+
+function parseGiftExpiresAt(value: string | null | undefined) {
+  if (!value) return null;
+  if (!DATE_ONLY_RE.test(value)) {
+    throw new Error("Gift expiry must be a date in yyyy-MM-dd format");
+  }
+  const expiresAt = new Date(`${value}T23:59:59.999`);
+  if (Number.isNaN(expiresAt.getTime())) {
+    throw new Error("Gift expiry date is invalid");
+  }
+  return expiresAt;
+}
 
 export function registerManagementRoutes(router: Router) {
   // === TIMESHEET BACKUPS ===
@@ -189,6 +219,13 @@ export function registerManagementRoutes(router: Router) {
     await storage.updateNotificationSettings(req.session.userId!, parsed.data);
     const settings = await storage.getNotificationSettings(req.session.userId!);
     res.json(settings);
+  });
+
+  // === SUBSCRIPTION ===
+  router.get("/api/subscription", requireAuth, async (req, res) => {
+    const account = await storage.getAccount(req.session.userId!);
+    if (!account) return res.status(404).json({ message: "Account not found" });
+    res.json(subscriptionSnapshotFromAccount(account));
   });
 
   // === NOTIFICATIONS ===
@@ -574,6 +611,48 @@ export function registerManagementRoutes(router: Router) {
   // === ADMIN ===
   router.get("/api/admin/accounts", requireRole("admin"), async (_req, res) => {
     const allAccounts = await storage.getAllAccounts();
-    res.json(allAccounts);
+    res.json(allAccounts.map((account) => ({
+      ...account,
+      subscription: subscriptionSnapshotFromAccount(account),
+    })));
+  });
+
+  router.patch("/api/admin/accounts/:id/subscription-gift", requireRole("admin"), async (req, res) => {
+    const accountId = Number(req.params.id);
+    if (isNaN(accountId)) return res.status(400).json({ message: "Invalid account id" });
+
+    const parsed = adminGiftSubscriptionSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+
+    let expiresAt: Date | null;
+    try {
+      expiresAt = parseGiftExpiresAt(parsed.data.expiresAt);
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message });
+    }
+
+    const account = await storage.updateAccount(accountId, {
+      subscriptionTier: parsed.data.tier,
+      subscriptionStatus: "gifted",
+      subscriptionTrialEndsAt: null,
+      subscriptionGiftExpiresAt: expiresAt,
+      subscriptionUpdatedAt: new Date(),
+    });
+    if (!account) return res.status(404).json({ message: "Account not found" });
+
+    res.json({
+      id: account.id,
+      username: account.username,
+      agencyName: account.agencyName,
+      email: account.email,
+      role: account.role,
+      createdAt: account.createdAt,
+      subscriptionTier: account.subscriptionTier,
+      subscriptionStatus: account.subscriptionStatus,
+      subscriptionTrialEndsAt: account.subscriptionTrialEndsAt,
+      subscriptionGiftExpiresAt: account.subscriptionGiftExpiresAt,
+      subscriptionUpdatedAt: account.subscriptionUpdatedAt,
+      subscription: subscriptionSnapshotFromAccount(account),
+    });
   });
 }

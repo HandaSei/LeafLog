@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, integer, date, time, timestamp, boolean, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import type { SubscriptionStatus, SubscriptionTierId } from "./subscription";
 
 export const accounts = pgTable("accounts", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -27,6 +28,11 @@ export const accounts = pgTable("accounts", {
   globalSpecialDayOfWeek: integer("global_special_day_of_week"),
   globalSpecialDayRate: numeric("global_special_day_rate", { precision: 10, scale: 2 }),
   globalCustomPayDays: text("global_custom_pay_days"),
+  subscriptionTier: text("subscription_tier").$type<SubscriptionTierId>().default("raw"),
+  subscriptionStatus: text("subscription_status").$type<SubscriptionStatus>().default("free"),
+  subscriptionTrialEndsAt: timestamp("subscription_trial_ends_at"),
+  subscriptionGiftExpiresAt: timestamp("subscription_gift_expires_at"),
+  subscriptionUpdatedAt: timestamp("subscription_updated_at"),
   timezone: text("timezone").default("UTC"),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -177,6 +183,14 @@ export const registerManagerSchema = z.object({
   email: z.string().email("Valid email is required"),
   agencyName: z.string().min(1, "Agency name is required"),
   country: z.string().optional(),
+  subscriptionTier: z.enum(["rinse", "first_pour", "gongfu"]).default("rinse"),
+});
+
+export const subscriptionTierSchema = z.enum(["raw", "rinse", "first_pour", "gongfu", "ceremony"]);
+
+export const adminGiftSubscriptionSchema = z.object({
+  tier: subscriptionTierSchema,
+  expiresAt: z.string().trim().nullable().optional(),
 });
 
 export const emailVerifications = pgTable("email_verifications", {
