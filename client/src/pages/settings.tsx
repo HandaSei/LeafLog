@@ -136,7 +136,7 @@ export default function SettingsPage() {
 
   const { data: subscription, isLoading: subscriptionLoading } = useQuery<SubscriptionSummary>({
     queryKey: ["/api/subscription"],
-    enabled: activeTab === "subscription",
+    enabled: activeTab === "subscription" && user?.role !== "admin",
   });
 
   const { data: backups = [], isLoading: backupsLoading } = useQuery<Omit<TimesheetBackup, "snapshot">[]>({
@@ -541,6 +541,7 @@ export default function SettingsPage() {
         <SettingsSubscriptionTab
           subscription={subscription}
           isLoading={subscriptionLoading}
+          isAdmin={user?.role === "admin"}
         />
       </Tabs>
 

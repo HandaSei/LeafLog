@@ -12,6 +12,7 @@ import {
 } from "@shared/subscription";
 
 export type SubscriptionSummary = {
+  adminExempt?: boolean;
   tier: SubscriptionTierId;
   status: string;
   trialEndsAt: string | null;
@@ -25,6 +26,7 @@ export type SubscriptionSummary = {
 interface SettingsSubscriptionTabProps {
   subscription: SubscriptionSummary | undefined;
   isLoading: boolean;
+  isAdmin: boolean;
 }
 
 function formatDate(value: string | null | undefined) {
@@ -49,7 +51,7 @@ function getStatusLabel(status: EffectiveSubscriptionStatus) {
   }
 }
 
-export function SettingsSubscriptionTab({ subscription, isLoading }: SettingsSubscriptionTabProps) {
+export function SettingsSubscriptionTab({ subscription, isLoading, isAdmin }: SettingsSubscriptionTabProps) {
   const effectiveTier = subscription?.effectiveTier ?? "raw";
   const currentTier = getSubscriptionTier(effectiveTier);
   const status = subscription?.effectiveStatus ?? "free";
@@ -67,7 +69,20 @@ export function SettingsSubscriptionTab({ subscription, isLoading }: SettingsSub
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {isLoading ? (
+          {isAdmin ? (
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Account Type</p>
+              <div className="mt-1 flex items-center gap-2">
+                <p className="text-xl font-bold" data-testid="text-current-subscription-tier">
+                  Administrator
+                </p>
+                <Badge variant="default">Plan exempt</Badge>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Admin accounts are used to manage LeafLog and do not need a subscription tier.
+              </p>
+            </div>
+          ) : isLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-16 w-full" />
               <Skeleton className="h-44 w-full" />

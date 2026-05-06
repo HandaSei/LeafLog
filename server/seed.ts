@@ -43,12 +43,21 @@ export async function runMigrations() {
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription_updated_at timestamp`);
   await pool.query(
     `UPDATE accounts
+     SET subscription_tier = 'raw',
+         subscription_status = 'free',
+         subscription_trial_ends_at = NULL,
+         subscription_gift_expires_at = NULL,
+         subscription_updated_at = COALESCE(subscription_updated_at, NOW())
+     WHERE role = 'admin'`,
+  );
+  await pool.query(
+    `UPDATE accounts
      SET subscription_tier = 'ceremony',
          subscription_status = 'trial',
          subscription_trial_ends_at = $1,
          subscription_updated_at = COALESCE(subscription_updated_at, NOW())
      WHERE subscription_tier IS NULL
-       AND role IN ('admin', 'manager')`,
+       AND role = 'manager'`,
     [getExistingAccountTrialEndDate()],
   );
   await pool.query(

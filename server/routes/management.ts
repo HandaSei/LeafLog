@@ -10,12 +10,16 @@ import { addManagerSSEClient, removeManagerSSEClient } from "../sse";
 
 function subscriptionSnapshotFromAccount(account: Pick<
   Account,
+  | "role"
   | "subscriptionTier"
   | "subscriptionStatus"
   | "subscriptionTrialEndsAt"
   | "subscriptionGiftExpiresAt"
   | "subscriptionUpdatedAt"
 >) {
+  if (account.role === "admin") {
+    return null;
+  }
   return computeEffectiveSubscription({
     tier: account.subscriptionTier,
     status: account.subscriptionStatus,
@@ -225,6 +229,7 @@ export function registerManagementRoutes(router: Router) {
   router.get("/api/subscription", requireAuth, async (req, res) => {
     const account = await storage.getAccount(req.session.userId!);
     if (!account) return res.status(404).json({ message: "Account not found" });
+    if (account.role === "admin") return res.json({ adminExempt: true });
     res.json(subscriptionSnapshotFromAccount(account));
   });
 
@@ -623,6 +628,12 @@ export function registerManagementRoutes(router: Router) {
 
     const parsed = adminGiftSubscriptionSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+
+    const existingAccount = await storage.getAccount(accountId);
+    if (!existingAccount) return res.status(404).json({ message: "Account not found" });
+    if (existingAccount.role === "admin") {
+      return res.status(400).json({ message: "Admin accounts do not need a subscription plan" });
+    }
 
     let expiresAt: Date | null;
     try {

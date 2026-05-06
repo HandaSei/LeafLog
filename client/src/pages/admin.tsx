@@ -39,10 +39,20 @@ interface AccountRow {
   email: string | null;
   role: string;
   createdAt: string | null;
-  subscription: SubscriptionSummary;
+  subscription?: SubscriptionSummary | null;
 }
 
 type SortField = "username" | "createdAt";
+const FALLBACK_SUBSCRIPTION: SubscriptionSummary = {
+  tier: "raw",
+  status: "free",
+  trialEndsAt: null,
+  giftExpiresAt: null,
+  updatedAt: null,
+  effectiveTier: "raw",
+  effectiveStatus: "free",
+  effectiveEndsAt: null,
+};
 
 function formatOptionalDate(value: string | null) {
   if (!value) return "No expiry";
@@ -56,6 +66,11 @@ function getStatusLabel(status: EffectiveSubscriptionStatus) {
   if (status === "active") return "Active";
   if (status === "expired") return "Expired";
   return "Free";
+}
+
+function getVisibleSubscription(account: AccountRow): SubscriptionSummary | null {
+  if (account.role === "admin") return null;
+  return account.subscription ?? FALLBACK_SUBSCRIPTION;
 }
 
 export default function AdminPage() {
@@ -87,7 +102,7 @@ export default function AdminPage() {
       setGiftExpiresAt("");
       toast({
         title: "Subscription gifted",
-        description: `${updated.username} is now on ${getSubscriptionTier(updated.subscription.effectiveTier).name}.`,
+        description: `${updated.username} is now on ${getSubscriptionTier(getVisibleSubscription(updated)?.effectiveTier).name}.`,
       });
     },
     onError: (err: Error) => {
@@ -133,8 +148,9 @@ export default function AdminPage() {
   };
 
   const openGiftDialog = (account: AccountRow) => {
+    if (account.role === "admin") return;
     setGiftAccount(account);
-    setGiftTier(account.subscription?.effectiveTier ?? "ceremony");
+    setGiftTier(getVisibleSubscription(account)?.effectiveTier ?? "ceremony");
     setGiftExpiresAt("");
   };
 
@@ -245,32 +261,49 @@ export default function AdminPage() {
                           </Badge>
                         </TableCell>
                         <TableCell data-testid={`text-subscription-${account.id}`}>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">
-                                {getSubscriptionTier(account.subscription.effectiveTier).name}
-                              </span>
-                              <Badge variant={account.subscription.effectiveStatus === "expired" ? "secondary" : "outline"}>
-                                {getStatusLabel(account.subscription.effectiveStatus)}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {formatOptionalDate(account.subscription.effectiveEndsAt)}
-                            </p>
-                          </div>
+                          {(() => {
+                            const subscription = getVisibleSubscription(account);
+                            if (!subscription) {
+                              return (
+                                <div className="space-y-1">
+                                  <Badge variant="default">Plan exempt</Badge>
+                                  <p className="text-xs text-muted-foreground">Administrator account</p>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">
+                                    {getSubscriptionTier(subscription.effectiveTier).name}
+                                  </span>
+                                  <Badge variant={subscription.effectiveStatus === "expired" ? "secondary" : "outline"}>
+                                    {getStatusLabel(subscription.effectiveStatus)}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatOptionalDate(subscription.effectiveEndsAt)}
+                                </p>
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell data-testid={`text-date-${account.id}`}>
                           {account.createdAt ? format(new Date(account.createdAt), "MMM d, yyyy") : "-"}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openGiftDialog(account)}
-                            data-testid={`button-gift-subscription-${account.id}`}
-                          >
-                            Gift Tier
-                          </Button>
+                          {account.role === "admin" ? (
+                            <span className="text-xs text-muted-foreground">No plan needed</span>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openGiftDialog(account)}
+                              data-testid={`button-gift-subscription-${account.id}`}
+                            >
+                              Gift Tier
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))
