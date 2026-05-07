@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { LogIn, KeyRound, Monitor, UserPlus, ArrowLeft } from "lucide-react";
 import { useLocation, Redirect } from "wouter";
 import logoImage from "@assets/m3MJU_1771476103365.webp";
-import { PAID_TRIAL_TIER_IDS, SUBSCRIPTION_TIERS, type PaidTrialTierId } from "@shared/subscription";
+import { getNewAccountTrialDays, PAID_TRIAL_TIER_IDS, SUBSCRIPTION_TIERS, type PaidTrialTierId } from "@shared/subscription";
 
 const LEAF_YELLOW = "#D4C5A0";
 const LEAF_YELLOW_BG = "#E8DCC4";
@@ -43,13 +43,13 @@ function TrialTierSelect({
         <SelectContent>
           {trialTierOptions.map((tier) => (
             <SelectItem key={tier.id} value={tier.id}>
-              {tier.name} - {tier.priceLabel}
+              {tier.name} - {getNewAccountTrialDays(tier.id)} days free - {tier.priceLabel}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
       <p className="text-[11px]" style={{ color: "#d4d4c0" }}>
-        Starts with 7 days free, then falls back to Raw.
+        Get started with a free trial, then fall back to the free tier. You can change your plan at any time.
       </p>
     </div>
   );

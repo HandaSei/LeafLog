@@ -8,6 +8,7 @@ import { pool, storage } from "../storage";
 import { DATE_ONLY_RE, type RecentEntryRow } from "./utils";
 import { addManagerSSEClient, removeManagerSSEClient } from "../sse";
 import { getRinseEmployeeLimitState } from "../services/subscription-limits";
+import { ensureTrialExpiredRawNotice } from "../services/subscription-notices";
 
 function subscriptionSnapshotFromAccount(account: Pick<
   Account,
@@ -231,6 +232,7 @@ export function registerManagementRoutes(router: Router) {
     const account = await storage.getAccount(req.session.userId!);
     if (!account) return res.status(404).json({ message: "Account not found" });
     if (account.role === "admin") return res.json({ adminExempt: true });
+    await ensureTrialExpiredRawNotice(account);
     res.json(subscriptionSnapshotFromAccount(account));
   });
 
@@ -401,6 +403,10 @@ export function registerManagementRoutes(router: Router) {
     if (!account) {
       return res.json({ auth: { authenticated: false } });
     }
+    const createdSubscriptionNotice = await ensureTrialExpiredRawNotice(account);
+    const finalNotificationCount = createdSubscriptionNotice
+      ? await storage.getUnreadNotificationCount(accountId)
+      : notificationCount;
     const authUser = {
       id: account.id,
       username: account.username,
@@ -423,7 +429,7 @@ export function registerManagementRoutes(router: Router) {
       employees: steepinEmployees,
       roles,
       breakPolicy,
-      notificationCount,
+      notificationCount: finalNotificationCount,
     };
     response.steepinThemeSettings = {
       mode: account.steepinThemeMode || "light",

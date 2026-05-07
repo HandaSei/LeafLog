@@ -3,9 +3,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TabsContent } from "@/components/ui/tabs";
-import { Check, Crown } from "lucide-react";
+import { AlertCircle, Check, Crown } from "lucide-react";
 import {
   getSubscriptionTier,
+  RAW_ARCHIVED_RETENTION_DAYS,
   SUBSCRIPTION_TIERS,
   type EffectiveSubscriptionStatus,
   type SubscriptionTierId,
@@ -113,6 +114,17 @@ export function SettingsSubscriptionTab({ subscription, isLoading, isAdmin }: Se
                   </div>
                 </div>
               </div>
+
+              {status === "expired" && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+                  <div className="flex gap-2">
+                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                    <p>
+                      Your trial has ended, so this account is now on Raw until you upgrade to a paid plan. When Raw employee limits are activated, employees above that limit will be archived with {RAW_ARCHIVED_RETENTION_DAYS} days of data retention.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="overflow-x-auto pb-2">
                 <div className="grid min-w-[920px] grid-cols-5 gap-3">

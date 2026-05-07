@@ -347,7 +347,7 @@ export function registerAuthRoutes(router: Router) {
       country: accountData.country || null,
       subscriptionTier: accountData.subscriptionTier || "rinse",
       subscriptionStatus: "trial",
-      subscriptionTrialEndsAt: getNewAccountTrialEndDate(),
+      subscriptionTrialEndsAt: getNewAccountTrialEndDate(accountData.subscriptionTier),
       subscriptionUpdatedAt: new Date(),
     });
 

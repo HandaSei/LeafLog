@@ -8,7 +8,12 @@ export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUS_IDS)[number];
 export type EffectiveSubscriptionStatus = SubscriptionStatus | "expired";
 
 export const EXISTING_ACCOUNT_TRIAL_END_LOCAL = "2026-05-31T23:59:59.999";
-export const NEW_ACCOUNT_TRIAL_DAYS = 7;
+export const NEW_ACCOUNT_TRIAL_DAYS_BY_TIER: Record<PaidTrialTierId, number> = {
+  rinse: 14,
+  first_pour: 7,
+  gongfu: 5,
+};
+export const RAW_ARCHIVED_RETENTION_DAYS = 90;
 
 export const RINSE_EMPLOYEE_LIMIT = {
   maxActiveEmployees: 30,
@@ -100,8 +105,16 @@ export function getExistingAccountTrialEndDate() {
   return new Date(EXISTING_ACCOUNT_TRIAL_END_LOCAL);
 }
 
-export function getNewAccountTrialEndDate(now = new Date()) {
-  return new Date(now.getTime() + NEW_ACCOUNT_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+export function getNewAccountTrialDays(tier: string | null | undefined) {
+  return NEW_ACCOUNT_TRIAL_DAYS_BY_TIER[normalizePaidTrialTier(tier)];
+}
+
+export function normalizePaidTrialTier(tier: string | null | undefined): PaidTrialTierId {
+  return PAID_TRIAL_TIER_IDS.includes(tier as PaidTrialTierId) ? (tier as PaidTrialTierId) : "rinse";
+}
+
+export function getNewAccountTrialEndDate(tier: string | null | undefined = "rinse", now = new Date()) {
+  return new Date(now.getTime() + getNewAccountTrialDays(tier) * 24 * 60 * 60 * 1000);
 }
 
 export function addDays(date: Date, days: number) {

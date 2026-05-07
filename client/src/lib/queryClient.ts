@@ -24,6 +24,23 @@ async function throwIfResNotOk(res: Response) {
       emitAuthError();
     }
     const text = (await res.text()) || res.statusText;
+    const contentType = res.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      try {
+        const parsed = JSON.parse(text);
+        throw new Error(parsed?.message ? `${res.status}: ${parsed.message}` : `${res.status}: ${text}`);
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith(`${res.status}:`)) {
+          throw error;
+        }
+      }
+    }
+
+    if (/^\s*<!doctype html/i.test(text) || /^\s*<html/i.test(text)) {
+      throw new Error(`${res.status}: Server route not found for ${res.url}. Please check the API URL/deployment.`);
+    }
+
     throw new Error(`${res.status}: ${text}`);
   }
 }
