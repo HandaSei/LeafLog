@@ -4,6 +4,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { createEmployeeArchivePatch, isEmployeeArchived } from "@/lib/employees";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee } from "@shared/schema";
+import type { RinseEmployeeLimitState } from "@shared/subscription";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,39 @@ import { EmployeeFormDialog } from "@/components/employee-form-dialog";
 import { PayConfigDialog } from "@/components/pay-config-dialog";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 
+function formatEuro(value: number | null | undefined) {
+  return `EUR ${(value ?? 0).toFixed(2)}`;
+}
+
+function parseApiError(error: Error): { code?: string; message?: string } {
+  const jsonText = error.message.replace(/^\d+:\s*/, "");
+  try {
+    return JSON.parse(jsonText);
+  } catch {
+    return { message: error.message };
+  }
+}
+
+function isAfterDate(value: Date | string | null | undefined, compareTo: Date | string | null | undefined) {
+  if (!value || !compareTo) return false;
+  const date = new Date(value);
+  const compareDate = new Date(compareTo);
+  return !Number.isNaN(date.getTime())
+    && !Number.isNaN(compareDate.getTime())
+    && date.getTime() > compareDate.getTime();
+}
+
+function isPendingRinseEmployee(employee: Employee | null | undefined, rinseLimit: RinseEmployeeLimitState | undefined) {
+  return !!employee && !!rinseLimit?.applies && isAfterDate(employee.subscriptionPendingSince, rinseLimit.currentPeriodStart);
+}
+
+function isPaidForCurrentRinsePeriod(employee: Employee | null | undefined, rinseLimit: RinseEmployeeLimitState | undefined) {
+  return !!employee
+    && !!rinseLimit?.applies
+    && !isPendingRinseEmployee(employee, rinseLimit)
+    && isAfterDate(employee.archivedAt, rinseLimit.currentPeriodStart);
+}
+
 export default function Employees() {
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -41,12 +75,18 @@ export default function Employees() {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
+  const [deleteDialogMode, setDeleteDialogMode] = useState<"normal" | "rinse-pending">("normal");
+  const [employeeToUnarchive, setEmployeeToUnarchive] = useState<Employee | null>(null);
+  const [unarchiveConfirmOpen, setUnarchiveConfirmOpen] = useState(false);
   const [payConfigOpen, setPayConfigOpen] = useState(false);
   const [payConfigEmployee, setPayConfigEmployee] = useState<Employee | null>(null);
   const { toast } = useToast();
 
   const { data: employees = [], isLoading, isFetching } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
+  });
+  const { data: rinseLimit } = useQuery<RinseEmployeeLimitState>({
+    queryKey: ["/api/subscription/rinse-employee-limit"],
   });
   const isUpdating = !isLoading && isFetching;
 
@@ -56,9 +96,11 @@ export default function Employees() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/subscription/rinse-employee-limit"] });
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       toast({ title: "Employee removed", description: "The employee has been removed." });
       setDeleteDialogOpen(false);
+      setDeleteDialogMode("normal");
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -71,17 +113,29 @@ export default function Employees() {
     },
     onSuccess: (_data, { archived }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/subscription/rinse-employee-limit"] });
       queryClient.invalidateQueries({ queryKey: ["/api/steepin/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       toast({
         title: archived ? "Employee archived" : "Employee unarchived",
         description: archived
-          ? "This employee is hidden from live scheduling, timesheets, exports, and SteepIn."
+          ? rinseLimit?.applies
+            ? `This employee is hidden across LeafLog. On Rinse, archived data is retained for ${rinseLimit.archivedRetentionDays} days while the account remains paid.`
+            : "This employee is hidden from live scheduling, timesheets, exports, and SteepIn."
           : "This employee is visible across the app again.",
       });
     },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    onError: (error: Error, variables) => {
+      const payload = parseApiError(error);
+      if (payload.code === "RINSE_PENDING_EMPLOYEE_DELETE_REQUIRED") {
+        const employee = employees.find((emp) => emp.id === variables.id);
+        if (employee) {
+          setEmployeeToDelete(employee);
+          setDeleteDialogMode("rinse-pending");
+          setDeleteDialogOpen(true);
+        }
+      }
+      toast({ title: "Error", description: payload.message || error.message, variant: "destructive" });
     },
   });
 
@@ -107,9 +161,40 @@ export default function Employees() {
     setFormOpen(true);
   };
 
-  const handleDelete = (emp: Employee) => {
+  const handleDelete = (emp: Employee, mode: "normal" | "rinse-pending" = "normal") => {
     setEmployeeToDelete(emp);
+    setDeleteDialogMode(mode);
     setDeleteDialogOpen(true);
+  };
+
+  const handleArchiveToggle = (emp: Employee) => {
+    const archived = isEmployeeArchived(emp);
+
+    if (!archived && isPendingRinseEmployee(emp, rinseLimit)) {
+      handleDelete(emp, "rinse-pending");
+      return;
+    }
+
+    if (archived && rinseLimit?.applies) {
+      const coveredThisPeriod = isPaidForCurrentRinsePeriod(emp, rinseLimit);
+      const activeLimitBlocked = rinseLimit.activeEmployeeCount >= rinseLimit.maxActiveEmployees;
+      const creditBlocked = !coveredThisPeriod && rinseLimit.blockCode === "RINSE_PRORATE_PAYMENT_REQUIRED";
+
+      if (activeLimitBlocked || creditBlocked) {
+        toast({
+          title: "Rinse limit reached",
+          description: rinseLimit.blockMessage || "This employee cannot be unarchived on Rinse right now.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setEmployeeToUnarchive(emp);
+      setUnarchiveConfirmOpen(true);
+      return;
+    }
+
+    archiveEmployeeMutation.mutate({ id: emp.id, archived: !archived });
   };
 
   return (
@@ -121,6 +206,11 @@ export default function Employees() {
           <Badge variant="secondary" className="text-xs">
             {employees.length}
           </Badge>
+          {rinseLimit?.applies && (
+            <Badge variant="outline" className="text-xs" data-testid="badge-rinse-employee-limit">
+              Rinse {rinseLimit.activeEmployeeCount}/{rinseLimit.maxActiveEmployees} active
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative">
@@ -200,7 +290,7 @@ export default function Employees() {
                         <DollarSign className="w-3.5 h-3.5 mr-2" /> Pay Settings
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => archiveEmployeeMutation.mutate({ id: emp.id, archived: !isEmployeeArchived(emp) })}
+                        onClick={() => handleArchiveToggle(emp)}
                         data-testid={`button-toggle-steepin-${emp.id}`}
                       >
                         {isEmployeeArchived(emp)
@@ -284,9 +374,13 @@ export default function Employees() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove Employee</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteDialogMode === "rinse-pending" ? "Delete employee instead?" : "Remove Employee"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to remove {employeeToDelete?.name}? This will also delete all their assigned shifts. This action cannot be undone.
+              {deleteDialogMode === "rinse-pending"
+                ? `${employeeToDelete?.name ?? "This employee"} was added or reactivated during the current Rinse subscription period. Archiving becomes available after the first renewal. To stop billing before then, delete the employee instead. This deletes their employee record and assigned shifts, and cannot be undone.`
+                : `Are you sure you want to remove ${employeeToDelete?.name}? This will also delete all their assigned shifts. This action cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -297,6 +391,50 @@ export default function Employees() {
               data-testid="button-confirm-delete"
             >
               {deleteMutation.isPending ? "Removing..." : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={unarchiveConfirmOpen} onOpenChange={setUnarchiveConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unarchive employee?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              {isPaidForCurrentRinsePeriod(employeeToUnarchive, rinseLimit) ? (
+                <span className="block">
+                  This employee was already covered in the current Rinse period, so reactivating them will not add prorated credit now. They will count as active again for future renewals.
+                </span>
+              ) : (
+                <>
+                  <span className="block">
+                    Unarchiving this employee will not charge anything immediately. At the next renewal, the invoice should include {formatEuro(rinseLimit?.candidateChargeEur)} for this period ({rinseLimit?.candidateChargeDays ?? 0} days) plus {formatEuro(rinseLimit?.monthlyPriceEur)} for the next month.
+                  </span>
+                  <span className="block">
+                    Pending Rinse credit after this change: {formatEuro((rinseLimit?.pendingCreditEur ?? 0) + (rinseLimit?.candidateChargeEur ?? 0))} / {formatEuro(rinseLimit?.proratedCreditLimitEur)}.
+                  </span>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => setEmployeeToUnarchive(null)}
+              data-testid="button-cancel-rinse-unarchive"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (employeeToUnarchive) {
+                  archiveEmployeeMutation.mutate({ id: employeeToUnarchive.id, archived: false });
+                }
+                setEmployeeToUnarchive(null);
+                setUnarchiveConfirmOpen(false);
+              }}
+              data-testid="button-confirm-rinse-unarchive"
+            >
+              Unarchive Employee
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

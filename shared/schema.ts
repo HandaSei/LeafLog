@@ -84,6 +84,9 @@ export const employees = pgTable("employees", {
   customPayDays: text("custom_pay_days"),
   tierThresholdOnly: boolean("tier_threshold_only").default(false),
   hiddenFromSteepin: boolean("hidden_from_steepin").default(false),
+  subscriptionPendingSince: timestamp("subscription_pending_since"),
+  archivedAt: timestamp("archived_at"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const shifts = pgTable("shifts", {
@@ -157,6 +160,10 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
   role: z.string().optional(),
   department: z.string().optional(),
   accessCode: z.string().min(4, "Passcode must be 4–6 digits").max(6, "Passcode must be 4–6 digits").regex(/^[0-9]+$/, "Passcode must be numeric").optional(),
+}).omit({
+  subscriptionPendingSince: true,
+  archivedAt: true,
+  createdAt: true,
 });
 
 export const insertShiftSchema = createInsertSchema(shifts, {

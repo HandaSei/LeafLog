@@ -10,6 +10,39 @@ export type EffectiveSubscriptionStatus = SubscriptionStatus | "expired";
 export const EXISTING_ACCOUNT_TRIAL_END_LOCAL = "2026-05-31T23:59:59.999";
 export const NEW_ACCOUNT_TRIAL_DAYS = 7;
 
+export const RINSE_EMPLOYEE_LIMIT = {
+  maxActiveEmployees: 30,
+  monthlyPriceEur: 1.65,
+  proratedCreditLimitEur: 8,
+  billingPeriodDays: 30,
+  archivedRetentionDays: 180,
+} as const;
+
+export type RinseEmployeeLimitBlockCode =
+  | "RINSE_ACTIVE_EMPLOYEE_LIMIT"
+  | "RINSE_PRORATE_PAYMENT_REQUIRED"
+  | "RINSE_PENDING_EMPLOYEE_DELETE_REQUIRED";
+
+export type RinseEmployeeLimitState = {
+  applies: boolean;
+  maxActiveEmployees: number;
+  activeEmployeeCount: number;
+  activeEmployeeSlotsRemaining: number | null;
+  currentPeriodStart: string | null;
+  nextRenewalAt: string | null;
+  monthlyPriceEur: number;
+  dailyRateEur: number;
+  proratedCreditLimitEur: number;
+  pendingCreditEur: number;
+  remainingCreditEur: number | null;
+  candidateChargeDays: number;
+  candidateChargeEur: number;
+  archivedRetentionDays: number;
+  canActivateEmployee: boolean;
+  blockCode: RinseEmployeeLimitBlockCode | null;
+  blockMessage: string | null;
+};
+
 export const SUBSCRIPTION_TIERS: Array<{
   id: SubscriptionTierId;
   name: string;
@@ -69,6 +102,44 @@ export function getExistingAccountTrialEndDate() {
 
 export function getNewAccountTrialEndDate(now = new Date()) {
   return new Date(now.getTime() + NEW_ACCOUNT_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+}
+
+export function addDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+export function getRinseBillingPeriod(anchor: Date, now = new Date()) {
+  let periodStart = new Date(anchor);
+  const periodLengthMs = RINSE_EMPLOYEE_LIMIT.billingPeriodDays * 24 * 60 * 60 * 1000;
+
+  if (Number.isNaN(periodStart.getTime()) || periodStart.getTime() > now.getTime()) {
+    periodStart = new Date(now);
+  }
+
+  const elapsedPeriods = Math.max(0, Math.floor((now.getTime() - periodStart.getTime()) / periodLengthMs));
+  periodStart = new Date(periodStart.getTime() + elapsedPeriods * periodLengthMs);
+
+  return {
+    periodStart,
+    nextRenewalAt: new Date(periodStart.getTime() + periodLengthMs),
+  };
+}
+
+export function getRinseProration(activatedAt: Date, nextRenewalAt: Date) {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const remainingMs = Math.max(0, nextRenewalAt.getTime() - activatedAt.getTime());
+  const chargeDays = Math.min(
+    RINSE_EMPLOYEE_LIMIT.billingPeriodDays,
+    Math.max(0, Math.ceil(remainingMs / dayMs)),
+  );
+  const dailyRate = RINSE_EMPLOYEE_LIMIT.monthlyPriceEur / RINSE_EMPLOYEE_LIMIT.billingPeriodDays;
+  const amount = Math.round(chargeDays * dailyRate * 1000) / 1000;
+
+  return {
+    chargeDays,
+    dailyRate,
+    amount,
+  };
 }
 
 function toDate(value: Date | string | null | undefined): Date | null {

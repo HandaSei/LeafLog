@@ -125,6 +125,11 @@ type AccountSummaryRow = Pick<
   | "subscriptionUpdatedAt"
 >;
 type AccountInsertRow = typeof accounts.$inferInsert;
+type EmployeeWriteData = InsertEmployee & {
+  subscriptionPendingSince?: Date | null;
+  archivedAt?: Date | null;
+  createdAt?: Date | null;
+};
 
 function mapTimeEntryRow(row: TimeEntryRow): TimeEntry {
   return {
@@ -203,8 +208,8 @@ function mapTimesheetBackupSummaryRow(row: TimesheetBackupSummaryRow): Omit<Time
 export interface IStorage {
   getEmployees(ownerAccountId?: number): Promise<Employee[]>;
   getEmployee(id: number): Promise<Employee | undefined>;
-  createEmployee(data: InsertEmployee): Promise<Employee>;
-  updateEmployee(id: number, data: Partial<InsertEmployee>): Promise<Employee | undefined>;
+  createEmployee(data: EmployeeWriteData): Promise<Employee>;
+  updateEmployee(id: number, data: Partial<EmployeeWriteData>): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<void>;
 
   getShifts(ownerAccountId?: number): Promise<Shift[]>;
@@ -314,7 +319,10 @@ export class DatabaseStorage implements IStorage {
                 tier_hours_threshold as "tierHoursThreshold", tier_overtime_rate as "tierOvertimeRate",
                 special_day_enabled as "specialDayEnabled", special_day_of_week as "specialDayOfWeek",
                 special_day_rate as "specialDayRate", custom_pay_days as "customPayDays",
-                hidden_from_steepin as "hiddenFromSteepin"
+                hidden_from_steepin as "hiddenFromSteepin",
+                subscription_pending_since as "subscriptionPendingSince",
+                archived_at as "archivedAt",
+                created_at as "createdAt"
          FROM employees 
          WHERE owner_account_id = $1
          ORDER BY name ASC`,
@@ -330,7 +338,10 @@ export class DatabaseStorage implements IStorage {
               tier_hours_threshold as "tierHoursThreshold", tier_overtime_rate as "tierOvertimeRate",
               special_day_enabled as "specialDayEnabled", special_day_of_week as "specialDayOfWeek",
               special_day_rate as "specialDayRate", custom_pay_days as "customPayDays",
-              hidden_from_steepin as "hiddenFromSteepin"
+              hidden_from_steepin as "hiddenFromSteepin",
+              subscription_pending_since as "subscriptionPendingSince",
+              archived_at as "archivedAt",
+              created_at as "createdAt"
        FROM employees 
        ORDER BY name ASC`
     );
@@ -342,13 +353,13 @@ export class DatabaseStorage implements IStorage {
     return emp;
   }
 
-  async createEmployee(data: InsertEmployee): Promise<Employee> {
+  async createEmployee(data: EmployeeWriteData): Promise<Employee> {
     const accessCode = data.accessCode || Math.floor(1000 + Math.random() * 9000).toString();
     const [emp] = await db.insert(employees).values({ ...data, accessCode }).returning();
     return emp;
   }
 
-  async updateEmployee(id: number, data: Partial<InsertEmployee>): Promise<Employee | undefined> {
+  async updateEmployee(id: number, data: Partial<EmployeeWriteData>): Promise<Employee | undefined> {
     const [emp] = await db.update(employees).set(data).where(eq(employees.id, id)).returning();
     return emp;
   }

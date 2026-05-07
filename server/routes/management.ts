@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from "../auth";
 import { pool, storage } from "../storage";
 import { DATE_ONLY_RE, type RecentEntryRow } from "./utils";
 import { addManagerSSEClient, removeManagerSSEClient } from "../sse";
+import { getRinseEmployeeLimitState } from "../services/subscription-limits";
 
 function subscriptionSnapshotFromAccount(account: Pick<
   Account,
@@ -231,6 +232,10 @@ export function registerManagementRoutes(router: Router) {
     if (!account) return res.status(404).json({ message: "Account not found" });
     if (account.role === "admin") return res.json({ adminExempt: true });
     res.json(subscriptionSnapshotFromAccount(account));
+  });
+
+  router.get("/api/subscription/rinse-employee-limit", requireRole("admin", "manager"), async (req, res) => {
+    res.json(await getRinseEmployeeLimitState(req.session.userId!));
   });
 
   // === NOTIFICATIONS ===

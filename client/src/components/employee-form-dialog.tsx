@@ -7,7 +7,18 @@ import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee, CustomRole } from "@shared/schema";
+import type { RinseEmployeeLimitState } from "@shared/subscription";
 import { AlertCircle, RefreshCw } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -47,6 +58,10 @@ const employeeFormSchema = z.object({
 
 type EmployeeFormValues = z.infer<typeof employeeFormSchema>;
 
+function formatEuro(value: number | null | undefined) {
+  return `EUR ${(value ?? 0).toFixed(2)}`;
+}
+
 function randomPasscode() {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
@@ -67,9 +82,16 @@ export function EmployeeFormDialog({
   const isEditing = !!employee;
   const [showRoleChangeConfirm, setShowRoleChangeConfirm] = useState(false);
   const [pendingValues, setPendingValues] = useState<EmployeeFormValues | null>(null);
+  const [showRinseBillingConfirm, setShowRinseBillingConfirm] = useState(false);
+  const [pendingRinseValues, setPendingRinseValues] = useState<EmployeeFormValues | null>(null);
 
   const { data: customRoles = [] } = useQuery<CustomRole[]>({
     queryKey: ["/api/roles"],
+  });
+
+  const { data: rinseLimit } = useQuery<RinseEmployeeLimitState>({
+    queryKey: ["/api/subscription/rinse-employee-limit"],
+    enabled: open && !isEditing,
   });
 
   const form = useForm<EmployeeFormValues>({
@@ -89,7 +111,9 @@ export function EmployeeFormDialog({
   useEffect(() => {
     if (open) {
       setShowRoleChangeConfirm(false);
+      setShowRinseBillingConfirm(false);
       setPendingValues(null);
+      setPendingRinseValues(null);
       form.reset({
         name: employee?.name ?? "",
         email: employee?.email ?? "",
@@ -127,6 +151,7 @@ export function EmployeeFormDialog({
     },
     onSuccess: (_data, values) => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/subscription/rinse-employee-limit"] });
       toast({
         title: isEditing ? "Employee updated" : "Employee added",
         description: isEditing
@@ -175,10 +200,27 @@ export function EmployeeFormDialog({
 
   const onSubmit = (values: EmployeeFormValues) => {
     const roleColor = customRoles.find(r => r.name === values.role)?.color;
-    mutation.mutate({
+    const nextValues = {
       ...values,
       color: roleColor || values.color
-    });
+    };
+
+    if (!isEditing && rinseLimit?.applies) {
+      if (!rinseLimit.canActivateEmployee) {
+        toast({
+          title: "Rinse limit reached",
+          description: rinseLimit.blockMessage || "This employee cannot be added on Rinse right now.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setPendingRinseValues(nextValues);
+      setShowRinseBillingConfirm(true);
+      return;
+    }
+
+    mutation.mutate(nextValues);
   };
 
   return (
@@ -378,6 +420,42 @@ export function EmployeeFormDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={showRinseBillingConfirm} onOpenChange={setShowRinseBillingConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Rinse employee billing</AlertDialogTitle>
+          <AlertDialogDescription className="space-y-3">
+            <span className="block">
+              Adding this employee will not charge anything immediately. At the next renewal, the invoice should include {formatEuro(rinseLimit?.candidateChargeEur)} for this period ({rinseLimit?.candidateChargeDays ?? 0} days) plus {formatEuro(rinseLimit?.monthlyPriceEur)} for the next month.
+            </span>
+            <span className="block">
+              Pending Rinse credit after this addition: {formatEuro((rinseLimit?.pendingCreditEur ?? 0) + (rinseLimit?.candidateChargeEur ?? 0))} / {formatEuro(rinseLimit?.proratedCreditLimitEur)}.
+            </span>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel
+            onClick={() => setPendingRinseValues(null)}
+            data-testid="button-cancel-rinse-add"
+          >
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              if (pendingRinseValues) {
+                mutation.mutate(pendingRinseValues);
+              }
+              setPendingRinseValues(null);
+              setShowRinseBillingConfirm(false);
+            }}
+            data-testid="button-confirm-rinse-add"
+          >
+            Add Employee
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }

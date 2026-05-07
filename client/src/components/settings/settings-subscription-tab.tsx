@@ -140,7 +140,9 @@ export function SettingsSubscriptionTab({ subscription, isLoading, isAdmin }: Se
                         </div>
                         <p className="mt-4 text-xs text-muted-foreground">{tier.description}</p>
                         <div className="mt-4 border-t pt-3 text-xs text-muted-foreground">
-                          Unlimited while plan limits are not active.
+                          {tier.id === "rinse"
+                            ? "Up to 30 active employees. Other features remain unlimited for now."
+                            : "Unlimited while plan limits are not active."}
                         </div>
                       </div>
                     );
