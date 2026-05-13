@@ -434,6 +434,11 @@ export function SettingsManagementTab({
             <p className="text-xs text-violet-800 dark:text-violet-300 leading-relaxed">
               When a device enters SteepIn mode it appears here. You can <strong>lock</strong> it so the Exit button disappears — employees will not be able to leave SteepIn mode on that device.
               To unlock it, simply toggle the lock off from this page on any other device. The locked device will update within 30 seconds.
+              {isRinsePlan && (
+                <span className="block mt-2">
+                  Rinse allows one SteepIn device at a time. To use another device, exit SteepIn on the current device or delete it here first.
+                </span>
+              )}
             </p>
           </div>
           {!deferredSettingsQueriesEnabled ? (

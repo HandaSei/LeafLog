@@ -8,6 +8,7 @@ import { useLocation } from "wouter";
 import { format } from "date-fns";
 import type { Employee, TimeEntry } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
+import { getDeviceName, getOrCreateDeviceId } from "@/lib/device";
 import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import {
   addToQueue,
@@ -755,26 +756,6 @@ export default function SteepInPage() {
   useEffect(() => {
     if (!isActive) return;
 
-    function getOrCreateDeviceId(): string {
-      let id = localStorage.getItem("leaflog_device_id");
-      if (!id) {
-        id = crypto.randomUUID();
-        localStorage.setItem("leaflog_device_id", id);
-      }
-      return id;
-    }
-
-    function getDeviceName(): string {
-      const ua = navigator.userAgent;
-      if (/iPhone/.test(ua)) return "iPhone";
-      if (/iPad/.test(ua)) return "iPad";
-      if (/Android/.test(ua)) return "Android Device";
-      if (/Windows/.test(ua)) return "Windows PC";
-      if (/Macintosh/.test(ua)) return "Mac";
-      if (/Linux/.test(ua)) return "Linux PC";
-      return "Unknown Device";
-    }
-
     const deviceId = getOrCreateDeviceId();
     const deviceName = getDeviceName();
 
@@ -786,7 +767,15 @@ export default function SteepInPage() {
           setIntroDialogOpen(true);
         }
       })
-      .catch(() => {});
+      .catch((error: Error) => {
+        if (error.message.includes("Rinse supports one SteepIn device")) {
+          toast({
+            title: "SteepIn device limit reached",
+            description: "Exit SteepIn on the current Rinse device or delete it in Settings before using another device.",
+            variant: "destructive",
+          });
+        }
+      });
 
     async function checkLock() {
       try {

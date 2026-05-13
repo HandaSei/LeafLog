@@ -154,7 +154,7 @@ export function SettingsSubscriptionTab({ subscription, isLoading, isAdmin }: Se
                         <p className="mt-4 text-xs text-muted-foreground">{tier.description}</p>
                         <div className="mt-4 border-t pt-3 text-xs text-muted-foreground">
                           {tier.id === "rinse"
-                            ? `Up to 30 active employees, ${RINSE_PLAN_LIMITS.timesheetHistoryDays} days of timesheet history, ${RINSE_PLAN_LIMITS.maxCustomRoles} custom roles, general break policy only, and one automatic CSV-import backup.`
+                            ? `Up to 30 active employees, ${RINSE_PLAN_LIMITS.timesheetHistoryDays} days of timesheet history, ${RINSE_PLAN_LIMITS.maxCustomRoles} custom roles, one SteepIn device, general break policy only, and one automatic CSV-import backup.`
                             : "Unlimited while plan limits are not active."}
                         </div>
                       </div>

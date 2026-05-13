@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, onAuthError } from "@/lib/queryClient";
 import { isActiveUnarchivedEmployee } from "@/lib/employees";
 import { API_BASE_URL } from "@/lib/api-base";
+import { getDeviceName, getOrCreateDeviceId } from "@/lib/device";
 import type { PaidTrialTierId } from "@shared/subscription";
 const AUTH_CACHE_KEY = "leaflog_auth_state";
 const BOOTSTRAP_TIMEOUT_MS = 5000; // 5 second timeout for bootstrap
@@ -392,7 +393,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const steepinLoginMutation = useMutation({
     mutationFn: async ({ username, password }: { username: string; password: string }) => {
-      const res = await apiRequest("POST", "/api/auth/steepin-login", { username, password });
+      const res = await apiRequest("POST", "/api/auth/steepin-login", {
+        username,
+        password,
+        deviceId: getOrCreateDeviceId(),
+        deviceName: getDeviceName(),
+      });
       return res.json();
     },
     onSuccess: async () => {
@@ -478,7 +484,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const exitSteepInMutation = useMutation({
     mutationFn: async ({ username, password }: { username: string; password: string }) => {
-      await apiRequest("POST", "/api/auth/steepin-exit", { username, password });
+      await apiRequest("POST", "/api/auth/steepin-exit", {
+        username,
+        password,
+        deviceId: getOrCreateDeviceId(),
+      });
     },
     onSuccess: () => {
       saveCachedAuth(null);

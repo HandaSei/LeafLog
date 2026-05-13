@@ -1,4 +1,4 @@
-import type { Account, Employee } from "@shared/schema";
+import type { Account, Employee, KioskDevice } from "@shared/schema";
 import { format, subDays } from "date-fns";
 import {
   addDays,
@@ -10,7 +10,7 @@ import {
   type RinseEmployeeLimitBlockCode,
   type RinseEmployeeLimitState,
 } from "@shared/subscription";
-import { storage } from "../storage";
+import { pool, storage } from "../storage";
 
 export const RINSE_IMPORT_BACKUP_LABEL = "Before CSV Import";
 
@@ -31,7 +31,8 @@ export type RinseFeatureLimitCode =
   | "RINSE_TIMESHEET_HISTORY_LIMIT"
   | "RINSE_BREAK_EXCEPTION_LIMIT"
   | "RINSE_ROLE_LIMIT"
-  | "RINSE_MANUAL_BACKUP_LIMIT";
+  | "RINSE_MANUAL_BACKUP_LIMIT"
+  | "RINSE_DEVICE_LIMIT";
 
 export class RinseFeatureLimitError extends Error {
   status: number;
@@ -149,6 +150,76 @@ export async function assertCanCreateManualTimesheetBackup(ownerAccountId: numbe
       "RINSE_MANUAL_BACKUP_LIMIT",
       "Rinse does not include manual timesheet backups. A backup is still created automatically before CSV imports.",
     );
+  }
+}
+
+export async function assertCanRegisterKioskDevice(ownerAccountId: number, deviceId: string) {
+  if (!(await isRinseAccountId(ownerAccountId))) {
+    return;
+  }
+  const devices = await storage.getKioskDevices(ownerAccountId);
+  if (devices.some((device) => device.deviceId === deviceId)) {
+    return;
+  }
+  if (devices.length >= RINSE_PLAN_LIMITS.maxKioskDevices) {
+    throw new RinseFeatureLimitError(
+      409,
+      "RINSE_DEVICE_LIMIT",
+      "Rinse supports one SteepIn device at a time. Exit SteepIn on the current device or delete it from Location Management before adding another.",
+    );
+  }
+}
+
+export async function registerKioskDeviceForSubscription(ownerAccountId: number, deviceId: string, deviceName: string): Promise<KioskDevice> {
+  if (!(await isRinseAccountId(ownerAccountId))) {
+    return storage.registerKioskDevice(ownerAccountId, deviceId, deviceName);
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(726901, $1::int)", [ownerAccountId]);
+
+    const existing = await client.query<{ id: number }>(
+      "SELECT id FROM kiosk_devices WHERE owner_account_id = $1 AND device_id = $2",
+      [ownerAccountId, deviceId],
+    );
+
+    if (existing.rows.length > 0) {
+      const result = await client.query<KioskDevice>(
+        `UPDATE kiosk_devices SET device_name = $1, last_seen = NOW() WHERE id = $2
+         RETURNING id, owner_account_id as "ownerAccountId", device_id as "deviceId", device_name as "deviceName", is_locked as "isLocked", last_seen as "lastSeen"`,
+        [deviceName, existing.rows[0].id],
+      );
+      await client.query("COMMIT");
+      return result.rows[0];
+    }
+
+    const count = await client.query<{ count: number }>(
+      "SELECT COUNT(*)::int as count FROM kiosk_devices WHERE owner_account_id = $1",
+      [ownerAccountId],
+    );
+    if ((count.rows[0]?.count ?? 0) >= RINSE_PLAN_LIMITS.maxKioskDevices) {
+      throw new RinseFeatureLimitError(
+        409,
+        "RINSE_DEVICE_LIMIT",
+        "Rinse supports one SteepIn device at a time. Exit SteepIn on the current device or delete it from Location Management before adding another.",
+      );
+    }
+
+    const result = await client.query<KioskDevice>(
+      `INSERT INTO kiosk_devices (owner_account_id, device_id, device_name, is_locked, last_seen)
+       VALUES ($1, $2, $3, false, NOW())
+       RETURNING id, owner_account_id as "ownerAccountId", device_id as "deviceId", device_name as "deviceName", is_locked as "isLocked", last_seen as "lastSeen"`,
+      [ownerAccountId, deviceId, deviceName],
+    );
+    await client.query("COMMIT");
+    return result.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
   }
 }
 

@@ -8,6 +8,12 @@ import { loginSchema, registerManagerSchema, accessCodeLoginSchema, forgotPasswo
 import { format } from "date-fns";
 import { sendVerificationEmail, generateCode } from "./email";
 import { getNewAccountTrialEndDate } from "@shared/subscription";
+import {
+  isRinseAccount,
+  registerKioskDeviceForSubscription,
+  RinseFeatureLimitError,
+  sendRinseFeatureLimitError,
+} from "./services/subscription-limits";
 
 declare module "express-session" {
   interface SessionData {
@@ -562,7 +568,7 @@ export function registerAuthRoutes(router: Router) {
   });
 
   router.post("/api/auth/steepin-login", kioskRateLimiter, async (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, deviceId, deviceName } = req.body;
     if (!username || !password) {
       return res.status(400).json({ message: "Username and password are required" });
     }
@@ -572,6 +578,20 @@ export function registerAuthRoutes(router: Router) {
     }
     if (account.role !== "admin" && account.role !== "manager") {
       return res.status(403).json({ message: "SteepIn requires manager or admin access" });
+    }
+    if (isRinseAccount(account) && (!deviceId || typeof deviceId !== "string")) {
+      return res.status(400).json({ message: "Device ID is required for Rinse SteepIn login" });
+    }
+    if (isRinseAccount(account) && typeof deviceId === "string") {
+      try {
+        const name = (typeof deviceName === "string" && deviceName.trim()) ? deviceName.trim() : "Unknown Device";
+        await registerKioskDeviceForSubscription(account.id, deviceId, name);
+      } catch (err) {
+        if (err instanceof RinseFeatureLimitError) {
+          return sendRinseFeatureLimitError(res, err);
+        }
+        throw err;
+      }
     }
     await startAccountSession(req, account, { steepinMode: true });
     const { password: _, ...safe } = account;
@@ -596,7 +616,7 @@ export function registerAuthRoutes(router: Router) {
   });
 
   router.post("/api/auth/steepin-exit", kioskRateLimiter, async (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, deviceId } = req.body;
     if (!username || !password) {
       return res.status(400).json({ message: "Manager credentials required to exit SteepIn" });
     }
@@ -608,6 +628,14 @@ export function registerAuthRoutes(router: Router) {
 
     if (account.role !== "admin" && account.role !== "manager") {
       return res.status(403).json({ message: "Only managers can exit SteepIn" });
+    }
+
+    if (isRinseAccount(account) && typeof deviceId === "string" && deviceId.trim()) {
+      const devices = await storage.getKioskDevices(account.id);
+      const currentDevice = devices.find((device) => device.deviceId === deviceId);
+      if (currentDevice) {
+        await storage.deleteKioskDevice(currentDevice.id, account.id);
+      }
     }
 
     req.session.destroy((err) => {

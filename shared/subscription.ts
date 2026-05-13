@@ -29,6 +29,7 @@ export const RINSE_PLAN_LIMITS = {
   allowPerEmployeeBreakExceptions: false,
   allowManualTimesheetBackups: false,
   retainedImportBackups: 1,
+  maxKioskDevices: 1,
 } as const;
 
 export type RinseEmployeeLimitBlockCode =

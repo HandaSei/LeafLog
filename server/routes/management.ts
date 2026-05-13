@@ -14,6 +14,7 @@ import {
   assertCanUseTimesheetBackup,
   getRinseEmployeeLimitState,
   getVisibleBackupsForSubscription,
+  registerKioskDeviceForSubscription,
   RinseFeatureLimitError,
   sanitizeEmployeesForRinseBreakPolicy,
   sendRinseFeatureLimitError,
@@ -618,8 +619,15 @@ export function registerManagementRoutes(router: Router) {
     }
     const name = (typeof deviceName === "string" && deviceName.trim()) ? deviceName.trim() : "Unknown Device";
     const ownerAccountId = req.session.userId!;
-    const device = await storage.registerKioskDevice(ownerAccountId, deviceId, name);
-    res.json(device);
+    try {
+      const device = await registerKioskDeviceForSubscription(ownerAccountId, deviceId, name);
+      return res.json(device);
+    } catch (err) {
+      if (err instanceof RinseFeatureLimitError) {
+        return sendRinseFeatureLimitError(res, err);
+      }
+      throw err;
+    }
   });
 
   router.get("/api/devices/check", requireAuth, async (req, res) => {
