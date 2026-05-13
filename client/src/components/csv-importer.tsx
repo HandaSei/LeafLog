@@ -1,11 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { format, parse, isValid, addDays, parseISO } from "date-fns";
+import { format, parse, isValid, addDays, parseISO, subDays } from "date-fns";
+import { useQuery } from "@tanstack/react-query";
 import { Upload, FileText, ChevronLeft, Check, Users, ShieldCheck, FlaskConical, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee } from "@shared/schema";
+import type { CustomRole, Employee } from "@shared/schema";
+import { RINSE_PLAN_LIMITS } from "@shared/subscription";
+import type { SubscriptionSummary } from "@/components/settings/settings-subscription-tab";
 
 interface ColumnMapping {
   employeeName: number | null;
@@ -207,6 +210,14 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const { toast } = useToast();
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery<SubscriptionSummary>({
+    queryKey: ["/api/subscription"],
+    enabled: open,
+  });
+  const { data: customRoles = [], isLoading: rolesLoading } = useQuery<CustomRole[]>({
+    queryKey: ["/api/roles"],
+    enabled: open,
+  });
 
   useEffect(() => {
     if (!importing) return;
@@ -337,6 +348,44 @@ export default function CsvImporter({ open, onClose, employees }: Props) {
   const CHUNK_SIZE = 30;
 
   const handleImport = async () => {
+    if (subscriptionLoading || rolesLoading) {
+      toast({
+        title: "Still checking plan limits",
+        description: "Please try the import again in a moment.",
+      });
+      return;
+    }
+
+    if (subscription?.effectiveTier === "rinse") {
+      const cutoff = format(subDays(new Date(), RINSE_PLAN_LIMITS.timesheetHistoryDays), "yyyy-MM-dd");
+      const blockedRow = parsedRows.find((row) => row.date < cutoff);
+      if (blockedRow) {
+        toast({
+          title: "Import blocked",
+          description: `Rinse can import only the last ${RINSE_PLAN_LIMITS.timesheetHistoryDays} days. ${blockedRow.employeeName} on ${blockedRow.date} is outside that range.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const existingRoleNames = new Set(customRoles.map((role) => role.name.trim().toLowerCase()));
+      const incomingRoleNames = new Set(
+        parsedRows
+          .map((row) => row.role?.trim() ?? "")
+          .filter(Boolean)
+          .map((role) => role.toLowerCase())
+          .filter((role) => !existingRoleNames.has(role)),
+      );
+      if (customRoles.length + incomingRoleNames.size > RINSE_PLAN_LIMITS.maxCustomRoles) {
+        toast({
+          title: "Import blocked",
+          description: `Rinse supports up to ${RINSE_PLAN_LIMITS.maxCustomRoles} custom roles. Reduce the new role names in the CSV or delete unused roles first.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     setImporting(true);
     setImportedRows(0);
     const tzOffset = new Date().getTimezoneOffset();

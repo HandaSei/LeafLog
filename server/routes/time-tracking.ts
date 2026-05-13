@@ -9,12 +9,19 @@ import { autoCloseStaleSession } from "./auto-close";
 import { DATE_ONLY_RE, getDateRangeQuery, toDateOnly } from "./utils";
 import { handleKioskAction } from "../services/time-tracking/kiosk-action-service";
 import { importTimesheetCsv } from "../services/time-tracking/csv-import-service";
+import {
+  getRinseLimitedDateRange,
+  getRinseTimesheetHistoryCutoff,
+  isBlockedByRinseTimesheetHistory,
+  sanitizeEmployeesForRinseBreakPolicy,
+} from "../services/subscription-limits";
 
 export function registerTimeTrackingRoutes(router: Router) {
   router.get("/api/steepin/employees", requireAuth, async (req, res) => {
     const ownerAccountId = req.session.userId!;
     const emps = await storage.getEmployees(ownerAccountId);
-    res.json(emps.filter(e => e.status === "active" && !e.hiddenFromSteepin));
+    const sanitizedEmployees = await sanitizeEmployeesForRinseBreakPolicy(ownerAccountId, emps);
+    res.json(sanitizedEmployees.filter(e => e.status === "active" && !e.hiddenFromSteepin));
   });
 
   // Batched fetch of "current view" entries for every active kiosk employee
@@ -137,13 +144,23 @@ export function registerTimeTrackingRoutes(router: Router) {
     const range = getDateRangeQuery(req);
     if (range && "error" in range) return res.status(400).json({ message: range.error });
     if (range) {
-      const entries = await storage.getTimeEntriesByDateRange(ownerAccountId, range.from, range.to, employeeId);
+      const limitedRange = await getRinseLimitedDateRange(ownerAccountId, range.from, range.to);
+      if (limitedRange.empty) {
+        return res.json([]);
+      }
+      const entries = await storage.getTimeEntriesByDateRange(ownerAccountId, limitedRange.from, limitedRange.to, employeeId);
       return res.json(entries);
     }
     if (employeeId && date) {
+      if (await isBlockedByRinseTimesheetHistory(ownerAccountId, date)) {
+        return res.json([]);
+      }
       const entries = await storage.getTimeEntriesByEmployeeAndDate(employeeId, date);
       return res.json(entries);
     } else if (date) {
+      if (await isBlockedByRinseTimesheetHistory(ownerAccountId, date)) {
+        return res.json([]);
+      }
       const entries = await storage.getTimeEntriesByDate(date, ownerAccountId);
       return res.json(entries);
     }
@@ -159,7 +176,10 @@ export function registerTimeTrackingRoutes(router: Router) {
       return res.status(403).json({ message: "Insufficient permissions" });
     }
 
-    const entries = await storage.getAllTimeEntries(ownerAccountId);
+    const rinseCutoff = await getRinseTimesheetHistoryCutoff(ownerAccountId);
+    const entries = rinseCutoff
+      ? await storage.getTimeEntriesByDateRange(ownerAccountId, rinseCutoff, format(new Date(), "yyyy-MM-dd"))
+      : await storage.getAllTimeEntries(ownerAccountId);
     res.json(entries);
   });
 
@@ -233,6 +253,9 @@ export function registerTimeTrackingRoutes(router: Router) {
     const entryTimestamp = timestamp ? new Date(timestamp) : new Date();
     if (Number.isNaN(entryTimestamp.getTime())) {
       return res.status(400).json({ message: "Invalid timestamp" });
+    }
+    if (await isBlockedByRinseTimesheetHistory(req.session.userId!, date)) {
+      return res.status(403).json({ message: "Rinse timesheet history is limited to the last 180 days." });
     }
     const entry = await storage.createTimeEntryManualForOwner(
       req.session.userId!,

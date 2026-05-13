@@ -1,5 +1,6 @@
 import type { FormEvent } from "react";
 import type { CustomRole, Employee, KioskDevice, TimesheetBackup } from "@shared/schema";
+import { RINSE_PLAN_LIMITS } from "@shared/subscription";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,8 @@ interface SettingsManagementTabProps {
   createBackupMutation: VoidMutationLike;
   backupsLoading: boolean;
   backups: Omit<TimesheetBackup, "snapshot">[];
+  isRinsePlan: boolean;
+  rinseMaxCustomRoles: number;
   setConfirmRestoreId: (id: number) => void;
   restoreBackupMutation: MutationLike<number>;
   deleteBackupMutation: MutationLike<number>;
@@ -110,6 +113,8 @@ export function SettingsManagementTab({
   createBackupMutation,
   backupsLoading,
   backups,
+  isRinsePlan,
+  rinseMaxCustomRoles,
   setConfirmRestoreId,
   restoreBackupMutation,
   deleteBackupMutation,
@@ -132,6 +137,11 @@ export function SettingsManagementTab({
   handleAdd,
   createMutation,
 }: SettingsManagementTabProps) {
+  const roleLimitReached = isRinsePlan && roles.length >= rinseMaxCustomRoles;
+  const backupEmptyText = isRinsePlan
+    ? "No import backup yet. Rinse creates and keeps one automatic backup before each CSV import."
+    : "No backups yet. Create one manually or import a CSV.";
+
   return (
     <TabsContent value="management" className="space-y-6 mt-4">
       <Card>
@@ -203,6 +213,12 @@ export function SettingsManagementTab({
 
               {/* Per-employee exceptions */}
               <div className="pt-3 border-t mt-2">
+                {isRinsePlan ? (
+                  <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                    Rinse uses the general break policy for everyone. Per-employee exceptions stay saved in the background and will return if the account moves to a higher tier.
+                  </div>
+                ) : (
+                  <>
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <p className="text-sm font-medium">Per-employee exceptions</p>
@@ -241,6 +257,8 @@ export function SettingsManagementTab({
                       </div>
                     ))}
                   </div>
+                )}
+                  </>
                 )}
               </div>
             </>
@@ -537,10 +555,15 @@ export function SettingsManagementTab({
               <div>
                 <CardTitle className="text-base">Timesheet Backups</CardTitle>
                 <CardDescription className="text-xs mt-0.5">
-                  Restore your timesheet data to a previous state. Backups are created automatically before each CSV import.
+                  {isRinsePlan
+                    ? "Rinse keeps the latest automatic CSV-import backup."
+                    : "Restore your timesheet data to a previous state. Backups are created automatically before each CSV import."}
                 </CardDescription>
               </div>
             </div>
+            {isRinsePlan ? (
+              <Badge variant="secondary" className="text-xs">Auto only</Badge>
+            ) : (
             <Button
               size="sm"
               variant="outline"
@@ -551,6 +574,7 @@ export function SettingsManagementTab({
               <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />
               {createBackupMutation.isPending ? "Saving…" : "Back up now"}
             </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -564,7 +588,7 @@ export function SettingsManagementTab({
             </div>
           ) : backups.length === 0 ? (
             <div className="text-center py-6 text-muted-foreground text-sm">
-              No backups yet. Create one manually or import a CSV.
+              {backupEmptyText}
             </div>
           ) : (
             <div className="space-y-2">
@@ -620,11 +644,16 @@ export function SettingsManagementTab({
               </CardDescription>
             </div>
             <Badge variant="secondary" className="text-xs" data-testid="badge-role-count">
-              {roles.length} roles
+              {isRinsePlan ? `${roles.length}/${rinseMaxCustomRoles} roles` : `${roles.length} roles`}
             </Badge>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          {isRinsePlan && (
+            <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+              Rinse supports up to {RINSE_PLAN_LIMITS.maxCustomRoles} custom roles. Existing roles can still be edited or deleted.
+            </div>
+          )}
           {isLoading ? (
             <div className="space-y-2">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -742,17 +771,18 @@ export function SettingsManagementTab({
                 />
               </label>
               <Input
-                placeholder="New role name..."
+                placeholder={roleLimitReached ? "Role limit reached" : "New role name..."}
                 value={newRoleName}
                 onChange={(e) => setNewRoleName(e.target.value)}
                 maxLength={40}
                 className="flex-1 h-9 text-sm"
+                disabled={roleLimitReached}
                 data-testid="input-new-role"
               />
               <Button
                 type="submit"
                 size="sm"
-                disabled={!newRoleName.trim() || createMutation.isPending}
+                disabled={!newRoleName.trim() || createMutation.isPending || roleLimitReached}
                 data-testid="button-add-role"
               >
                 <Plus className="w-4 h-4 mr-1" />

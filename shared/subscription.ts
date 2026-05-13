@@ -23,6 +23,14 @@ export const RINSE_EMPLOYEE_LIMIT = {
   archivedRetentionDays: 180,
 } as const;
 
+export const RINSE_PLAN_LIMITS = {
+  timesheetHistoryDays: 180,
+  maxCustomRoles: 6,
+  allowPerEmployeeBreakExceptions: false,
+  allowManualTimesheetBackups: false,
+  retainedImportBackups: 1,
+} as const;
+
 export type RinseEmployeeLimitBlockCode =
   | "RINSE_ACTIVE_EMPLOYEE_LIMIT"
   | "RINSE_PRORATE_PAYMENT_REQUIRED"

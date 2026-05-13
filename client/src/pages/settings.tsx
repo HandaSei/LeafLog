@@ -35,6 +35,7 @@ import { SettingsAccountTab } from "@/components/settings/settings-account-tab";
 import { SettingsAestheticTab } from "@/components/settings/settings-aesthetic-tab";
 import { SettingsSubscriptionTab, type SubscriptionSummary } from "@/components/settings/settings-subscription-tab";
 import { isActiveUnarchivedEmployee } from "@/lib/employees";
+import { RINSE_PLAN_LIMITS } from "@shared/subscription";
 
 type SettingsTab = "management" | "account" | "aesthetic" | "subscription";
 
@@ -136,8 +137,9 @@ export default function SettingsPage() {
 
   const { data: subscription, isLoading: subscriptionLoading } = useQuery<SubscriptionSummary>({
     queryKey: ["/api/subscription"],
-    enabled: activeTab === "subscription" && user?.role !== "admin",
+    enabled: user?.role !== "admin",
   });
+  const isRinsePlan = subscription?.effectiveTier === "rinse";
 
   const { data: backups = [], isLoading: backupsLoading } = useQuery<Omit<TimesheetBackup, "snapshot">[]>({
     queryKey: ["/api/backups"],
@@ -326,6 +328,13 @@ export default function SettingsPage() {
   });
 
   const openEmpException = (emp?: Employee) => {
+    if (isRinsePlan) {
+      toast({
+        title: "Rinse uses one break policy",
+        description: "Per-employee break exceptions are available on higher tiers.",
+      });
+      return;
+    }
     setEmpExceptionId(emp ? String(emp.id) : "");
     setEmpExceptionPaid(emp?.paidBreakMinutes != null ? String(emp.paidBreakMinutes) : "");
     setEmpExceptionMax(emp?.maxBreakMinutes != null ? String(emp.maxBreakMinutes) : "");
@@ -426,6 +435,14 @@ export default function SettingsPage() {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoleName.trim()) return;
+    if (isRinsePlan && roles.length >= RINSE_PLAN_LIMITS.maxCustomRoles) {
+      toast({
+        title: "Role limit reached",
+        description: `Rinse supports up to ${RINSE_PLAN_LIMITS.maxCustomRoles} custom roles.`,
+        variant: "destructive",
+      });
+      return;
+    }
     createMutation.mutate({ name: newRoleName.trim(), color: newRoleColor });
   };
 
@@ -496,6 +513,8 @@ export default function SettingsPage() {
           createBackupMutation={{ isPending: createBackupMutation.isPending, mutate: () => createBackupMutation.mutate() }}
           backupsLoading={backupsLoading}
           backups={backups}
+          isRinsePlan={isRinsePlan}
+          rinseMaxCustomRoles={RINSE_PLAN_LIMITS.maxCustomRoles}
           setConfirmRestoreId={setConfirmRestoreId}
           restoreBackupMutation={restoreBackupMutation}
           deleteBackupMutation={deleteBackupMutation}

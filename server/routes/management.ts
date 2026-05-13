@@ -7,7 +7,17 @@ import { requireAuth, requireRole } from "../auth";
 import { pool, storage } from "../storage";
 import { DATE_ONLY_RE, type RecentEntryRow } from "./utils";
 import { addManagerSSEClient, removeManagerSSEClient } from "../sse";
-import { getRinseEmployeeLimitState } from "../services/subscription-limits";
+import {
+  assertCanAddCustomRoles,
+  assertCanCreateManualTimesheetBackup,
+  assertCanSetEmployeeBreakException,
+  assertCanUseTimesheetBackup,
+  getRinseEmployeeLimitState,
+  getVisibleBackupsForSubscription,
+  RinseFeatureLimitError,
+  sanitizeEmployeesForRinseBreakPolicy,
+  sendRinseFeatureLimitError,
+} from "../services/subscription-limits";
 import { ensureTrialExpiredRawNotice } from "../services/subscription-notices";
 
 function subscriptionSnapshotFromAccount(account: Pick<
@@ -48,7 +58,7 @@ export function registerManagementRoutes(router: Router) {
   router.get("/api/backups", requireRole("admin", "manager"), async (req, res) => {
     try {
       const backups = await storage.getTimesheetBackups(req.session.userId!);
-      res.json(backups);
+      res.json(await getVisibleBackupsForSubscription(req.session.userId!, backups));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -56,9 +66,13 @@ export function registerManagementRoutes(router: Router) {
 
   router.post("/api/backups", requireRole("admin", "manager"), async (req, res) => {
     try {
+      await assertCanCreateManualTimesheetBackup(req.session.userId!);
       const backup = await storage.createTimesheetBackup(req.session.userId!, "Manual backup");
       res.json({ id: backup.id, label: backup.label, entryCount: backup.entryCount, createdAt: backup.createdAt });
     } catch (err: any) {
+      if (err instanceof RinseFeatureLimitError) {
+        return sendRinseFeatureLimitError(res, err);
+      }
       res.status(500).json({ message: err.message });
     }
   });
@@ -67,9 +81,13 @@ export function registerManagementRoutes(router: Router) {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid backup id" });
+      await assertCanUseTimesheetBackup(req.session.userId!, id);
       const restored = await storage.restoreTimesheetBackup(id, req.session.userId!);
       res.json({ restored });
     } catch (err: any) {
+      if (err instanceof RinseFeatureLimitError) {
+        return sendRinseFeatureLimitError(res, err);
+      }
       res.status(err.message === "Backup not found" ? 404 : 500).json({ message: err.message });
     }
   });
@@ -100,6 +118,14 @@ export function registerManagementRoutes(router: Router) {
     const duplicate = existing.find((r) => r.name.toLowerCase() === name.trim().toLowerCase());
     if (duplicate) {
       return res.status(400).json({ message: "A role with this name already exists" });
+    }
+    try {
+      await assertCanAddCustomRoles(req.session.userId!, [name.trim()]);
+    } catch (err) {
+      if (err instanceof RinseFeatureLimitError) {
+        return sendRinseFeatureLimitError(res, err);
+      }
+      throw err;
     }
     const role = await storage.createCustomRole(req.session.userId!, name.trim(), color);
     res.status(201).json(role);
@@ -204,6 +230,18 @@ export function registerManagementRoutes(router: Router) {
     if (isNaN(employeeId)) return res.status(400).json({ message: "Invalid employee id" });
     const parsed = breakPolicySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+    try {
+      await assertCanSetEmployeeBreakException(
+        req.session.userId!,
+        parsed.data.paidBreakMinutes,
+        parsed.data.maxBreakMinutes,
+      );
+    } catch (err) {
+      if (err instanceof RinseFeatureLimitError) {
+        return sendRinseFeatureLimitError(res, err);
+      }
+      throw err;
+    }
     const updated = await storage.updateEmployeeBreakPolicy(
       employeeId, req.session.userId!,
       parsed.data.paidBreakMinutes ?? null,
@@ -416,9 +454,10 @@ export function registerManagementRoutes(router: Router) {
       email: account.email ?? null,
     };
     const isSteepIn = isSteepInSession;
+    const employeesForResponse = await sanitizeEmployeesForRinseBreakPolicy(accountId, employees);
     const steepinEmployees = isSteepIn
-      ? employees.filter((e: any) => e.status === "active" && !e.hiddenFromSteepin)
-      : employees;
+      ? employeesForResponse.filter((e: any) => e.status === "active" && !e.hiddenFromSteepin)
+      : employeesForResponse;
     const response: any = {
       auth: {
         authenticated: true,

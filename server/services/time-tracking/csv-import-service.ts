@@ -1,5 +1,13 @@
 import { addDays, format, parseISO } from "date-fns";
 import { storage } from "../../storage";
+import {
+  assertCanAddCustomRoles,
+  getRinseTimesheetHistoryCutoff,
+  isRinseAccountId,
+  pruneRinseBackupsAfterImport,
+  RINSE_IMPORT_BACKUP_LABEL,
+  RinseFeatureLimitError,
+} from "../subscription-limits";
 
 type CsvImportBody = {
   rows?: unknown;
@@ -17,10 +25,58 @@ type CsvImportRow = {
   notes?: string;
 };
 
+type ImportableCsvImportRow = CsvImportRow & {
+  employeeName: unknown;
+  date: string;
+  clockIn: string;
+};
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function getImportableRows(rows: unknown[]): ImportableCsvImportRow[] {
+  return rows.filter((rawRow): rawRow is ImportableCsvImportRow => {
+    const row = rawRow as CsvImportRow;
+    return !!row.employeeName && typeof row.date === "string" && DATE_ONLY_RE.test(row.date) && !!row.clockIn;
+  });
+}
+
+function getIncomingRoleNames(rows: CsvImportRow[]) {
+  return [
+    ...new Set(
+      rows
+        .map((row) => typeof row.role === "string" ? row.role.trim() : "")
+        .filter(Boolean),
+    ),
+  ];
+}
+
 export async function importTimesheetCsv(ownerAccountId: number, body: CsvImportBody) {
   const { rows, timezoneOffset = 0, skipBackup = false } = body;
   if (!Array.isArray(rows) || rows.length === 0) {
     return { status: 400, body: { message: "No rows provided" } };
+  }
+  const importableRows = getImportableRows(rows);
+  const rinseCutoff = await getRinseTimesheetHistoryCutoff(ownerAccountId);
+  if (rinseCutoff) {
+    const blockedRow = importableRows.find((row) => row.date < rinseCutoff);
+    if (blockedRow) {
+      return {
+        status: 403,
+        body: {
+          code: "RINSE_TIMESHEET_HISTORY_LIMIT",
+          message: `Rinse timesheet history is limited to the last 180 days. The row for ${blockedRow.employeeName} on ${blockedRow.date} is outside that range.`,
+        },
+      };
+    }
+  }
+
+  try {
+    await assertCanAddCustomRoles(ownerAccountId, getIncomingRoleNames(importableRows));
+  } catch (err) {
+    if (err instanceof RinseFeatureLimitError) {
+      return { status: err.status, body: { code: err.code, message: err.message } };
+    }
+    throw err;
   }
 
   const tzOffsetMs = timezoneOffset * 60000;
@@ -38,8 +94,16 @@ export async function importTimesheetCsv(ownerAccountId: number, body: CsvImport
 
   if (!skipBackup) {
     try {
-      await storage.createTimesheetBackup(ownerAccountId, "Before CSV Import");
-    } catch (_) {}
+      const backup = await storage.createTimesheetBackup(ownerAccountId, RINSE_IMPORT_BACKUP_LABEL);
+      await pruneRinseBackupsAfterImport(ownerAccountId, backup.id);
+    } catch (_) {
+      if (await isRinseAccountId(ownerAccountId)) {
+        return {
+          status: 500,
+          body: { message: "Could not create the required automatic import backup. No rows were imported." },
+        };
+      }
+    }
   }
 
   const existingEmployees = await storage.getEmployees(ownerAccountId);

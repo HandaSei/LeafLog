@@ -4,9 +4,14 @@ import { requireAuth, requireRole } from "../auth";
 import { storage } from "../storage";
 import { broadcastManagerUpdate } from "../sse";
 import {
+  assertCanSetEmployeeBreakException,
   assertCanDeactivateRinseEmployee,
   getRinseEmployeeActivationPatch,
   RinseEmployeeLimitError,
+  RinseFeatureLimitError,
+  sanitizeEmployeeForRinseBreakPolicy,
+  sanitizeEmployeesForRinseBreakPolicy,
+  sendRinseFeatureLimitError,
   sendRinseLimitError,
 } from "../services/subscription-limits";
 
@@ -15,7 +20,7 @@ export function registerEmployeeRoutes(router: Router) {
   router.get("/api/employees", requireAuth, async (req, res) => {
     const ownerAccountId = req.session.userId!;
     const emps = await storage.getEmployees(ownerAccountId);
-    res.json(emps);
+    res.json(await sanitizeEmployeesForRinseBreakPolicy(ownerAccountId, emps));
   });
 
   router.get("/api/employees/:id", requireAuth, async (req, res) => {
@@ -24,7 +29,7 @@ export function registerEmployeeRoutes(router: Router) {
     if (emp.ownerAccountId !== req.session.userId) {
       return res.status(403).json({ message: "Access denied" });
     }
-    res.json(emp);
+    res.json(await sanitizeEmployeeForRinseBreakPolicy(req.session.userId!, emp));
   });
 
   router.post("/api/employees", requireRole("admin", "manager"), async (req, res) => {
@@ -37,6 +42,12 @@ export function registerEmployeeRoutes(router: Router) {
     let subscriptionPendingSince: Date | null | undefined;
 
     try {
+      await assertCanSetEmployeeBreakException(
+        ownerAccountId,
+        parsed.data.paidBreakMinutes,
+        parsed.data.maxBreakMinutes,
+      );
+
       if (willBeActive) {
         const activation = await getRinseEmployeeActivationPatch(ownerAccountId);
         subscriptionPendingSince = activation.subscriptionPendingSince;
@@ -44,6 +55,9 @@ export function registerEmployeeRoutes(router: Router) {
     } catch (error) {
       if (error instanceof RinseEmployeeLimitError) {
         return sendRinseLimitError(res, error);
+      }
+      if (error instanceof RinseFeatureLimitError) {
+        return sendRinseFeatureLimitError(res, error);
       }
       throw error;
     }
@@ -80,6 +94,12 @@ export function registerEmployeeRoutes(router: Router) {
     const patch: Parameters<typeof storage.updateEmployee>[1] = { ...partial.data };
 
     try {
+      await assertCanSetEmployeeBreakException(
+        ownerAccountId,
+        partial.data.paidBreakMinutes,
+        partial.data.maxBreakMinutes,
+      );
+
       if (wasActive && !willBeActive) {
         await assertCanDeactivateRinseEmployee(ownerAccountId, emp);
       }
@@ -91,6 +111,9 @@ export function registerEmployeeRoutes(router: Router) {
     } catch (error) {
       if (error instanceof RinseEmployeeLimitError) {
         return sendRinseLimitError(res, error);
+      }
+      if (error instanceof RinseFeatureLimitError) {
+        return sendRinseFeatureLimitError(res, error);
       }
       throw error;
     }

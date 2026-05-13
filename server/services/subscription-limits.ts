@@ -1,14 +1,18 @@
 import type { Account, Employee } from "@shared/schema";
+import { format, subDays } from "date-fns";
 import {
   addDays,
   computeEffectiveSubscription,
   getRinseBillingPeriod,
   getRinseProration,
   RINSE_EMPLOYEE_LIMIT,
+  RINSE_PLAN_LIMITS,
   type RinseEmployeeLimitBlockCode,
   type RinseEmployeeLimitState,
 } from "@shared/subscription";
 import { storage } from "../storage";
+
+export const RINSE_IMPORT_BACKUP_LABEL = "Before CSV Import";
 
 export class RinseEmployeeLimitError extends Error {
   status: number;
@@ -20,6 +24,23 @@ export class RinseEmployeeLimitError extends Error {
     this.status = status;
     this.code = code;
     this.details = details;
+  }
+}
+
+export type RinseFeatureLimitCode =
+  | "RINSE_TIMESHEET_HISTORY_LIMIT"
+  | "RINSE_BREAK_EXCEPTION_LIMIT"
+  | "RINSE_ROLE_LIMIT"
+  | "RINSE_MANUAL_BACKUP_LIMIT";
+
+export class RinseFeatureLimitError extends Error {
+  status: number;
+  code: RinseFeatureLimitCode;
+
+  constructor(status: number, code: RinseFeatureLimitCode, message: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
   }
 }
 
@@ -45,7 +66,7 @@ function getPeriodAnchor(account: Account, now: Date) {
   return toDate(account.subscriptionUpdatedAt) ?? toDate(account.createdAt) ?? now;
 }
 
-function isRinseAccount(account: Account, now: Date) {
+export function isRinseAccount(account: Account, now = new Date()) {
   const subscription = computeEffectiveSubscription({
     tier: account.subscriptionTier,
     status: account.subscriptionStatus,
@@ -55,6 +76,141 @@ function isRinseAccount(account: Account, now: Date) {
   }, now);
 
   return subscription.effectiveTier === "rinse";
+}
+
+export async function isRinseAccountId(ownerAccountId: number, now = new Date()) {
+  const account = await storage.getAccount(ownerAccountId);
+  return !!account && isRinseAccount(account, now);
+}
+
+export function getRinseHistoryCutoffDate(now = new Date()) {
+  return format(subDays(now, RINSE_PLAN_LIMITS.timesheetHistoryDays), "yyyy-MM-dd");
+}
+
+export async function getRinseTimesheetHistoryCutoff(ownerAccountId: number, now = new Date()) {
+  return await isRinseAccountId(ownerAccountId, now) ? getRinseHistoryCutoffDate(now) : null;
+}
+
+export async function getRinseLimitedDateRange(ownerAccountId: number, from: string, to: string, now = new Date()) {
+  const cutoff = await getRinseTimesheetHistoryCutoff(ownerAccountId, now);
+  if (!cutoff) {
+    return { from, to, cutoff: null, empty: false };
+  }
+  if (to < cutoff) {
+    return { from: cutoff, to, cutoff, empty: true };
+  }
+  return { from: from < cutoff ? cutoff : from, to, cutoff, empty: false };
+}
+
+export async function isBlockedByRinseTimesheetHistory(ownerAccountId: number, date: string, now = new Date()) {
+  const cutoff = await getRinseTimesheetHistoryCutoff(ownerAccountId, now);
+  return !!cutoff && date < cutoff;
+}
+
+export async function sanitizeEmployeesForRinseBreakPolicy<T extends { paidBreakMinutes?: number | null; maxBreakMinutes?: number | null }>(
+  ownerAccountId: number,
+  employees: T[],
+) {
+  if (!(await isRinseAccountId(ownerAccountId))) {
+    return employees;
+  }
+  return employees.map((employee) => ({
+    ...employee,
+    paidBreakMinutes: null,
+    maxBreakMinutes: null,
+  }));
+}
+
+export async function sanitizeEmployeeForRinseBreakPolicy<T extends { paidBreakMinutes?: number | null; maxBreakMinutes?: number | null }>(
+  ownerAccountId: number,
+  employee: T,
+) {
+  const [sanitized] = await sanitizeEmployeesForRinseBreakPolicy(ownerAccountId, [employee]);
+  return sanitized;
+}
+
+export async function assertCanSetEmployeeBreakException(ownerAccountId: number, paidBreakMinutes?: number | null, maxBreakMinutes?: number | null) {
+  if (paidBreakMinutes == null && maxBreakMinutes == null) {
+    return;
+  }
+  if (await isRinseAccountId(ownerAccountId)) {
+    throw new RinseFeatureLimitError(
+      403,
+      "RINSE_BREAK_EXCEPTION_LIMIT",
+      "Rinse uses the general break policy only. Per-employee break exceptions are available on higher tiers.",
+    );
+  }
+}
+
+export async function assertCanCreateManualTimesheetBackup(ownerAccountId: number) {
+  if (await isRinseAccountId(ownerAccountId)) {
+    throw new RinseFeatureLimitError(
+      403,
+      "RINSE_MANUAL_BACKUP_LIMIT",
+      "Rinse does not include manual timesheet backups. A backup is still created automatically before CSV imports.",
+    );
+  }
+}
+
+export async function assertCanAddCustomRoles(ownerAccountId: number, incomingNames: string[] = []) {
+  if (!(await isRinseAccountId(ownerAccountId))) {
+    return;
+  }
+  const existing = await storage.getCustomRoles(ownerAccountId);
+  const existingNames = new Set(existing.map((role) => role.name.trim().toLowerCase()));
+  const uniqueIncomingNames = new Set(
+    incomingNames
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => name.toLowerCase())
+      .filter((name) => !existingNames.has(name)),
+  );
+  if (existing.length + uniqueIncomingNames.size > RINSE_PLAN_LIMITS.maxCustomRoles) {
+    throw new RinseFeatureLimitError(
+      403,
+      "RINSE_ROLE_LIMIT",
+      `Rinse supports up to ${RINSE_PLAN_LIMITS.maxCustomRoles} custom roles. Delete an unused role or move to a higher tier before adding another one.`,
+    );
+  }
+}
+
+export async function getVisibleBackupsForSubscription<T extends { id: number; label: string }>(
+  ownerAccountId: number,
+  backups: T[],
+) {
+  if (!(await isRinseAccountId(ownerAccountId))) {
+    return backups;
+  }
+  return backups
+    .filter((backup) => backup.label === RINSE_IMPORT_BACKUP_LABEL)
+    .slice(0, RINSE_PLAN_LIMITS.retainedImportBackups);
+}
+
+export async function assertCanUseTimesheetBackup(ownerAccountId: number, backupId: number) {
+  const backups = await storage.getTimesheetBackups(ownerAccountId);
+  const visibleBackups = await getVisibleBackupsForSubscription(ownerAccountId, backups);
+  if (!backups.some((backup) => backup.id === backupId)) {
+    throw new RinseFeatureLimitError(404, "RINSE_MANUAL_BACKUP_LIMIT", "Backup not found");
+  }
+  if (!visibleBackups.some((backup) => backup.id === backupId)) {
+    throw new RinseFeatureLimitError(
+      403,
+      "RINSE_MANUAL_BACKUP_LIMIT",
+      "Rinse can restore only the latest automatic CSV-import backup.",
+    );
+  }
+}
+
+export async function pruneRinseBackupsAfterImport(ownerAccountId: number, keepBackupId: number) {
+  if (!(await isRinseAccountId(ownerAccountId))) {
+    return;
+  }
+  const backups = await storage.getTimesheetBackups(ownerAccountId);
+  await Promise.all(
+    backups
+      .filter((backup) => backup.id !== keepBackupId)
+      .map((backup) => storage.deleteTimesheetBackup(backup.id, ownerAccountId)),
+  );
 }
 
 function isPendingInCurrentPeriod(employee: Employee, periodStart: Date) {
@@ -203,5 +359,12 @@ export function sendRinseLimitError(res: { status: (status: number) => { json: (
     code: error.code,
     message: error.message,
     details: error.details,
+  });
+}
+
+export function sendRinseFeatureLimitError(res: { status: (status: number) => { json: (body: unknown) => void } }, error: RinseFeatureLimitError) {
+  res.status(error.status).json({
+    code: error.code,
+    message: error.message,
   });
 }
