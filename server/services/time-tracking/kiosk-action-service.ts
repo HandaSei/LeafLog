@@ -8,6 +8,7 @@ import { broadcastEntryUpdate } from "../../sse";
 import { pool, storage } from "../../storage";
 import { autoCloseStaleSession } from "../../routes/auto-close";
 import { toDateOnly } from "../../routes/utils";
+import { roundClockActionIfEnabled } from "./clock-rounding";
 
 type KioskActionBody = {
   employeeId?: unknown;
@@ -204,8 +205,20 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
     }
   }
 
-  const entry = offlineTimestamp
-    ? await storage.createTimeEntryManual(employeeIdNum, type, date, actionTime, null, notes || null, false, "employee")
+  const account = emp.ownerAccountId ? await storage.getAccount(emp.ownerAccountId) : undefined;
+  const rounding = await roundClockActionIfEnabled({
+    account,
+    employee: emp,
+    type,
+    actionTime,
+    entryDate: date,
+  });
+  if (rounding) {
+    date = rounding.date;
+  }
+  const entryActionTime = rounding?.timestamp ?? actionTime;
+  const entry = (offlineTimestamp || rounding)
+    ? await storage.createTimeEntryManual(employeeIdNum, type, date, entryActionTime, null, notes || null, false, "employee")
     : await storage.createTimeEntry(employeeIdNum, type, date, notes || null);
 
   if (notes && notes.trim() && emp.ownerAccountId) {
@@ -243,7 +256,7 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
     };
 
     const recentEntriesInWindow = async (entryType: string): Promise<Date[]> => {
-      const since = new Date(actionTime.getTime() - 36 * 60 * 60 * 1000);
+      const since = new Date(entryActionTime.getTime() - 36 * 60 * 60 * 1000);
       const rows = await pool.query(
         `SELECT timestamp FROM time_entries
          WHERE employee_id = $1 AND type = $2 AND id <> $3 AND timestamp >= $4`,
@@ -270,8 +283,8 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
     };
 
     if (type === "clock-in" && settings.notifyLate) {
-      const localNow = localMinutesInTz(actionTime);
-      const yesterday = new Date(actionTime.getTime() - 24 * 60 * 60 * 1000);
+      const localNow = localMinutesInTz(entryActionTime);
+      const yesterday = new Date(entryActionTime.getTime() - 24 * 60 * 60 * 1000);
       const yLocal = localMinutesInTz(yesterday);
       const shiftsTodayResult = await storage.getShiftsByEmployeeAndDate(employeeIdNum, localNow.dateStr);
       const shiftsYesterdayResult = await storage.getShiftsByEmployeeAndDate(employeeIdNum, yLocal.dateStr);
@@ -284,7 +297,7 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
           const shiftEnd = timeStringToMinutes(shift.endTime);
           const shiftDurMinutes = (shiftEnd <= shiftStart ? shiftEnd + 1440 : shiftEnd) - shiftStart;
 
-          const offsetFromStart = minutesFromShiftStart(actionTime, shift);
+          const offsetFromStart = minutesFromShiftStart(entryActionTime, shift);
           if (offsetFromStart === null) continue;
 
           const alreadyWorked = priorClockInTimes.some((clockInTime) => {
@@ -308,8 +321,8 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
     }
 
     if (type === "clock-out" && settings.notifyEarlyClockOut) {
-      const localNow = localMinutesInTz(actionTime);
-      const yesterday = new Date(actionTime.getTime() - 24 * 60 * 60 * 1000);
+      const localNow = localMinutesInTz(entryActionTime);
+      const yesterday = new Date(entryActionTime.getTime() - 24 * 60 * 60 * 1000);
       const yLocal = localMinutesInTz(yesterday);
       const sessShifts = await storage.getShiftsByEmployeeAndDate(employeeIdNum, date);
       const sessShiftsAlt = date !== localNow.dateStr ? await storage.getShiftsByEmployeeAndDate(employeeIdNum, localNow.dateStr) : [];
@@ -324,7 +337,7 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
           const shiftEndAdj = shiftEnd <= shiftStart ? shiftEnd + 1440 : shiftEnd;
           const shiftDurMinutes = shiftEndAdj - shiftStart;
 
-          const offsetFromStart = minutesFromShiftStart(actionTime, shift);
+          const offsetFromStart = minutesFromShiftStart(entryActionTime, shift);
           if (offsetFromStart === null) continue;
 
           const alreadyClosed = priorClockOutTimes.some((clockOutTime) => {
@@ -366,5 +379,5 @@ export async function handleKioskAction(body: KioskActionBody): Promise<KioskAct
     }
   }
 
-  return result(201, { ...entry, entries: updatedEntries });
+  return result(201, { ...entry, entries: updatedEntries, ...(rounding ? { rounding } : {}) });
 }

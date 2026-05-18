@@ -39,7 +39,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/lib/auth";
-import { ChevronLeft, ChevronRight, Plus, CalendarDays, MoreHorizontal, Pencil, Trash2, StickyNote, FileDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CalendarDays, MoreHorizontal, Pencil, Trash2, StickyNote, FileDown, Copy } from "lucide-react";
 import { ShiftFormDialog } from "@/components/shift-form-dialog";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { formatTime, getDaysBetween } from "@/lib/constants";
@@ -50,6 +50,11 @@ import { useToday } from "@/hooks/use-today";
 import { usePersistedState, dateSerializer } from "@/hooks/use-persisted-state";
 
 const WEEK_OPTIONS = { weekStartsOn: 1 as const };
+
+type SubscriptionAccess = {
+  adminExempt?: boolean;
+  effectiveTier?: string;
+};
 
 function toDateKey(date: Date) {
   return format(date, "yyyy-MM-dd");
@@ -140,6 +145,32 @@ export default function Schedule() {
     queryKey: ["/api/employees"],
   });
 
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery<SubscriptionAccess>({
+    queryKey: ["/api/subscription"],
+  });
+
+  const canUsePaidScheduleFeatures = subscription?.adminExempt === true || (!!subscription && subscription.effectiveTier !== "raw");
+
+  const copyPreviousWeek = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/shifts/copy-week", {
+        sourceWeekStart: format(subWeeks(dateRange.start, 1), "yyyy-MM-dd"),
+        targetWeekStart: shiftsFrom,
+      });
+      return res.json();
+    },
+    onSuccess: (data: { copied: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({
+        title: "Schedule copied",
+        description: `${data.copied} shift${data.copied === 1 ? "" : "s"} copied into this week.`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Copy failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const deleteShift = useMutation({
     mutationFn: async (id: number) => {
       return apiRequest("DELETE", `/api/shifts/${id}`);
@@ -199,6 +230,17 @@ export default function Schedule() {
     setShiftDialogOpen(true);
   };
 
+  const handleCopyPreviousWeek = () => {
+    if (!canUsePaidScheduleFeatures) {
+      toast({
+        title: "Paid plan feature",
+        description: "Copying a schedule from the previous week is available on paid plans.",
+      });
+      return;
+    }
+    copyPreviousWeek.mutate();
+  };
+
   const isLoading = shiftsLoading || employeesLoading;
   const isUpdating = !isLoading && (shiftsFetching || employeesFetching);
 
@@ -222,7 +264,18 @@ export default function Schedule() {
         </div>
 
         <div className="flex flex-col gap-3 bg-background rounded-lg border p-3 shadow-sm">
-          <div className="flex items-center justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-xs font-semibold gap-1.5"
+              onClick={handleCopyPreviousWeek}
+              disabled={copyPreviousWeek.isPending || subscriptionLoading}
+              data-testid="button-copy-previous-week"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              {copyPreviousWeek.isPending ? "Copying..." : "Copy Previous Week"}
+            </Button>
             <Button
               variant="outline"
               size="sm"

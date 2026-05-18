@@ -1,7 +1,7 @@
 import type { Router } from "express";
 import bcrypt from "bcryptjs";
 import { format, parseISO, subDays } from "date-fns";
-import { adminGiftSubscriptionSchema, breakPolicySchema, notificationSettingsSchema, type Account } from "@shared/schema";
+import { adminGiftSubscriptionSchema, breakPolicySchema, clockRoundingSettingsSchema, notificationSettingsSchema, type Account } from "@shared/schema";
 import { computeEffectiveSubscription } from "@shared/subscription";
 import { requireAuth, requireRole } from "../auth";
 import { pool, storage } from "../storage";
@@ -10,13 +10,17 @@ import { addManagerSSEClient, removeManagerSSEClient } from "../sse";
 import {
   assertCanAddCustomRoles,
   assertCanCreateManualTimesheetBackup,
+  assertCanUsePaidPlanFeature,
+  canUsePaidPlanFeatures,
   assertCanSetEmployeeBreakException,
   assertCanUseTimesheetBackup,
   getRinseEmployeeLimitState,
   getVisibleBackupsForSubscription,
+  PaidFeatureLimitError,
   registerKioskDeviceForSubscription,
   RinseFeatureLimitError,
   sanitizeEmployeesForRinseBreakPolicy,
+  sendPaidFeatureLimitError,
   sendRinseFeatureLimitError,
 } from "../services/subscription-limits";
 import { ensureTrialExpiredRawNotice } from "../services/subscription-notices";
@@ -264,6 +268,44 @@ export function registerManagementRoutes(router: Router) {
     await storage.updateNotificationSettings(req.session.userId!, parsed.data);
     const settings = await storage.getNotificationSettings(req.session.userId!);
     res.json(settings);
+  });
+
+  // === CLOCK ROUNDING ===
+  router.get("/api/settings/clock-rounding", requireAuth, async (req, res) => {
+    const account = await storage.getAccount(req.session.userId!);
+    if (!account) return res.status(404).json({ message: "Account not found" });
+    const available = canUsePaidPlanFeatures(account);
+    res.json({
+      enabled: available ? account.roundClockTimesEnabled === true : false,
+      available,
+    });
+  });
+
+  router.patch("/api/settings/clock-rounding", requireRole("admin", "manager"), async (req, res) => {
+    const parsed = clockRoundingSettingsSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+
+    try {
+      if (parsed.data.enabled) {
+        await assertCanUsePaidPlanFeature(req.session.userId!, "Clock rounding");
+      }
+      await pool.query(
+        "UPDATE accounts SET round_clock_times_enabled = $1 WHERE id = $2",
+        [parsed.data.enabled, req.session.userId!],
+      );
+      const account = await storage.getAccount(req.session.userId!);
+      if (!account) return res.status(404).json({ message: "Account not found" });
+      const available = canUsePaidPlanFeatures(account);
+      res.json({
+        enabled: available ? account.roundClockTimesEnabled === true : false,
+        available,
+      });
+    } catch (err) {
+      if (err instanceof PaidFeatureLimitError) {
+        return sendPaidFeatureLimitError(res, err);
+      }
+      throw err;
+    }
   });
 
   // === SUBSCRIPTION ===

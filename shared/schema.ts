@@ -28,6 +28,7 @@ export const accounts = pgTable("accounts", {
   globalSpecialDayOfWeek: integer("global_special_day_of_week"),
   globalSpecialDayRate: numeric("global_special_day_rate", { precision: 10, scale: 2 }),
   globalCustomPayDays: text("global_custom_pay_days"),
+  roundClockTimesEnabled: boolean("round_clock_times_enabled").default(false),
   subscriptionTier: text("subscription_tier").$type<SubscriptionTierId>().default("raw"),
   subscriptionStatus: text("subscription_status").$type<SubscriptionStatus>().default("free"),
   subscriptionTrialEndsAt: timestamp("subscription_trial_ends_at"),
@@ -87,6 +88,10 @@ export const employees = pgTable("employees", {
   subscriptionPendingSince: timestamp("subscription_pending_since"),
   archivedAt: timestamp("archived_at"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const clockRoundingSettingsSchema = z.object({
+  enabled: z.boolean(),
 });
 
 export const shifts = pgTable("shifts", {

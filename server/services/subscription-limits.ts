@@ -45,6 +45,16 @@ export class RinseFeatureLimitError extends Error {
   }
 }
 
+export class PaidFeatureLimitError extends Error {
+  status: number;
+  code = "PAID_PLAN_REQUIRED" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.status = 403;
+  }
+}
+
 function toDate(value: Date | string | null | undefined): Date | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -77,6 +87,33 @@ export function isRinseAccount(account: Account, now = new Date()) {
   }, now);
 
   return subscription.effectiveTier === "rinse";
+}
+
+export function canUsePaidPlanFeatures(account: Account, now = new Date()) {
+  if (account.role === "admin") {
+    return true;
+  }
+  const subscription = computeEffectiveSubscription({
+    tier: account.subscriptionTier,
+    status: account.subscriptionStatus,
+    trialEndsAt: account.subscriptionTrialEndsAt,
+    giftExpiresAt: account.subscriptionGiftExpiresAt,
+    updatedAt: account.subscriptionUpdatedAt,
+  }, now);
+
+  return subscription.effectiveTier !== "raw";
+}
+
+export async function canUsePaidPlanFeaturesByAccountId(accountId: number, now = new Date()) {
+  const account = await storage.getAccount(accountId);
+  return !!account && canUsePaidPlanFeatures(account, now);
+}
+
+export async function assertCanUsePaidPlanFeature(accountId: number, featureName: string, now = new Date()) {
+  if (await canUsePaidPlanFeaturesByAccountId(accountId, now)) {
+    return;
+  }
+  throw new PaidFeatureLimitError(`${featureName} is available on paid plans only.`);
 }
 
 export async function isRinseAccountId(ownerAccountId: number, now = new Date()) {
@@ -434,6 +471,13 @@ export function sendRinseLimitError(res: { status: (status: number) => { json: (
 }
 
 export function sendRinseFeatureLimitError(res: { status: (status: number) => { json: (body: unknown) => void } }, error: RinseFeatureLimitError) {
+  res.status(error.status).json({
+    code: error.code,
+    message: error.message,
+  });
+}
+
+export function sendPaidFeatureLimitError(res: { status: (status: number) => { json: (body: unknown) => void } }, error: PaidFeatureLimitError) {
   res.status(error.status).json({
     code: error.code,
     message: error.message,

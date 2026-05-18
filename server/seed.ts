@@ -41,6 +41,8 @@ export async function runMigrations() {
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription_trial_ends_at timestamp`);
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription_gift_expires_at timestamp`);
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS subscription_updated_at timestamp`);
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS round_clock_times_enabled boolean DEFAULT false`);
+  await pool.query(`UPDATE accounts SET round_clock_times_enabled = false WHERE round_clock_times_enabled IS NULL`);
   await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS subscription_pending_since timestamp`);
   await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS archived_at timestamp`);
   await pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS created_at timestamp DEFAULT now()`);

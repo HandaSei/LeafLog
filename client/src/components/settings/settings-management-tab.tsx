@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { Bell, Check, Coffee, Database, Info, Lock, Monitor, Palette, Pencil, Plus, RotateCcw, Save, ShieldCheck, Trash2, Unlock, X } from "lucide-react";
+import { Bell, Check, Clock3, Coffee, Database, Info, Lock, Monitor, Palette, Pencil, Plus, RotateCcw, Save, ShieldCheck, Trash2, Unlock, X } from "lucide-react";
 
 type MutationLike<TVariables> = {
   isPending: boolean;
@@ -32,6 +32,11 @@ type NotificationSettings = {
   timezone: string;
 };
 
+type ClockRoundingSettings = {
+  enabled: boolean;
+  available: boolean;
+};
+
 interface SettingsManagementTabProps {
   policyLoading: boolean;
   paidBreakInput: string;
@@ -47,6 +52,10 @@ interface SettingsManagementTabProps {
   notifSettings: NotificationSettings | null;
   setNotifSettings: (settings: NotificationSettings) => void;
   updateNotifMutation: MutationLike<Partial<NotificationSettings>>;
+  clockRoundingSettings?: ClockRoundingSettings;
+  clockRoundingLoading: boolean;
+  canUsePaidFeatures: boolean;
+  updateClockRoundingMutation: MutationLike<{ enabled: boolean }>;
   deferredSettingsQueriesEnabled: boolean;
   devicesLoading: boolean;
   kioskDevices: KioskDevice[];
@@ -100,6 +109,10 @@ export function SettingsManagementTab({
   notifSettings,
   setNotifSettings,
   updateNotifMutation,
+  clockRoundingSettings,
+  clockRoundingLoading,
+  canUsePaidFeatures,
+  updateClockRoundingMutation,
   deferredSettingsQueriesEnabled,
   devicesLoading,
   kioskDevices,
@@ -412,6 +425,50 @@ export function SettingsManagementTab({
                 </div>
               </div>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Clock3 className="w-4 h-4 text-emerald-600" />
+            <div>
+              <CardTitle className="text-base">Clock Rounding</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                Round SteepIn clock-ins and clock-outs to cleaner five-minute marks
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {clockRoundingLoading ? (
+            <Skeleton className="h-14 w-full" />
+          ) : (
+            <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm">Round to nearest 5 minutes</Label>
+                  {!canUsePaidFeatures && (
+                    <Badge variant="secondary" className="text-[10px]">Paid plans</Badge>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  When a worker clocks within five minutes of an assigned shift start or end, LeafLog saves the exact shift time and shows a friendly SteepIn message.
+                </p>
+                {!canUsePaidFeatures && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Raw keeps exact clock times. Upgrade to any paid plan to enable rounding.
+                  </p>
+                )}
+              </div>
+              <Switch
+                checked={clockRoundingSettings?.enabled === true}
+                disabled={!canUsePaidFeatures || updateClockRoundingMutation.isPending}
+                onCheckedChange={(enabled) => updateClockRoundingMutation.mutate({ enabled })}
+                data-testid="switch-clock-rounding"
+              />
+            </div>
           )}
         </CardContent>
       </Card>

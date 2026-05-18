@@ -39,6 +39,11 @@ import { RINSE_PLAN_LIMITS } from "@shared/subscription";
 
 type SettingsTab = "management" | "account" | "aesthetic" | "subscription";
 
+type ClockRoundingSettings = {
+  enabled: boolean;
+  available: boolean;
+};
+
 function readCachedSteepInTheme() {
   try {
     const cached = localStorage.getItem("leaflog_steepin_theme");
@@ -140,6 +145,7 @@ export default function SettingsPage() {
     enabled: user?.role !== "admin",
   });
   const isRinsePlan = subscription?.effectiveTier === "rinse";
+  const canUsePaidFeatures = user?.role === "admin" || subscription?.adminExempt === true || (!!subscription && subscription.effectiveTier !== "raw");
 
   const { data: backups = [], isLoading: backupsLoading } = useQuery<Omit<TimesheetBackup, "snapshot">[]>({
     queryKey: ["/api/backups"],
@@ -266,6 +272,22 @@ export default function SettingsPage() {
       if (!notifSettings) setNotifSettings(data);
       return data;
     },
+  });
+
+  const { data: clockRoundingSettings, isLoading: clockRoundingLoading } = useQuery<ClockRoundingSettings>({
+    queryKey: ["/api/settings/clock-rounding"],
+  });
+
+  const updateClockRoundingMutation = useMutation({
+    mutationFn: async (data: { enabled: boolean }) => {
+      const res = await apiRequest("PATCH", "/api/settings/clock-rounding", data);
+      return res.json();
+    },
+    onSuccess: (data: ClockRoundingSettings) => {
+      queryClient.setQueryData(["/api/settings/clock-rounding"], data);
+      toast({ title: "Clock rounding saved" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const updateNotifMutation = useMutation({
@@ -500,6 +522,10 @@ export default function SettingsPage() {
           notifSettings={notifSettings}
           setNotifSettings={setNotifSettings}
           updateNotifMutation={updateNotifMutation}
+          clockRoundingSettings={clockRoundingSettings}
+          clockRoundingLoading={clockRoundingLoading}
+          canUsePaidFeatures={canUsePaidFeatures}
+          updateClockRoundingMutation={updateClockRoundingMutation}
           deferredSettingsQueriesEnabled={deferredSettingsQueriesEnabled}
           devicesLoading={devicesLoading}
           kioskDevices={kioskDevices}

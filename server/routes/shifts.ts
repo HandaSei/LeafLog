@@ -1,10 +1,15 @@
 import type { Router } from "express";
-import { addDays, format, parseISO, subDays } from "date-fns";
+import { addDays, differenceInCalendarDays, format, parseISO, subDays } from "date-fns";
 import { insertShiftSchema } from "@shared/schema";
 import { requireAuth, requireRole } from "../auth";
-import { storage } from "../storage";
-import { getDateRangeQuery, toDateOnly } from "./utils";
+import { pool, storage } from "../storage";
+import { getDateRangeQuery, DATE_ONLY_RE, toDateOnly } from "./utils";
 import { broadcastManagerUpdate } from "../sse";
+import {
+  assertCanUsePaidPlanFeature,
+  PaidFeatureLimitError,
+  sendPaidFeatureLimitError,
+} from "../services/subscription-limits";
 
 export function registerShiftRoutes(router: Router) {
   // === SHIFTS ===
@@ -18,6 +23,111 @@ export function registerShiftRoutes(router: Router) {
     }
     const allShifts = await storage.getShifts(ownerAccountId);
     res.json(allShifts);
+  });
+
+  router.post("/api/shifts/copy-week", requireRole("admin", "manager"), async (req, res) => {
+    const { sourceWeekStart, targetWeekStart } = req.body;
+    if (
+      typeof sourceWeekStart !== "string" ||
+      typeof targetWeekStart !== "string" ||
+      !DATE_ONLY_RE.test(sourceWeekStart) ||
+      !DATE_ONLY_RE.test(targetWeekStart)
+    ) {
+      return res.status(400).json({ message: "sourceWeekStart and targetWeekStart must be yyyy-MM-dd dates" });
+    }
+
+    const sourceStart = parseISO(sourceWeekStart);
+    const targetStart = parseISO(targetWeekStart);
+    if (Number.isNaN(sourceStart.getTime()) || Number.isNaN(targetStart.getTime())) {
+      return res.status(400).json({ message: "Invalid week date" });
+    }
+
+    const sourceEnd = format(addDays(sourceStart, 6), "yyyy-MM-dd");
+    const targetEnd = format(addDays(targetStart, 6), "yyyy-MM-dd");
+    const offsetDays = differenceInCalendarDays(targetStart, sourceStart);
+    if (offsetDays === 0) {
+      return res.status(400).json({ message: "Source and target weeks must be different" });
+    }
+
+    try {
+      await assertCanUsePaidPlanFeature(req.session.userId!, "Schedule copy");
+    } catch (err) {
+      if (err instanceof PaidFeatureLimitError) {
+        return sendPaidFeatureLimitError(res, err);
+      }
+      throw err;
+    }
+
+    let copiedCount = 0;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(826341, $1::int)", [req.session.userId!]);
+
+      const targetCount = await client.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count
+         FROM shifts s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE e.owner_account_id = $1
+           AND e.status = 'active'
+           AND COALESCE(e.hidden_from_steepin, false) = false
+           AND s.date >= $2
+           AND s.date <= $3`,
+        [req.session.userId!, targetWeekStart, targetEnd],
+      );
+      if ((targetCount.rows[0]?.count ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ message: "The target week already has shifts. Clear those shifts before copying into it." });
+      }
+
+      const inserted = await client.query<{ id: number }>(
+        `INSERT INTO shifts (employee_id, date, start_time, end_time, status, notes, color, role)
+         SELECT s.employee_id,
+                (s.date + $4::int)::date,
+                s.start_time,
+                s.end_time,
+                s.status,
+                s.notes,
+                s.color,
+                s.role
+         FROM shifts s
+         JOIN employees e ON e.id = s.employee_id
+         WHERE e.owner_account_id = $1
+           AND e.status = 'active'
+           AND COALESCE(e.hidden_from_steepin, false) = false
+           AND s.date >= $2
+           AND s.date <= $3
+         ORDER BY s.date ASC, s.start_time ASC
+         RETURNING id`,
+        [req.session.userId!, sourceWeekStart, sourceEnd, offsetDays],
+      );
+
+      if (inserted.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "No active employee shifts found in the source week." });
+      }
+      copiedCount = inserted.rowCount ?? 0;
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    const copiedShifts = await storage.getShiftsByDateRange(req.session.userId!, targetWeekStart, targetEnd);
+    broadcastManagerUpdate(req.session.userId!, {
+      type: "shifts-changed",
+      date: targetWeekStart,
+      source: "manager",
+    });
+    res.status(201).json({
+      copied: copiedCount,
+      shifts: copiedShifts,
+      sourceWeekStart,
+      targetWeekStart,
+    });
   });
 
   router.get("/api/shifts/:id", requireAuth, async (req, res) => {

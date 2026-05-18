@@ -975,7 +975,15 @@ export default function SteepInPage() {
         "break-start": "Break Started",
         "break-end": "Break Ended",
       };
-      toast({ title: labels[variables.type], description: `${selectedEmployee?.name} - ${format(new Date(), "HH:mm")}` });
+      const actionTimestamp = data.timestamp ? new Date(data.timestamp) : new Date();
+      if (data.rounding?.message) {
+        toast({
+          title: data.rounding.message,
+          description: `${selectedEmployee?.name}${data.rounding.shiftLabel ? ` - Shift ${data.rounding.shiftLabel}` : ` - ${format(actionTimestamp, "HH:mm")}`}`,
+        });
+      } else {
+        toast({ title: labels[variables.type], description: `${selectedEmployee?.name} - ${format(actionTimestamp, "HH:mm")}` });
+      }
       setPasscode("");
       setPasscodeDialogOpen(false);
       setPendingAction(null);
